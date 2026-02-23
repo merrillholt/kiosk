@@ -1,9 +1,15 @@
 const API_URL = '/api';
 
-function showTab(tabName) {
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text ?? '';
+    return div.innerHTML;
+}
+
+function showTab(btn, tabName) {
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-    event.target.classList.add('active');
+    btn.classList.add('active');
     document.getElementById(`${tabName}-tab`).classList.add('active');
     
     if (tabName === 'companies') loadCompanies();
@@ -24,8 +30,8 @@ async function loadCompanies() {
         const companies = await response.json();
         document.getElementById('companies-list').innerHTML = companies.map(c => `
             <tr>
-                <td>${c.name}</td><td>${c.building}</td><td>${c.suite}</td>
-                <td>${c.floor || '-'}</td><td>${c.phone || '-'}</td>
+                <td>${escapeHtml(c.name)}</td><td>${escapeHtml(c.building)}</td><td>${escapeHtml(c.suite)}</td>
+                <td>${escapeHtml(c.floor) || '-'}</td><td>${escapeHtml(c.phone) || '-'}</td>
                 <td class="actions">
                     <button class="btn btn-primary" onclick="editCompany(${c.id})">Edit</button>
                     <button class="btn btn-danger" onclick="deleteCompany(${c.id})">Delete</button>
@@ -51,9 +57,15 @@ function editCompany(id) {
 }
 
 async function deleteCompany(id) {
-    if (!confirm('Delete this company?')) return;
     try {
-        await fetch(`${API_URL}/companies/${id}`, { method: 'DELETE' });
+        const individuals = await fetch(`${API_URL}/individuals`).then(r => r.json());
+        const linked = individuals.filter(p => p.company_id === id);
+        const warning = linked.length > 0
+            ? `\n\nWarning: ${linked.length} individual(s) are assigned to this company and will be left without a company.`
+            : '';
+        if (!confirm(`Delete this company?${warning}`)) return;
+        const res = await fetch(`${API_URL}/companies/${id}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error(res.status);
         showMessage('Company deleted'); loadCompanies();
     } catch (error) { showMessage('Failed to delete', 'error'); }
 }
@@ -74,11 +86,12 @@ document.getElementById('company-form').addEventListener('submit', async (e) => 
         phone: document.getElementById('company-phone').value
     };
     try {
-        await fetch(id ? `${API_URL}/companies/${id}` : `${API_URL}/companies`, {
+        const res = await fetch(id ? `${API_URL}/companies/${id}` : `${API_URL}/companies`, {
             method: id ? 'PUT' : 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data)
         });
+        if (!res.ok) throw new Error(res.status);
         showMessage(`Company ${id ? 'updated' : 'created'}`);
         resetCompanyForm(); loadCompanies();
     } catch (error) { showMessage('Failed to save', 'error'); }
@@ -90,8 +103,8 @@ async function loadIndividuals() {
         const individuals = await response.json();
         document.getElementById('individuals-list').innerHTML = individuals.map(p => `
             <tr>
-                <td>${p.last_name}, ${p.first_name}</td><td>${p.title || '-'}</td>
-                <td>${p.building}</td><td>${p.suite}</td><td>${p.phone || '-'}</td>
+                <td>${escapeHtml(p.last_name)}, ${escapeHtml(p.first_name)}</td><td>${escapeHtml(p.title) || '-'}</td>
+                <td>${escapeHtml(p.building)}</td><td>${escapeHtml(p.suite)}</td><td>${escapeHtml(p.phone) || '-'}</td>
                 <td class="actions">
                     <button class="btn btn-primary" onclick="editIndividual(${p.id})">Edit</button>
                     <button class="btn btn-danger" onclick="deleteIndividual(${p.id})">Delete</button>
@@ -107,7 +120,7 @@ async function loadCompaniesForDropdown() {
         const companies = await response.json();
         document.getElementById('individual-company').innerHTML = 
             '<option value="">-- None --</option>' + 
-            companies.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+            companies.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
     } catch (error) { console.error('Failed to load companies'); }
 }
 
@@ -154,11 +167,12 @@ document.getElementById('individual-form').addEventListener('submit', async (e) 
         phone: document.getElementById('individual-phone').value
     };
     try {
-        await fetch(id ? `${API_URL}/individuals/${id}` : `${API_URL}/individuals`, {
+        const res = await fetch(id ? `${API_URL}/individuals/${id}` : `${API_URL}/individuals`, {
             method: id ? 'PUT' : 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data)
         });
+        if (!res.ok) throw new Error(res.status);
         showMessage(`Individual ${id ? 'updated' : 'created'}`);
         resetIndividualForm(); loadIndividuals();
     } catch (error) { showMessage('Failed to save', 'error'); }
