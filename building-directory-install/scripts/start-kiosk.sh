@@ -1,0 +1,10 @@
+#!/bin/bash
+SERVER_URL="http://localhost"
+DISPLAY_NUM=":0"
+export DISPLAY=$DISPLAY_NUM
+pkill -f chromium
+unclutter -idle 2 &
+xset s off
+xset -dpms
+xset s noblank
+chromium-browser --kiosk --noerrdialogs --disable-infobars --disable-session-crashed-bubble --disable-pinch --overscroll-history-navigation=0 --disable-features=TranslateUI --check-for-update-interval=31536000 --no-first-run --fast --fast-start --disable-java --disable-restore-session-state --disable-sync --disable-translate --touch-events=enabled "$SERVER_URL"

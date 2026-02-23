@@ -1,0 +1,4 @@
+node_modules/
+*.db
+.claude/
+building-directory-install.zip

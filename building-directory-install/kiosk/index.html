@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>Building Directory</title><link rel="stylesheet" href="styles.css"></head>
+<body>
+<div id="main-menu" class="screen active"><div class="header"><h1>Building Directory</h1></div>
+<div class="menu-buttons">
+<button class="menu-btn" onclick="showScreen('companies')"><span class="icon">🏢</span><span class="label">Companies</span></button>
+<button class="menu-btn" onclick="showScreen('individuals')"><span class="icon">👤</span><span class="label">Individuals</span></button>
+<button class="menu-btn" onclick="showScreen('building-info')"><span class="icon">ℹ️</span><span class="label">Building Information</span></button>
+</div></div>
+<div id="companies" class="screen"><div class="header"><button class="back-btn" onclick="showScreen('main-menu')">← Back</button><h1>Companies</h1></div>
+<div class="search-container"><input type="text" id="company-search" class="search-input" placeholder="Search companies..." oninput="searchCompanies(this.value)">
+<div id="keyboard-company" class="keyboard"></div></div><div id="companies-list" class="results-list"></div></div>
+<div id="individuals" class="screen"><div class="header"><button class="back-btn" onclick="showScreen('main-menu')">← Back</button><h1>Individuals</h1></div>
+<div class="search-container"><input type="text" id="individual-search" class="search-input" placeholder="Search individuals..." oninput="searchIndividuals(this.value)">
+<div id="keyboard-individual" class="keyboard"></div></div><div id="individuals-list" class="results-list"></div></div>
+<div id="building-info" class="screen"><div class="header"><button class="back-btn" onclick="showScreen('main-menu')">← Back</button><h1>Building Information</h1></div>
+<div id="building-info-content" class="info-content"></div></div>
+<script src="app.js"></script>
+</body></html>

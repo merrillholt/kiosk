@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Directory Admin</title>
+    <link rel="stylesheet" href="admin.css">
+</head>
+<body>
+    <div class="container">
+        <h1>🏢 Building Directory Administration</h1>
+        
+        <div id="message" class="message"></div>
+        
+        <div class="tabs">
+            <button class="tab active" onclick="showTab('companies')">Companies</button>
+            <button class="tab" onclick="showTab('individuals')">Individuals</button>
+            <button class="tab" onclick="showTab('building-info')">Building Info</button>
+        </div>
+        
+        <!-- Companies Tab -->
+        <div id="companies-tab" class="tab-content active">
+            <h2>Add/Edit Company</h2>
+            <form id="company-form">
+                <input type="hidden" id="company-id">
+                <div class="form-group">
+                    <label for="company-name">Company Name *</label>
+                    <input type="text" id="company-name" required>
+                </div>
+                <div class="form-group">
+                    <label for="company-building">Building *</label>
+                    <input type="text" id="company-building" required>
+                </div>
+                <div class="form-group">
+                    <label for="company-suite">Suite *</label>
+                    <input type="text" id="company-suite" required>
+                </div>
+                <div class="form-group">
+                    <label for="company-floor">Floor</label>
+                    <input type="text" id="company-floor">
+                </div>
+                <div class="form-group">
+                    <label for="company-phone">Phone</label>
+                    <input type="text" id="company-phone">
+                </div>
+                <button type="submit" class="btn btn-success">Save Company</button>
+                <button type="button" class="btn btn-primary" onclick="resetCompanyForm()">Clear Form</button>
+            </form>
+            
+            <div class="table-container">
+                <h2>Companies List</h2>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Building</th>
+                            <th>Suite</th>
+                            <th>Floor</th>
+                            <th>Phone</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="companies-list"></tbody>
+                </table>
+            </div>
+        </div>
+        
+        <!-- Individuals Tab -->
+        <div id="individuals-tab" class="tab-content">
+            <h2>Add/Edit Individual</h2>
+            <form id="individual-form">
+                <input type="hidden" id="individual-id">
+                <div class="form-group">
+                    <label for="individual-first-name">First Name *</label>
+                    <input type="text" id="individual-first-name" required>
+                </div>
+                <div class="form-group">
+                    <label for="individual-last-name">Last Name *</label>
+                    <input type="text" id="individual-last-name" required>
+                </div>
+                <div class="form-group">
+                    <label for="individual-title">Title</label>
+                    <input type="text" id="individual-title">
+                </div>
+                <div class="form-group">
+                    <label for="individual-company">Company</label>
+                    <select id="individual-company">
+                        <option value="">-- None --</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="individual-building">Building *</label>
+                    <input type="text" id="individual-building" required>
+                </div>
+                <div class="form-group">
+                    <label for="individual-suite">Suite *</label>
+                    <input type="text" id="individual-suite" required>
+                </div>
+                <div class="form-group">
+                    <label for="individual-phone">Phone</label>
+                    <input type="text" id="individual-phone">
+                </div>
+                <button type="submit" class="btn btn-success">Save Individual</button>
+                <button type="button" class="btn btn-primary" onclick="resetIndividualForm()">Clear Form</button>
+            </form>
+            
+            <div class="table-container">
+                <h2>Individuals List</h2>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Title</th>
+                            <th>Building</th>
+                            <th>Suite</th>
+                            <th>Phone</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="individuals-list"></tbody>
+                </table>
+            </div>
+        </div>
+        
+        <!-- Building Info Tab -->
+        <div id="building-info-tab" class="tab-content">
+            <h2>Building Information</h2>
+            <form id="building-info-form">
+                <div class="form-group">
+                    <label for="building-info-content">Content (HTML allowed)</label>
+                    <textarea id="building-info-content"></textarea>
+                </div>
+                <button type="submit" class="btn btn-success">Save Building Info</button>
+            </form>
+        </div>
+    </div>
+    
+    <script src="admin.js"></script>
+</body>
+</html>
