@@ -57,7 +57,8 @@ fi
 mkdir -p /data/directory
 mkdir -p /data/backups
 mkdir -p /data/logs
-chown -R 1000:1000 /data
+KIOSK_USER=${SUDO_USER:-$(logname)}
+chown -R $KIOSK_USER:$KIOSK_USER /data
 
 # Configure overlayroot
 print_info "Configuring overlayroot..."
@@ -92,29 +93,18 @@ EOF
 cat > /usr/local/bin/mount-kiosk-data.sh << 'EOF'
 #!/bin/bash
 
-# Wait for /data to be available
+# Wait for /data/directory to be available before the server starts.
+# The database is accessed via a symlink created by migrate-to-data-partition.sh;
+# this service just ensures /data is ready before directory-server starts.
 for i in {1..30}; do
-    if mountpoint -q /data 2>/dev/null || [ -d /data/directory ]; then
-        break
+    if [ -d /data/directory ]; then
+        exit 0
     fi
     sleep 1
 done
 
-# Create target directories
-mkdir -p /home/kiosk/building-directory/server
-
-# Bind mount database directory
-if [ -d /data/directory ]; then
-    mount --bind /data/directory /home/kiosk/building-directory/server
-fi
-
-# Bind mount logs
-mkdir -p /var/log/kiosk
-if [ -d /data/logs ]; then
-    mount --bind /data/logs /var/log/kiosk
-fi
-
-exit 0
+echo "ERROR: /data/directory not available after 30s" >&2
+exit 1
 EOF
 chmod +x /usr/local/bin/mount-kiosk-data.sh
 
