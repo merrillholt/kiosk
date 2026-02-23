@@ -27,4 +27,15 @@ EOF
 echo "=== Masking anacron (not needed on a kiosk) ==="
 systemctl mask anacron.service anacron.timer
 
+echo "=== Adding SuccessExitStatus=1 drop-in for systemd-remount-fs ==="
+mkdir -p /etc/systemd/system/systemd-remount-fs.service.d
+cat > /etc/systemd/system/systemd-remount-fs.service.d/kiosk.conf << 'EOF'
+[Service]
+# systemd-remount-fs exits 1 when it cannot reconfigure the overlayfs root
+# on read-only (overlayroot) boots.  Treat it as success so it does not
+# appear in the failed unit list.  On a plain read-write boot the service
+# exits 0 normally.
+SuccessExitStatus=1
+EOF
+
 echo "=== Done ==="
