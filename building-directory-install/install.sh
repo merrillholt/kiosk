@@ -279,6 +279,9 @@ if [[ "\${XDG_VTNR}" == "1" ]]; then
 fi
 EOF
 
+    # Mask xfce4-notifyd if present - it cannot run under cage and shows an error banner
+    sudo systemctl --global mask xfce4-notifyd.service 2>/dev/null || true
+
     sudo systemctl set-default multi-user.target
     sudo systemctl daemon-reload
 
