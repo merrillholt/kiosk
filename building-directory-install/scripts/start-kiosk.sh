@@ -5,6 +5,8 @@ SERVER_URL="http://localhost"
 # --ozone-platform=wayland enables native Wayland rendering in Chromium.
 exec cage -d -- chromium \
     --ozone-platform=wayland \
+    --user-data-dir=/tmp/chromium-profile \
+    --password-store=basic \
     --kiosk \
     --noerrdialogs \
     --disable-infobars \

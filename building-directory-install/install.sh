@@ -272,6 +272,9 @@ EOF
 # Auto-start kiosk on tty1
 # XDG_VTNR is set by PAM/logind to the VT number (1 = tty1)
 if [[ "\${XDG_VTNR}" == "1" ]]; then
+    export XDG_RUNTIME_DIR="\${XDG_RUNTIME_DIR:-/run/user/\$(id -u)}"
+    mkdir -p "\${XDG_RUNTIME_DIR}"
+    chmod 700 "\${XDG_RUNTIME_DIR}"
     exec $INSTALL_DIR/scripts/start-kiosk.sh
 fi
 EOF
