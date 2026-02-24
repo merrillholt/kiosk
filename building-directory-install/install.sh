@@ -236,71 +236,62 @@ fi
 if [ "$INSTALL_MODE" = "client" ] || [ "$INSTALL_MODE" = "both" ]; then
     print_header "Installing Kiosk Client Components"
     
-    # Install Chromium and tools
-    print_info "Installing Chromium and utilities..."
-    sudo apt install -y chromium unclutter xdotool
-    
+    # Install Chromium and cage (Wayland kiosk compositor)
+    print_info "Installing Chromium and cage..."
+    sudo apt install -y chromium cage
+
     # Create installation directory if not exists
     mkdir -p "$INSTALL_DIR/scripts"
-    
+
     # Copy kiosk scripts
     print_info "Installing kiosk scripts..."
     cp scripts/start-kiosk.sh "$INSTALL_DIR/scripts/"
     cp scripts/restart-kiosk.sh "$INSTALL_DIR/scripts/"
     chmod +x "$INSTALL_DIR/scripts/start-kiosk.sh"
     chmod +x "$INSTALL_DIR/scripts/restart-kiosk.sh"
-    
+
     # Update server URL in script
     if [ "$INSTALL_MODE" = "both" ]; then
         sed -i "s|SERVER_URL=.*|SERVER_URL=\"http://localhost\"|" "$INSTALL_DIR/scripts/start-kiosk.sh"
     else
         sed -i "s|SERVER_URL=.*|SERVER_URL=\"http://$SERVER_IP\"|" "$INSTALL_DIR/scripts/start-kiosk.sh"
     fi
-    
-    # Create autostart directory
-    mkdir -p "$HOME/.config/autostart"
-    
-    # Create autostart entry
-    print_info "Creating autostart entry..."
-    cat > "$HOME/.config/autostart/directory-kiosk.desktop" <<EOF
-[Desktop Entry]
-Type=Application
-Name=Directory Kiosk
-Exec=$INSTALL_DIR/scripts/start-kiosk.sh
-Hidden=false
-NoDisplay=false
-X-GNOME-Autostart-enabled=true
+
+    # Configure getty autologin on tty1 (no display manager needed)
+    print_info "Configuring getty autologin..."
+    sudo mkdir -p /etc/systemd/system/getty@tty1.service.d
+    sudo bash -c "cat > /etc/systemd/system/getty@tty1.service.d/autologin.conf" <<EOF
+[Service]
+ExecStart=
+ExecStart=-/sbin/agetty --autologin $USER --noclear %I \$TERM
 EOF
-    chmod +x "$HOME/.config/autostart/directory-kiosk.desktop"
-    
-    # Ask about auto-login
-    read -p "Enable auto-login for kiosk mode? (y/n): " AUTO_LOGIN
-    if [ "$AUTO_LOGIN" = "y" ]; then
-        print_info "Configuring auto-login..."
-        sudo mkdir -p /etc/lightdm/lightdm.conf.d
-        sudo bash -c "cat > /etc/lightdm/lightdm.conf.d/50-autologin.conf" <<EOF
-[Seat:*]
-autologin-user=$USER
-autologin-user-timeout=0
+
+    # Create .bash_profile to launch kiosk on tty1
+    print_info "Creating .bash_profile for kiosk autostart..."
+    cat > "$HOME/.bash_profile" <<EOF
+# Auto-start kiosk on tty1
+# XDG_VTNR is set by PAM/logind to the VT number (1 = tty1)
+if [[ "\${XDG_VTNR}" == "1" ]]; then
+    exec $INSTALL_DIR/scripts/start-kiosk.sh
+fi
 EOF
-        print_warn "Auto-login will take effect after reboot"
-    fi
-    
+
+    sudo systemctl set-default multi-user.target
+    sudo systemctl daemon-reload
+
     print_header "Kiosk Client Installation Complete!"
-    echo "Kiosk is configured to start automatically on login"
-    echo "Server URL: http://$SERVER_IP"
+    echo "Kiosk will start automatically on boot via getty autologin."
+    echo "Server URL: http://${SERVER_IP:-localhost}"
     echo ""
     echo "Manual start: $INSTALL_DIR/scripts/start-kiosk.sh"
     echo "Restart kiosk: $INSTALL_DIR/scripts/restart-kiosk.sh"
     echo ""
-    
-    if [ "$AUTO_LOGIN" = "y" ]; then
-        read -p "Reboot now to enable auto-login? (y/n): " REBOOT
-        if [ "$REBOOT" = "y" ]; then
-            print_info "Rebooting in 5 seconds..."
-            sleep 5
-            sudo reboot
-        fi
+
+    read -p "Reboot now to start kiosk? (y/n): " REBOOT
+    if [ "$REBOOT" = "y" ]; then
+        print_info "Rebooting in 5 seconds..."
+        sleep 5
+        sudo reboot
     fi
 fi
 

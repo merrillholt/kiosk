@@ -1,4 +1,4 @@
 #!/bin/bash
-pkill -f chromium
-sleep 2
-~/building-directory/scripts/start-kiosk.sh
+# Kill cage (which also kills chromium). The getty autologin mechanism
+# will restart the session automatically.
+pkill -x cage
