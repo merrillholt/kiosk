@@ -3,19 +3,25 @@ const sqlite3 = require('sqlite3').verbose();
 const cors = require('cors');
 const path = require('path');
 const multer = require('multer');
+const fs = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Writable upload directory (outside the read-only overlayroot kiosk dir)
+const UPLOAD_DIR = '/tmp/kiosk-uploads';
+fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 // Middleware
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../kiosk')));
+app.use('/uploads', express.static(UPLOAD_DIR));
 app.use('/admin', express.static(path.join(__dirname, 'admin')));
 
-// Multer storage — saves uploaded background image into the kiosk static directory
+// Multer storage — saves uploaded background image to writable /tmp/kiosk-uploads
 const bgStorage = multer.diskStorage({
-    destination: path.join(__dirname, '../kiosk'),
+    destination: UPLOAD_DIR,
     filename: (req, file, cb) => {
         const ext = path.extname(file.originalname).toLowerCase();
         cb(null, 'background' + ext);
@@ -284,7 +290,8 @@ app.post('/api/background-image', bgUpload.single('image'), (req, res) => {
     if (!req.file) {
         return res.status(400).json({ error: 'No file uploaded' });
     }
-    const filename = req.file.filename;
+    // Store as "uploads/<filename>" so the kiosk fetches it from the /uploads route
+    const filename = `uploads/${req.file.filename}`;
     db.run(
         `INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('background_image', ?, CURRENT_TIMESTAMP)`,
         [filename],
