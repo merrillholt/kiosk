@@ -236,9 +236,9 @@ fi
 if [ "$INSTALL_MODE" = "client" ] || [ "$INSTALL_MODE" = "both" ]; then
     print_header "Installing Kiosk Client Components"
     
-    # Install Chromium and cage (Wayland kiosk compositor)
-    print_info "Installing Chromium and cage..."
-    sudo apt install -y chromium cage
+    # Install Chromium, cage (Wayland kiosk compositor), and breakout key watcher deps
+    print_info "Installing Chromium, cage, and python3-evdev..."
+    sudo apt install -y chromium cage python3-evdev
 
     # Create installation directory if not exists
     mkdir -p "$INSTALL_DIR/scripts"
@@ -247,8 +247,10 @@ if [ "$INSTALL_MODE" = "client" ] || [ "$INSTALL_MODE" = "both" ]; then
     print_info "Installing kiosk scripts..."
     cp scripts/start-kiosk.sh "$INSTALL_DIR/scripts/"
     cp scripts/restart-kiosk.sh "$INSTALL_DIR/scripts/"
+    cp scripts/kiosk-breakout.py "$INSTALL_DIR/scripts/"
     chmod +x "$INSTALL_DIR/scripts/start-kiosk.sh"
     chmod +x "$INSTALL_DIR/scripts/restart-kiosk.sh"
+    chmod +x "$INSTALL_DIR/scripts/kiosk-breakout.py"
 
     # Update server URL in script
     if [ "$INSTALL_MODE" = "both" ]; then

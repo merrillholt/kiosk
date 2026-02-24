@@ -137,21 +137,17 @@
 
         <!-- Appearance Tab -->
         <div id="appearance-tab" class="tab-content">
-            <h2>Background Image</h2>
-            <p style="margin-bottom:16px;color:#666;">Upload an image to use as the kiosk main menu background. Accepted formats: JPG, PNG, GIF, WebP (max 20 MB).</p>
-            <div class="form-group">
-                <label>Current Background</label>
-                <div id="bg-preview" style="margin-top:8px;">
-                    <img id="bg-preview-img" src="" alt="Current background" style="max-width:480px;max-height:270px;border:2px solid #ddd;border-radius:6px;display:none;">
-                    <span id="bg-preview-none" style="color:#999;">None set</span>
-                </div>
-            </div>
+            <h2>Background Images</h2>
+            <p style="margin-bottom:16px;color:#666;">Click an image to set it as the active kiosk background. Uploaded images persist across reboots.</p>
+            <div id="bg-gallery" class="bg-gallery"></div>
+            <h3 style="margin-top:24px;margin-bottom:16px;color:#34495e;">Upload New Image</h3>
+            <p style="margin-bottom:12px;color:#666;">Accepted formats: JPG, PNG, GIF, WebP (max 20 MB).</p>
             <form id="background-form">
                 <div class="form-group">
-                    <label for="bg-file">Choose New Image</label>
+                    <label for="bg-file">Choose Image</label>
                     <input type="file" id="bg-file" accept="image/jpeg,image/png,image/gif,image/webp" required>
                 </div>
-                <button type="submit" class="btn btn-success">Upload &amp; Apply</button>
+                <button type="submit" class="btn btn-success">Upload Image</button>
             </form>
         </div>
     </div>

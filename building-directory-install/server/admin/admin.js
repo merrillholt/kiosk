@@ -201,19 +201,67 @@ document.getElementById('building-info-form').addEventListener('submit', async (
 
 async function loadBackgroundImage() {
     try {
-        const response = await fetch(`${API_URL}/background-image`);
-        const { filename } = await response.json();
-        const img = document.getElementById('bg-preview-img');
-        const none = document.getElementById('bg-preview-none');
-        if (filename) {
-            img.src = `/${filename}?v=${Date.now()}`;
-            img.style.display = 'block';
-            none.style.display = 'none';
-        } else {
-            img.style.display = 'none';
-            none.style.display = '';
-        }
-    } catch (error) { showMessage('Failed to load background image', 'error'); }
+        const [activeRes, galleryRes] = await Promise.all([
+            fetch(`${API_URL}/background-image`),
+            fetch(`${API_URL}/background-images`)
+        ]);
+        const { filename: activeFilename } = await activeRes.json();
+        const images = await galleryRes.json();
+        renderBgGallery(images, activeFilename);
+    } catch (error) { showMessage('Failed to load background images', 'error'); }
+}
+
+function renderBgGallery(images, activeFilename) {
+    const gallery = document.getElementById('bg-gallery');
+    if (!images.length) {
+        gallery.innerHTML = '<p style="color:#999;">No images available.</p>';
+        return;
+    }
+    gallery.innerHTML = images.map(img => {
+        const dbKey = img.builtin ? img.filename : `uploads/${img.filename}`;
+        const isActive = dbKey === activeFilename;
+        const escapedDbKey = escapeHtml(dbKey);
+        const escapedFilename = escapeHtml(img.filename);
+        const escapedUrl = escapeHtml(img.url);
+        return `
+            <div class="bg-thumb${isActive ? ' active-bg' : ''}" onclick="selectBgImage('${escapedDbKey}')">
+                ${isActive ? '<span class="bg-active-badge">Active</span>' : ''}
+                <img src="${escapedUrl}" alt="${escapedFilename}" loading="lazy">
+                <div class="bg-thumb-info">
+                    <div class="bg-thumb-name">${escapedFilename}</div>
+                    <div class="bg-thumb-actions">
+                        ${img.builtin
+                            ? '<span style="font-size:11px;color:#999;">Built-in</span>'
+                            : `<button class="btn btn-danger" style="padding:4px 10px;font-size:12px;" onclick="event.stopPropagation();deleteBgImage('${escapedFilename}')">Delete</button>`
+                        }
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+async function selectBgImage(dbKey) {
+    try {
+        const res = await fetch(`${API_URL}/background-image`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filename: dbKey })
+        });
+        if (!res.ok) throw new Error(res.status);
+        showMessage('Background image updated');
+        loadBackgroundImage();
+    } catch (error) { showMessage('Failed to set background image', 'error'); }
+}
+
+async function deleteBgImage(filename) {
+    if (!confirm(`Delete image "${filename}"? This cannot be undone.`)) return;
+    try {
+        const res = await fetch(`${API_URL}/background-images/${encodeURIComponent(filename)}`, { method: 'DELETE' });
+        if (!res.ok) throw new Error(res.status);
+        showMessage('Image deleted');
+        loadBackgroundImage();
+    } catch (error) { showMessage('Failed to delete image', 'error'); }
 }
 
 document.getElementById('background-form').addEventListener('submit', async (e) => {
@@ -225,7 +273,7 @@ document.getElementById('background-form').addEventListener('submit', async (e) 
     try {
         const res = await fetch(`${API_URL}/background-image`, { method: 'POST', body: formData });
         if (!res.ok) throw new Error(res.status);
-        showMessage('Background image updated');
+        showMessage('Image uploaded and set as background');
         document.getElementById('bg-file').value = '';
         loadBackgroundImage();
     } catch (error) { showMessage('Failed to upload image', 'error'); }

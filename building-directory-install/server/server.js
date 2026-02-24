@@ -4,27 +4,37 @@ const cors = require('cors');
 const path = require('path');
 const multer = require('multer');
 const fs = require('fs');
+const { spawnSync } = require('child_process');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Writable upload directory (outside the read-only overlayroot kiosk dir)
-const UPLOAD_DIR = '/tmp/kiosk-uploads';
-fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+// Temp dir for multer uploads (lost on reboot — persist script copies to lower layer)
+const TEMP_DIR = process.env.KIOSK_TEMP_DIR || '/tmp/kiosk-uploads';
+// Persistent uploads dir on ext4 lower layer (survives reboots via overlayroot)
+const UPLOADS_LOWER = process.env.KIOSK_UPLOADS_LOWER || '/media/root-ro/home/merrill/building-directory/server/uploads';
+// Persist command: space-separated argv[0..n], e.g. "/tmp/mock-persist.sh" for tests
+const PERSIST_ARGV = process.env.KIOSK_PERSIST_CMD
+    ? process.env.KIOSK_PERSIST_CMD.split(' ')
+    : ['sudo', '/usr/local/bin/persist-upload.sh'];
+fs.mkdirSync(TEMP_DIR, { recursive: true });
 
 // Middleware
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../kiosk')));
-app.use('/uploads', express.static(UPLOAD_DIR));
+app.use('/uploads', express.static(UPLOADS_LOWER));
 app.use('/admin', express.static(path.join(__dirname, 'admin')));
 
-// Multer storage — saves uploaded background image to writable /tmp/kiosk-uploads
+// Multer storage — saves uploaded image to TEMP_DIR with sanitized original filename
 const bgStorage = multer.diskStorage({
-    destination: UPLOAD_DIR,
+    destination: TEMP_DIR,
     filename: (req, file, cb) => {
         const ext = path.extname(file.originalname).toLowerCase();
-        cb(null, 'background' + ext);
+        const base = path.basename(file.originalname, path.extname(file.originalname))
+            .replace(/[^a-zA-Z0-9._-]/g, '_')
+            .substring(0, 64);
+        cb(null, base + ext);
     }
 });
 const bgUpload = multer({
@@ -88,12 +98,12 @@ function initializeDatabase() {
             value TEXT,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )`);
-        
+
         // Set initial data version
         db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('data_version', '1')`);
         // Set initial background image
         db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('background_image', '18.jpg')`);
-        
+
         console.log('Database initialized');
     });
 }
@@ -114,8 +124,8 @@ app.get('/api/companies', (req, res) => {
 app.get('/api/companies/search', (req, res) => {
     const query = `%${req.query.q}%`;
     db.all(
-        `SELECT * FROM companies 
-         WHERE name LIKE ? OR building LIKE ? OR suite LIKE ? 
+        `SELECT * FROM companies
+         WHERE name LIKE ? OR building LIKE ? OR suite LIKE ?
          ORDER BY name`,
         [query, query, query],
         (err, rows) => {
@@ -147,8 +157,8 @@ app.post('/api/companies', (req, res) => {
 app.put('/api/companies/:id', (req, res) => {
     const { name, building, suite, phone, floor } = req.body;
     db.run(
-        `UPDATE companies 
-         SET name = ?, building = ?, suite = ?, phone = ?, floor = ?, updated_at = CURRENT_TIMESTAMP 
+        `UPDATE companies
+         SET name = ?, building = ?, suite = ?, phone = ?, floor = ?, updated_at = CURRENT_TIMESTAMP
          WHERE id = ?`,
         [name, building, suite, phone, floor, req.params.id],
         (err) => {
@@ -187,8 +197,8 @@ app.get('/api/individuals', (req, res) => {
 app.get('/api/individuals/search', (req, res) => {
     const query = `%${req.query.q}%`;
     db.all(
-        `SELECT * FROM individuals 
-         WHERE first_name LIKE ? OR last_name LIKE ? OR building LIKE ? OR suite LIKE ? 
+        `SELECT * FROM individuals
+         WHERE first_name LIKE ? OR last_name LIKE ? OR building LIKE ? OR suite LIKE ?
          ORDER BY last_name, first_name`,
         [query, query, query, query],
         (err, rows) => {
@@ -204,7 +214,7 @@ app.get('/api/individuals/search', (req, res) => {
 app.post('/api/individuals', (req, res) => {
     const { first_name, last_name, company_id, building, suite, title, phone } = req.body;
     db.run(
-        `INSERT INTO individuals (first_name, last_name, company_id, building, suite, title, phone) 
+        `INSERT INTO individuals (first_name, last_name, company_id, building, suite, title, phone)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
         [first_name, last_name, company_id, building, suite, title, phone],
         function(err) {
@@ -221,8 +231,8 @@ app.post('/api/individuals', (req, res) => {
 app.put('/api/individuals/:id', (req, res) => {
     const { first_name, last_name, company_id, building, suite, title, phone } = req.body;
     db.run(
-        `UPDATE individuals 
-         SET first_name = ?, last_name = ?, company_id = ?, building = ?, suite = ?, title = ?, phone = ?, updated_at = CURRENT_TIMESTAMP 
+        `UPDATE individuals
+         SET first_name = ?, last_name = ?, company_id = ?, building = ?, suite = ?, title = ?, phone = ?, updated_at = CURRENT_TIMESTAMP
          WHERE id = ?`,
         [first_name, last_name, company_id, building, suite, title, phone, req.params.id],
         (err) => {
@@ -261,7 +271,7 @@ app.get('/api/building-info', (req, res) => {
 app.put('/api/building-info', (req, res) => {
     const { content } = req.body;
     db.run(
-        `INSERT OR REPLACE INTO building_info (id, title, content, display_order, updated_at) 
+        `INSERT OR REPLACE INTO building_info (id, title, content, display_order, updated_at)
          VALUES (1, 'Building Information', ?, 0, CURRENT_TIMESTAMP)`,
         [content],
         (err) => {
@@ -275,7 +285,7 @@ app.put('/api/building-info', (req, res) => {
     );
 });
 
-// Background image
+// Background image — get active
 app.get('/api/background-image', (req, res) => {
     db.get('SELECT value FROM settings WHERE key = "background_image"', [], (err, row) => {
         if (err) {
@@ -286,24 +296,77 @@ app.get('/api/background-image', (req, res) => {
     });
 });
 
+// Background image — upload new (multer → TEMP_DIR → persist script → UPLOADS_LOWER)
 app.post('/api/background-image', bgUpload.single('image'), (req, res) => {
     if (!req.file) {
         return res.status(400).json({ error: 'No file uploaded' });
     }
-    // Store as "uploads/<filename>" so the kiosk fetches it from the /uploads route
-    const filename = `uploads/${req.file.filename}`;
+    const filename = req.file.filename;
+    const result = spawnSync(PERSIST_ARGV[0], [...PERSIST_ARGV.slice(1), 'copy', req.file.path, filename]);
+    if (result.status !== 0) {
+        return res.status(500).json({ error: 'Failed to persist file: ' + (result.stderr ? result.stderr.toString().trim() : 'unknown error') });
+    }
+    const dbKey = `uploads/${filename}`;
+    db.run(
+        `INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('background_image', ?, CURRENT_TIMESTAMP)`,
+        [dbKey],
+        (err) => {
+            if (err) return res.status(500).json({ error: err.message });
+            incrementDataVersion();
+            res.json({ success: true, filename: dbKey });
+        }
+    );
+});
+
+// Background image — set active from gallery
+app.put('/api/background-image', (req, res) => {
+    const { filename } = req.body;
+    if (!filename) return res.status(400).json({ error: 'filename required' });
     db.run(
         `INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('background_image', ?, CURRENT_TIMESTAMP)`,
         [filename],
         (err) => {
-            if (err) {
-                res.status(500).json({ error: err.message });
-            } else {
-                incrementDataVersion();
-                res.json({ success: true, filename });
-            }
+            if (err) return res.status(500).json({ error: err.message });
+            incrementDataVersion();
+            res.json({ success: true });
         }
     );
+});
+
+// Background images — list gallery (built-in + uploaded)
+app.get('/api/background-images', (req, res) => {
+    const images = [{ filename: '18.jpg', url: '/18.jpg', builtin: true }];
+    const imageExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
+    fs.readdir(UPLOADS_LOWER, (err, files) => {
+        if (!err && files) {
+            files
+                .filter(f => imageExts.includes(path.extname(f).toLowerCase()))
+                .forEach(f => images.push({ filename: f, url: `/uploads/${f}`, builtin: false }));
+        }
+        res.json(images);
+    });
+});
+
+// Background images — delete uploaded image
+app.delete('/api/background-images/:filename', (req, res) => {
+    const filename = req.params.filename;
+    if (!/^[a-zA-Z0-9._-]+$/.test(filename)) {
+        return res.status(400).json({ error: 'Invalid filename' });
+    }
+    const result = spawnSync(PERSIST_ARGV[0], [...PERSIST_ARGV.slice(1), 'delete', filename]);
+    if (result.status !== 0) {
+        return res.status(500).json({ error: 'Failed to delete file' });
+    }
+    // If the deleted file was active, reset to built-in default
+    db.get('SELECT value FROM settings WHERE key = "background_image"', [], (err, row) => {
+        if (!err && row && row.value === `uploads/${filename}`) {
+            db.run(
+                `UPDATE settings SET value = '18.jpg', updated_at = CURRENT_TIMESTAMP WHERE key = 'background_image'`,
+                () => incrementDataVersion()
+            );
+        }
+        res.json({ success: true });
+    });
 });
 
 // Data version (for cache busting)
