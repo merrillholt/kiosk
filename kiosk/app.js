@@ -9,6 +9,7 @@ let state = {
     companies: [],
     individuals: [],
     buildingInfo: '',
+    backgroundImage: '',
     dataVersion: 0,
     currentScreen: 'main-menu',
     inactivityTimer: null
@@ -27,23 +28,28 @@ async function init() {
 
 async function refreshData() {
     try {
-        const [companies, individuals, buildingInfo] = await Promise.all([
+        const [companies, individuals, buildingInfo, bgData] = await Promise.all([
             fetch(`${CONFIG.API_URL}/companies`).then(r => r.json()),
             fetch(`${CONFIG.API_URL}/individuals`).then(r => r.json()),
-            fetch(`${CONFIG.API_URL}/building-info`).then(r => r.json())
+            fetch(`${CONFIG.API_URL}/building-info`).then(r => r.json()),
+            fetch(`${CONFIG.API_URL}/background-image`).then(r => r.json())
         ]);
-        
+
         state.companies = companies;
         state.individuals = individuals;
         state.buildingInfo = buildingInfo;
-        
+        if (bgData.filename) {
+            state.backgroundImage = bgData.filename;
+            applyBackgroundImage(bgData.filename);
+        }
+
         localStorage.setItem(CONFIG.CACHE_KEY, JSON.stringify(state));
-        
+
         console.log('Data refreshed:', {
             companies: companies.length,
             individuals: individuals.length
         });
-        
+
         return true;
     } catch (error) {
         console.error('Failed to refresh data:', error);
@@ -66,6 +72,10 @@ async function checkForUpdates() {
     }
 }
 
+function applyBackgroundImage(filename) {
+    document.getElementById('main-menu').style.backgroundImage = filename ? `url('/${filename}')` : '';
+}
+
 function loadCachedData() {
     const cached = localStorage.getItem(CONFIG.CACHE_KEY);
     if (cached) {
@@ -73,6 +83,8 @@ function loadCachedData() {
         state.companies = data.companies || [];
         state.individuals = data.individuals || [];
         state.buildingInfo = data.buildingInfo || '';
+        state.backgroundImage = data.backgroundImage || '';
+        if (state.backgroundImage) applyBackgroundImage(state.backgroundImage);
         console.log('Loaded cached data');
     }
 }

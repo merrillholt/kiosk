@@ -15,6 +15,7 @@ function showTab(btn, tabName) {
     if (tabName === 'companies') loadCompanies();
     else if (tabName === 'individuals') { loadIndividuals(); loadCompaniesForDropdown(); }
     else if (tabName === 'building-info') loadBuildingInfo();
+    else if (tabName === 'appearance') loadBackgroundImage();
 }
 
 function showMessage(text, type = 'success') {
@@ -196,6 +197,38 @@ document.getElementById('building-info-form').addEventListener('submit', async (
         });
         showMessage('Building information updated');
     } catch (error) { showMessage('Failed to update', 'error'); }
+});
+
+async function loadBackgroundImage() {
+    try {
+        const response = await fetch(`${API_URL}/background-image`);
+        const { filename } = await response.json();
+        const img = document.getElementById('bg-preview-img');
+        const none = document.getElementById('bg-preview-none');
+        if (filename) {
+            img.src = `/${filename}?v=${Date.now()}`;
+            img.style.display = 'block';
+            none.style.display = 'none';
+        } else {
+            img.style.display = 'none';
+            none.style.display = '';
+        }
+    } catch (error) { showMessage('Failed to load background image', 'error'); }
+}
+
+document.getElementById('background-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const file = document.getElementById('bg-file').files[0];
+    if (!file) return;
+    const formData = new FormData();
+    formData.append('image', file);
+    try {
+        const res = await fetch(`${API_URL}/background-image`, { method: 'POST', body: formData });
+        if (!res.ok) throw new Error(res.status);
+        showMessage('Background image updated');
+        document.getElementById('bg-file').value = '';
+        loadBackgroundImage();
+    } catch (error) { showMessage('Failed to upload image', 'error'); }
 });
 
 window.addEventListener('DOMContentLoaded', () => loadCompanies());

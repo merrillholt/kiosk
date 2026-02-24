@@ -55,7 +55,6 @@ body {
 #main-menu.active {
     justify-content: center;
     align-items: center;
-    background-image: url('18.jpg');
     background-size: cover;
     background-position: center;
 }

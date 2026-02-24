@@ -16,6 +16,7 @@
             <button class="tab active" onclick="showTab(this, 'companies')">Companies</button>
             <button class="tab" onclick="showTab(this, 'individuals')">Individuals</button>
             <button class="tab" onclick="showTab(this, 'building-info')">Building Info</button>
+            <button class="tab" onclick="showTab(this, 'appearance')">Appearance</button>
         </div>
         
         <!-- Companies Tab -->
@@ -131,6 +132,26 @@
                     <textarea id="building-info-content"></textarea>
                 </div>
                 <button type="submit" class="btn btn-success">Save Building Info</button>
+            </form>
+        </div>
+
+        <!-- Appearance Tab -->
+        <div id="appearance-tab" class="tab-content">
+            <h2>Background Image</h2>
+            <p style="margin-bottom:16px;color:#666;">Upload an image to use as the kiosk main menu background. Accepted formats: JPG, PNG, GIF, WebP (max 20 MB).</p>
+            <div class="form-group">
+                <label>Current Background</label>
+                <div id="bg-preview" style="margin-top:8px;">
+                    <img id="bg-preview-img" src="" alt="Current background" style="max-width:480px;max-height:270px;border:2px solid #ddd;border-radius:6px;display:none;">
+                    <span id="bg-preview-none" style="color:#999;">None set</span>
+                </div>
+            </div>
+            <form id="background-form">
+                <div class="form-group">
+                    <label for="bg-file">Choose New Image</label>
+                    <input type="file" id="bg-file" accept="image/jpeg,image/png,image/gif,image/webp" required>
+                </div>
+                <button type="submit" class="btn btn-success">Upload &amp; Apply</button>
             </form>
         </div>
     </div>

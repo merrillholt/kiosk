@@ -2,6 +2,7 @@ const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const cors = require('cors');
 const path = require('path');
+const multer = require('multer');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -11,6 +12,24 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../kiosk')));
 app.use('/admin', express.static(path.join(__dirname, 'admin')));
+
+// Multer storage — saves uploaded background image into the kiosk static directory
+const bgStorage = multer.diskStorage({
+    destination: path.join(__dirname, '../kiosk'),
+    filename: (req, file, cb) => {
+        const ext = path.extname(file.originalname).toLowerCase();
+        cb(null, 'background' + ext);
+    }
+});
+const bgUpload = multer({
+    storage: bgStorage,
+    limits: { fileSize: 20 * 1024 * 1024 },
+    fileFilter: (req, file, cb) => {
+        const allowed = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
+        if (allowed.includes(path.extname(file.originalname).toLowerCase())) cb(null, true);
+        else cb(new Error('Only image files are allowed'));
+    }
+});
 
 // Database setup
 const db = new sqlite3.Database('./directory.db', (err) => {
@@ -66,6 +85,8 @@ function initializeDatabase() {
         
         // Set initial data version
         db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('data_version', '1')`);
+        // Set initial background image
+        db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('background_image', '18.jpg')`);
         
         console.log('Database initialized');
     });
@@ -243,6 +264,36 @@ app.put('/api/building-info', (req, res) => {
             } else {
                 incrementDataVersion();
                 res.json({ success: true });
+            }
+        }
+    );
+});
+
+// Background image
+app.get('/api/background-image', (req, res) => {
+    db.get('SELECT value FROM settings WHERE key = "background_image"', [], (err, row) => {
+        if (err) {
+            res.status(500).json({ error: err.message });
+        } else {
+            res.json({ filename: row ? row.value : null });
+        }
+    });
+});
+
+app.post('/api/background-image', bgUpload.single('image'), (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({ error: 'No file uploaded' });
+    }
+    const filename = req.file.filename;
+    db.run(
+        `INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('background_image', ?, CURRENT_TIMESTAMP)`,
+        [filename],
+        (err) => {
+            if (err) {
+                res.status(500).json({ error: err.message });
+            } else {
+                incrementDataVersion();
+                res.json({ success: true, filename });
             }
         }
     );
