@@ -55,6 +55,9 @@ body {
 #main-menu.active {
     justify-content: center;
     align-items: center;
+    background-image: url('18.jpg');
+    background-size: cover;
+    background-position: center;
 }
 
 .menu-buttons {
@@ -64,8 +67,8 @@ body {
 }
 
 .menu-btn {
-    background: white;
-    border: 3px solid #ddd;
+    background: rgba(255, 255, 255, 0.88);
+    border: 3px solid rgba(255,255,255,0.6);
     border-radius: 20px;
     padding: 60px 40px;
     width: 300px;
@@ -77,7 +80,8 @@ body {
     gap: 20px;
     cursor: pointer;
     transition: all 0.3s;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+    backdrop-filter: blur(6px);
 }
 
 .menu-btn:hover, .menu-btn:active {
