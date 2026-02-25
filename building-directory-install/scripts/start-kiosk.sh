@@ -20,7 +20,12 @@ else
 fi
 
 # ── cage: hides cursor (-d), manages Chromium lifecycle ──────────────────────
-cage -d -- chromium \
+# wlr-randr sets the Wayland output resolution before Chromium starts.
+# It runs inside the cage session, exits after applying the mode, then
+# exec replaces sh with chromium so cage sees one long-lived client.
+cage -d -- sh -c '
+    wlr-randr --output Virtual-1 --mode 1920x1080 2>/tmp/wlr-randr.log
+    exec chromium \
     --ozone-platform=wayland \
     --user-data-dir=/tmp/chromium-profile \
     --password-store=basic \
@@ -37,7 +42,8 @@ cage -d -- chromium \
     --disable-sync \
     --disable-translate \
     --touch-events=enabled \
-    "$SERVER_URL"
+    '"$SERVER_URL"'
+'
 
 # cage exited (breakout or crash) — kill the watcher
 [ -n "$BREAKOUT_PID" ] && kill "$BREAKOUT_PID" 2>/dev/null

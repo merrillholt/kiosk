@@ -50,8 +50,14 @@ building-directory-install/
 
 The VM is a VirtualBox machine managed from the host with `VBoxManage`.
 
+**Headless** (server work, no display needed):
 ```bash
 VBoxManage startvm "kiosk-dev" --type headless
+```
+
+**With display** (testing the kiosk UI or breakout key):
+```bash
+VBoxManage startvm "kiosk-dev"
 ```
 
 Wait for SSH to become available (usually 15–20 seconds):
@@ -61,6 +67,10 @@ until ssh -o ConnectTimeout=2 merrill@192.168.1.127 true 2>/dev/null; do
     sleep 2; echo -n "."
 done && echo "ready"
 ```
+
+> **Display resolution**: `start-kiosk.sh` runs `wlr-randr --output Virtual-1 --mode 1920x1080`
+> inside the cage Wayland session before launching Chromium, so the resolution is set
+> automatically on every boot without any host-side intervention.
 
 ---
 
@@ -212,7 +222,7 @@ surprises:
 |---------------------|-------------|
 | Write a file that persists across reboots | `overlayroot-chroot cp /run/<staged> <dest>` |
 | Make a new lower-layer file visible immediately | `echo 3 \| sudo tee /proc/sys/vm/drop_caches > /dev/null` |
-| Install a package | `sudo overlayroot-chroot apt-get install -y <pkg>` |
+| Install a package that must survive reboot | `sudo overlayroot-chroot apt-get install -y <pkg>` |
 | Write a file only needed until next reboot | Write directly to `/tmp` or `/run` (tmpfs) |
 | Stage a file for use inside `overlayroot-chroot` | Copy to `/run/` — it is bind-mounted; `/tmp` is not |
 
