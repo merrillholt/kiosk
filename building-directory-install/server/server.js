@@ -1,6 +1,5 @@
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
-const cors = require('cors');
 const path = require('path');
 const multer = require('multer');
 const fs = require('fs');
@@ -44,12 +43,6 @@ const KIOSK_DEPLOY_SCRIPT = path.join(__dirname, 'kiosk-deploy.sh');
 fs.mkdirSync(TEMP_DIR, { recursive: true });
 
 // Middleware
-app.use(cors({
-    origin: '*',
-    methods: ['GET', 'HEAD', 'PUT', 'POST', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type'],
-    optionsSuccessStatus: 200
-}));
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../kiosk')));
 app.use('/uploads', express.static(UPLOADS_LOWER));

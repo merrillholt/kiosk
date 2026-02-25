@@ -491,6 +491,31 @@ ssh merrill@192.168.1.127 "DISPLAY=:0 xfce4-session-logout --logout"
 
 ---
 
+## Environment Variables
+
+All variables are optional. Set them in the systemd service unit for
+persistent configuration:
+
+```bash
+sudo systemctl edit directory-server
+# Then add under [Service]:
+# Environment=VARIABLE=value
+```
+
+A documented template is at `server/.env.example`.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | `3000` | TCP port the Node.js server listens on. nginx proxies 80 → this port. |
+| `KIOSK_TEMP_DIR` | `/tmp/kiosk-uploads` | Temporary directory for multer image uploads. Lost on reboot; persist script copies to lower layer. |
+| `KIOSK_UPLOADS_LOWER` | `/media/root-ro/…/uploads` | Persistent uploads directory on the overlayroot ext4 lower layer. Served as `/uploads`. |
+| `KIOSK_PERSIST_CMD` | `sudo /usr/local/bin/persist-upload.sh` | Space-separated command for copying/deleting files in the lower layer. Set to a mock script path for local development. |
+| `KIOSK_CLIENTS` | hardcoded array | JSON array of kiosk display machines: `[{"id":1,"name":"Kiosk 1","ip":"192.168.1.x","user":"merrill"},…]`. Update IPs when machines are provisioned. |
+| `KIOSK_SSH_KEY` | `~/.ssh/kiosk_deploy_key` | SSH private key used by `kiosk-deploy.sh`. Auto-generated (ed25519) on first Deploy tab load. |
+| `KIOSK_SERVER_URL` | auto-detected LAN IP | URL kiosk machines use to reach this server. Override if the server has multiple NICs or uses a hostname. |
+
+---
+
 ## Overlayroot Constraints
 
 All kiosk display machines (and the dev VM) use overlayroot. The root
