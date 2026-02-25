@@ -139,6 +139,11 @@ if [ "$INSTALL_MODE" = "server" ] || [ "$INSTALL_MODE" = "both" ]; then
     print_info "Installing persist-upload helper..."
     sudo cp server/persist-upload.sh /usr/local/bin/persist-upload.sh
     sudo chmod 755 /usr/local/bin/persist-upload.sh
+
+    # Install kiosk-deploy script (SSHes to kiosk display machines to push system scripts)
+    print_info "Installing kiosk-deploy script..."
+    cp server/kiosk-deploy.sh "$INSTALL_DIR/server/kiosk-deploy.sh"
+    chmod 755 "$INSTALL_DIR/server/kiosk-deploy.sh"
     echo "$USER ALL=(root) NOPASSWD: /usr/local/bin/persist-upload.sh" \
         | sudo tee /etc/sudoers.d/directory-server > /dev/null
     sudo chmod 440 /etc/sudoers.d/directory-server

@@ -4,6 +4,7 @@ const cors = require('cors');
 const path = require('path');
 const multer = require('multer');
 const fs = require('fs');
+const os = require('os');
 const { spawnSync } = require('child_process');
 
 const app = express();
@@ -17,6 +18,29 @@ const UPLOADS_LOWER = process.env.KIOSK_UPLOADS_LOWER || '/media/root-ro/home/me
 const PERSIST_ARGV = process.env.KIOSK_PERSIST_CMD
     ? process.env.KIOSK_PERSIST_CMD.split(' ')
     : ['sudo', '/usr/local/bin/persist-upload.sh'];
+
+// --- Kiosk display client configuration ---
+// List the 3 kiosk display machines. Update IPs when machines are provisioned.
+const KIOSK_CLIENTS = process.env.KIOSK_CLIENTS
+    ? JSON.parse(process.env.KIOSK_CLIENTS)
+    : [
+        { id: 1, name: 'Kiosk 1', ip: '192.168.1.127', user: 'merrill' },
+        { id: 2, name: 'Kiosk 2', ip: '192.168.1.128', user: 'merrill' },
+        { id: 3, name: 'Kiosk 3', ip: '192.168.1.129', user: 'merrill' },
+    ];
+// SSH private key used to connect to kiosk machines for deployment
+const KIOSK_SSH_KEY = process.env.KIOSK_SSH_KEY ||
+    path.join(os.homedir(), '.ssh', 'kiosk_deploy_key');
+// URL kiosk machines use to reach this server (auto-detected if not set)
+const KIOSK_SERVER_URL = process.env.KIOSK_SERVER_URL || (() => {
+    for (const iface of Object.values(os.networkInterfaces())) {
+        for (const addr of iface) {
+            if (addr.family === 'IPv4' && !addr.internal) return `http://${addr.address}`;
+        }
+    }
+    return 'http://localhost';
+})();
+const KIOSK_DEPLOY_SCRIPT = path.join(__dirname, 'kiosk-deploy.sh');
 fs.mkdirSync(TEMP_DIR, { recursive: true });
 
 // Middleware
@@ -388,6 +412,59 @@ app.get('/api/data-version', (req, res) => {
 function incrementDataVersion() {
     db.run('UPDATE settings SET value = value + 1, updated_at = CURRENT_TIMESTAMP WHERE key = "data_version"');
 }
+
+// Kiosk client management
+
+// List kiosk display clients
+app.get('/api/kiosks', (req, res) => {
+    res.json(KIOSK_CLIENTS.map(k => ({ id: k.id, name: k.name, ip: k.ip, user: k.user })));
+});
+
+// Server URL that kiosk machines should use to reach this server
+app.get('/api/kiosks/server-url', (req, res) => {
+    res.json({ url: KIOSK_SERVER_URL });
+});
+
+// SSH public key for kiosk deploy access — generates key pair on first call
+app.get('/api/kiosks/deploy-pubkey', (req, res) => {
+    const pubKeyPath = KIOSK_SSH_KEY + '.pub';
+    if (!fs.existsSync(pubKeyPath)) {
+        const dir = path.dirname(KIOSK_SSH_KEY);
+        fs.mkdirSync(dir, { recursive: true });
+        const gen = spawnSync('ssh-keygen', [
+            '-t', 'ed25519', '-f', KIOSK_SSH_KEY, '-N', '', '-C', 'kiosk-deploy'
+        ], { encoding: 'utf8' });
+        if (gen.status !== 0) {
+            return res.status(500).json({ error: 'Failed to generate SSH key: ' + gen.stderr });
+        }
+    }
+    try {
+        const pubkey = fs.readFileSync(pubKeyPath, 'utf8').trim();
+        res.json({ pubkey, keyPath: KIOSK_SSH_KEY });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Deploy system scripts to one kiosk machine
+app.post('/api/kiosks/:id/deploy', (req, res) => {
+    const id = parseInt(req.params.id);
+    const kiosk = KIOSK_CLIENTS.find(k => k.id === id);
+    if (!kiosk) return res.status(404).json({ error: 'Kiosk not found' });
+    if (!fs.existsSync(KIOSK_SSH_KEY)) {
+        return res.status(400).json({
+            error: 'SSH deploy key not found. Open the Deploy tab to generate it first.'
+        });
+    }
+    const result = spawnSync('bash', [
+        KIOSK_DEPLOY_SCRIPT, kiosk.ip, kiosk.user, KIOSK_SSH_KEY, KIOSK_SERVER_URL
+    ], { encoding: 'utf8', timeout: 90000 });
+    const output = ((result.stdout || '') + (result.stderr || '')).trim();
+    if (result.status !== 0) {
+        return res.status(500).json({ error: 'Deploy failed', output });
+    }
+    res.json({ success: true, output });
+});
 
 // Start server
 app.listen(PORT, () => {

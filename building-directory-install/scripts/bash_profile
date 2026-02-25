@@ -1,0 +1,28 @@
+# Auto-start kiosk on tty1.
+# Use $(tty) rather than XDG_VTNR — agetty --autologin does not
+# reliably set XDG_VTNR via PAM.
+if [[ "$(tty 2>/dev/null)" == "/dev/tty1" ]]; then
+    export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+    mkdir -p "${XDG_RUNTIME_DIR}"
+    chmod 700 "${XDG_RUNTIME_DIR}"
+
+    # Loop: restart kiosk automatically after a crash or manual restart.
+    # When a USB keyboard is plugged in, udev writes /tmp/kiosk-exit and
+    # kills cage. The loop then starts XFCE on the touchscreen for admin
+    # access. When the admin logs out of XFCE the kiosk restarts.
+    while true; do
+        rm -f /tmp/kiosk-exit
+        /home/merrill/building-directory/scripts/start-kiosk.sh
+        if [[ -f /tmp/kiosk-exit ]]; then
+            # overlayroot mounts / as ro; redirect all XFCE/Xorg state to /tmp.
+            export XAUTHORITY=/tmp/.Xauthority
+            export ICEAUTHORITY=/tmp/.ICEauthority
+            export XDG_CONFIG_HOME=/tmp/xfce4-config
+            export XDG_CACHE_HOME=/tmp/xfce4-cache
+            export XDG_DATA_HOME=/tmp/xfce4-data
+            mkdir -p /tmp/xfce4-config /tmp/xfce4-cache /tmp/xfce4-data
+            startxfce4 -- -logfile /tmp/Xorg.0.log >/tmp/xfce4-start.log 2>&1
+            echo "startxfce4 exited: $?" >> /tmp/xfce4-start.log
+        fi
+    done
+fi

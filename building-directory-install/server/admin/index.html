@@ -10,10 +10,6 @@
     <div class="container">
         <h1>🏢 Building Directory Administration</h1>
 
-        <div id="kiosk-selector-bar" class="kiosk-selector-bar">
-            <!-- populated by initKioskSelector() in admin.js -->
-        </div>
-
         <div id="message" class="message"></div>
         
         <div class="tabs">
@@ -21,6 +17,7 @@
             <button class="tab" onclick="showTab(this, 'individuals')">Individuals</button>
             <button class="tab" onclick="showTab(this, 'building-info')">Building Info</button>
             <button class="tab" onclick="showTab(this, 'appearance')">Appearance</button>
+            <button class="tab" onclick="showTab(this, 'deploy')">Deploy</button>
         </div>
         
         <!-- Companies Tab -->
@@ -156,6 +153,33 @@
         </div>
     </div>
     
+        <!-- Deploy Tab -->
+        <div id="deploy-tab" class="tab-content">
+            <h2>Kiosk Client Deployment</h2>
+            <p style="margin-bottom:16px;color:#666;">Deploy system script updates to the kiosk display machines. The kiosk browser app (HTML/JS/CSS) is served from this server and updates automatically — only system-level scripts require a deploy.</p>
+
+            <div class="deploy-info-bar">
+                <span class="deploy-info-label">Server URL configured on kiosks:</span>
+                <code id="deploy-server-url">loading...</code>
+            </div>
+
+            <h3 style="margin:24px 0 8px;color:#34495e;">SSH Deploy Key</h3>
+            <p style="color:#666;margin-bottom:10px;">Each kiosk machine must have this public key in <code>~/.ssh/authorized_keys</code> for the kiosk user. The key is generated automatically on first use.</p>
+            <div class="deploy-pubkey-row">
+                <code id="deploy-pubkey" class="deploy-pubkey">loading...</code>
+                <button class="btn btn-primary" onclick="copyDeployKey()" style="white-space:nowrap;">Copy Key</button>
+            </div>
+
+            <h3 style="margin:24px 0 12px;color:#34495e;">Kiosk Machines</h3>
+            <div style="margin-bottom:16px;">
+                <button class="btn btn-primary" id="deploy-all-btn" onclick="deployAll()">Deploy to All</button>
+            </div>
+            <div id="kiosk-deploy-list"></div>
+
+            <h3 style="margin:24px 0 8px;color:#34495e;">Output</h3>
+            <pre id="deploy-output" class="deploy-output">Ready.</pre>
+        </div>
+
     <script src="admin.js"></script>
 </body>
 </html>

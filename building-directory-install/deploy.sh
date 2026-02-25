@@ -18,9 +18,11 @@ scp "$SERVER_DIR/admin/index.html"                   "$VM:/tmp/deploy-staging/in
 scp "$SERVER_DIR/admin/admin.js"                     "$VM:/tmp/deploy-staging/admin.js"
 scp "$SERVER_DIR/admin/admin.css"                    "$VM:/tmp/deploy-staging/admin.css"
 scp "$SERVER_DIR/persist-upload.sh"                  "$VM:/tmp/deploy-staging/persist-upload.sh"
+scp "$SERVER_DIR/kiosk-deploy.sh"                    "$VM:/tmp/deploy-staging/kiosk-deploy.sh"
 scp "$SCRIPT_DIR/scripts/start-kiosk.sh"             "$VM:/tmp/deploy-staging/start-kiosk.sh"
 scp "$SCRIPT_DIR/scripts/kiosk-keyboard-added.sh"    "$VM:/tmp/deploy-staging/kiosk-keyboard-added.sh"
 scp "$SCRIPT_DIR/scripts/99-kiosk-keyboard.rules"    "$VM:/tmp/deploy-staging/99-kiosk-keyboard.rules"
+scp "$SCRIPT_DIR/scripts/bash_profile"               "$VM:/tmp/deploy-staging/bash_profile_template"
 
 # Step 2: Move everything to /run staging area (visible inside overlayroot-chroot)
 # then write all files to the ext4 lower layer in one pass.
@@ -32,6 +34,7 @@ sudo mkdir -p "$STAGE"
 
 # Copy from /tmp (overlay tmpfs) into /run (bind-mounted inside chroot)
 sudo cp /tmp/deploy-staging/persist-upload.sh        "$STAGE/persist-upload.sh"
+sudo cp /tmp/deploy-staging/kiosk-deploy.sh          "$STAGE/kiosk-deploy.sh"
 sudo cp /tmp/deploy-staging/server.js                "$STAGE/server.js"
 sudo cp /tmp/deploy-staging/index.html               "$STAGE/index.html"
 sudo cp /tmp/deploy-staging/admin.js                 "$STAGE/admin.js"
@@ -39,6 +42,7 @@ sudo cp /tmp/deploy-staging/admin.css                "$STAGE/admin.css"
 sudo cp /tmp/deploy-staging/start-kiosk.sh           "$STAGE/start-kiosk.sh"
 sudo cp /tmp/deploy-staging/kiosk-keyboard-added.sh  "$STAGE/kiosk-keyboard-added.sh"
 sudo cp /tmp/deploy-staging/99-kiosk-keyboard.rules  "$STAGE/99-kiosk-keyboard.rules"
+sudo cp /tmp/deploy-staging/bash_profile_template    "$STAGE/bash_profile_template"
 
 # Write sudoers content to staging
 echo 'merrill ALL=(root) NOPASSWD: /usr/local/bin/persist-upload.sh' \
@@ -98,10 +102,15 @@ sudo overlayroot-chroot chmod 440                               /etc/sudoers.d/d
 sudo overlayroot-chroot mkdir -p /home/merrill/building-directory/server/uploads
 
 # Server application files
-sudo overlayroot-chroot cp "$STAGE/server.js"   /home/merrill/building-directory/server/server.js
-sudo overlayroot-chroot cp "$STAGE/index.html"  /home/merrill/building-directory/server/admin/index.html
-sudo overlayroot-chroot cp "$STAGE/admin.js"    /home/merrill/building-directory/server/admin/admin.js
-sudo overlayroot-chroot cp "$STAGE/admin.css"   /home/merrill/building-directory/server/admin/admin.css
+sudo overlayroot-chroot cp "$STAGE/server.js"      /home/merrill/building-directory/server/server.js
+sudo overlayroot-chroot cp "$STAGE/index.html"     /home/merrill/building-directory/server/admin/index.html
+sudo overlayroot-chroot cp "$STAGE/admin.js"       /home/merrill/building-directory/server/admin/admin.js
+sudo overlayroot-chroot cp "$STAGE/admin.css"      /home/merrill/building-directory/server/admin/admin.css
+sudo overlayroot-chroot cp "$STAGE/kiosk-deploy.sh" /home/merrill/building-directory/server/kiosk-deploy.sh
+sudo overlayroot-chroot chmod 755                   /home/merrill/building-directory/server/kiosk-deploy.sh
+
+# kiosk-deploy.sh references ../scripts/bash_profile — install the template
+sudo overlayroot-chroot cp "$STAGE/bash_profile_template" /home/merrill/building-directory/scripts/bash_profile
 
 # Kiosk scripts
 sudo overlayroot-chroot cp    "$STAGE/start-kiosk.sh" /home/merrill/building-directory/scripts/start-kiosk.sh

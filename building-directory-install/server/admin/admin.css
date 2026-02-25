@@ -192,45 +192,14 @@ tr:hover {
 .bg-thumb-actions { display: flex; gap: 6px; margin-top: 6px; }
 .bg-active-badge { position: absolute; top: 6px; right: 6px; background: #2ecc71; color: white; font-size: 11px; padding: 2px 7px; border-radius: 10px; font-weight: bold; }
 
-/* --- Kiosk Selector Bar --- */
-.kiosk-selector-bar {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    align-items: center;
-    background: #f0f4f8;
-    border: 1px solid #d0dce8;
-    border-radius: 7px;
-    padding: 10px 14px;
-    margin-bottom: 20px;
-}
-.kiosk-selector-bar::before {
-    content: 'Kiosk:';
-    font-weight: 600;
-    color: #555;
-    font-size: 13px;
-    margin-right: 4px;
-    white-space: nowrap;
-}
-.kiosk-btn {
-    padding: 6px 14px;
-    background: #ffffff;
-    border: 2px solid #b0c4d8;
-    border-radius: 5px;
-    cursor: pointer;
-    font-size: 13px;
-    color: #34495e;
-    transition: all 0.2s;
-    white-space: nowrap;
-}
-.kiosk-btn:hover {
-    background: #d6eaf8;
-    border-color: #3498db;
-    color: #1a5276;
-}
-.kiosk-btn.active {
-    background: #3498db;
-    border-color: #2471a3;
-    color: #ffffff;
-    font-weight: 600;
-}
+/* --- Deploy Tab --- */
+.deploy-info-bar { display: flex; align-items: center; gap: 10px; background: #f0f4f8; border: 1px solid #d0dce8; border-radius: 6px; padding: 10px 14px; margin-bottom: 8px; flex-wrap: wrap; }
+.deploy-info-label { font-weight: 600; color: #555; font-size: 13px; white-space: nowrap; }
+.deploy-pubkey-row { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 8px; }
+.deploy-pubkey { display: block; flex: 1; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px; padding: 8px 10px; font-size: 12px; word-break: break-all; color: #333; font-family: monospace; }
+.kiosk-deploy-card { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border: 1px solid #ecf0f1; border-radius: 6px; margin-bottom: 8px; background: #fff; }
+.kiosk-deploy-card:hover { border-color: #3498db; background: #f8fbff; }
+.kiosk-deploy-info { display: flex; flex-direction: column; gap: 3px; }
+.kiosk-deploy-ip { font-size: 12px; color: #888; font-family: monospace; }
+.deploy-output { background: #1e1e1e; color: #d4d4d4; padding: 16px; border-radius: 6px; font-size: 12px; min-height: 100px; max-height: 320px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; font-family: monospace; }
+

@@ -1,20 +1,4 @@
-// --- KIOSK CONFIGURATION ---
-// Edit this array to list all kiosks in your deployment.
-// { name, ip } — set ip to null for "this server" (uses relative /api).
-const KIOSKS = [
-    { name: 'This Server', ip: null },
-    { name: 'Kiosk 1',     ip: '192.168.1.127' },
-    { name: 'Kiosk 2',     ip: '192.168.1.128' },
-    { name: 'Kiosk 3',     ip: '192.168.1.129' },
-];
-
-const LS_KEY = 'selectedKioskIp';
-
-function getApiUrl() {
-    const saved = localStorage.getItem(LS_KEY);
-    if (!saved || saved === 'null') return '/api';
-    return `http://${saved}/api`;
-}
+const API_URL = '/api';
 
 function escapeHtml(text) {
     const div = document.createElement('div');
@@ -32,6 +16,7 @@ function showTab(btn, tabName) {
     else if (tabName === 'individuals') { loadIndividuals(); loadCompaniesForDropdown(); }
     else if (tabName === 'building-info') loadBuildingInfo();
     else if (tabName === 'appearance') loadBackgroundImage();
+    else if (tabName === 'deploy') loadDeployTab();
 }
 
 function showMessage(text, type = 'success') {
@@ -41,36 +26,9 @@ function showMessage(text, type = 'success') {
     setTimeout(() => msg.classList.remove('active'), 5000);
 }
 
-function initKioskSelector() {
-    const bar = document.getElementById('kiosk-selector-bar');
-    const savedIp = localStorage.getItem(LS_KEY);
-
-    KIOSKS.forEach(kiosk => {
-        const btn = document.createElement('button');
-        btn.className = 'kiosk-btn';
-        btn.textContent = kiosk.ip ? `${kiosk.name} (${kiosk.ip})` : kiosk.name;
-        btn.dataset.ip = kiosk.ip ?? 'null';
-
-        const isSelected = (!savedIp || savedIp === 'null')
-            ? kiosk.ip === null
-            : kiosk.ip === savedIp;
-        if (isSelected) btn.classList.add('active');
-
-        btn.addEventListener('click', () => {
-            localStorage.setItem(LS_KEY, kiosk.ip ?? 'null');
-            document.querySelectorAll('.kiosk-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            const activeTab = document.querySelector('.tab.active');
-            if (activeTab) activeTab.click();
-        });
-
-        bar.appendChild(btn);
-    });
-}
-
 async function loadCompanies() {
     try {
-        const response = await fetch(`${getApiUrl()}/companies`);
+        const response = await fetch(`${API_URL}/companies`);
         const companies = await response.json();
         document.getElementById('companies-list').innerHTML = companies.map(c => `
             <tr>
@@ -86,7 +44,7 @@ async function loadCompanies() {
 }
 
 function editCompany(id) {
-    fetch(`${getApiUrl()}/companies`).then(r => r.json()).then(companies => {
+    fetch(`${API_URL}/companies`).then(r => r.json()).then(companies => {
         const company = companies.find(c => c.id === id);
         if (company) {
             document.getElementById('company-id').value = company.id;
@@ -102,13 +60,13 @@ function editCompany(id) {
 
 async function deleteCompany(id) {
     try {
-        const individuals = await fetch(`${getApiUrl()}/individuals`).then(r => r.json());
+        const individuals = await fetch(`${API_URL}/individuals`).then(r => r.json());
         const linked = individuals.filter(p => p.company_id === id);
         const warning = linked.length > 0
             ? `\n\nWarning: ${linked.length} individual(s) are assigned to this company and will be left without a company.`
             : '';
         if (!confirm(`Delete this company?${warning}`)) return;
-        const res = await fetch(`${getApiUrl()}/companies/${id}`, { method: 'DELETE' });
+        const res = await fetch(`${API_URL}/companies/${id}`, { method: 'DELETE' });
         if (!res.ok) throw new Error(res.status);
         showMessage('Company deleted'); loadCompanies();
     } catch (error) { showMessage('Failed to delete', 'error'); }
@@ -130,7 +88,7 @@ document.getElementById('company-form').addEventListener('submit', async (e) => 
         phone: document.getElementById('company-phone').value
     };
     try {
-        const res = await fetch(id ? `${getApiUrl()}/companies/${id}` : `${getApiUrl()}/companies`, {
+        const res = await fetch(id ? `${API_URL}/companies/${id}` : `${API_URL}/companies`, {
             method: id ? 'PUT' : 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data)
@@ -143,7 +101,7 @@ document.getElementById('company-form').addEventListener('submit', async (e) => 
 
 async function loadIndividuals() {
     try {
-        const response = await fetch(`${getApiUrl()}/individuals`);
+        const response = await fetch(`${API_URL}/individuals`);
         const individuals = await response.json();
         document.getElementById('individuals-list').innerHTML = individuals.map(p => `
             <tr>
@@ -160,7 +118,7 @@ async function loadIndividuals() {
 
 async function loadCompaniesForDropdown() {
     try {
-        const response = await fetch(`${getApiUrl()}/companies`);
+        const response = await fetch(`${API_URL}/companies`);
         const companies = await response.json();
         document.getElementById('individual-company').innerHTML =
             '<option value="">-- None --</option>' +
@@ -169,7 +127,7 @@ async function loadCompaniesForDropdown() {
 }
 
 function editIndividual(id) {
-    fetch(`${getApiUrl()}/individuals`).then(r => r.json()).then(individuals => {
+    fetch(`${API_URL}/individuals`).then(r => r.json()).then(individuals => {
         const person = individuals.find(p => p.id === id);
         if (person) {
             document.getElementById('individual-id').value = person.id;
@@ -188,7 +146,7 @@ function editIndividual(id) {
 async function deleteIndividual(id) {
     if (!confirm('Delete this individual?')) return;
     try {
-        await fetch(`${getApiUrl()}/individuals/${id}`, { method: 'DELETE' });
+        await fetch(`${API_URL}/individuals/${id}`, { method: 'DELETE' });
         showMessage('Individual deleted'); loadIndividuals();
     } catch (error) { showMessage('Failed to delete', 'error'); }
 }
@@ -211,7 +169,7 @@ document.getElementById('individual-form').addEventListener('submit', async (e) 
         phone: document.getElementById('individual-phone').value
     };
     try {
-        const res = await fetch(id ? `${getApiUrl()}/individuals/${id}` : `${getApiUrl()}/individuals`, {
+        const res = await fetch(id ? `${API_URL}/individuals/${id}` : `${API_URL}/individuals`, {
             method: id ? 'PUT' : 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data)
@@ -224,7 +182,7 @@ document.getElementById('individual-form').addEventListener('submit', async (e) 
 
 async function loadBuildingInfo() {
     try {
-        const response = await fetch(`${getApiUrl()}/building-info`);
+        const response = await fetch(`${API_URL}/building-info`);
         const content = await response.json();
         document.getElementById('building-info-content').value = content;
     } catch (error) { showMessage('Failed to load', 'error'); }
@@ -233,7 +191,7 @@ async function loadBuildingInfo() {
 document.getElementById('building-info-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     try {
-        await fetch(`${getApiUrl()}/building-info`, {
+        await fetch(`${API_URL}/building-info`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ content: document.getElementById('building-info-content').value })
@@ -245,8 +203,8 @@ document.getElementById('building-info-form').addEventListener('submit', async (
 async function loadBackgroundImage() {
     try {
         const [activeRes, galleryRes] = await Promise.all([
-            fetch(`${getApiUrl()}/background-image`),
-            fetch(`${getApiUrl()}/background-images`)
+            fetch(`${API_URL}/background-image`),
+            fetch(`${API_URL}/background-images`)
         ]);
         const { filename: activeFilename } = await activeRes.json();
         const images = await galleryRes.json();
@@ -260,15 +218,12 @@ function renderBgGallery(images, activeFilename) {
         gallery.innerHTML = '<p style="color:#999;">No images available.</p>';
         return;
     }
-    const base = getApiUrl().replace('/api', '');
     gallery.innerHTML = images.map(img => {
         const dbKey = img.builtin ? img.filename : `uploads/${img.filename}`;
         const isActive = dbKey === activeFilename;
         const escapedDbKey = escapeHtml(dbKey);
         const escapedFilename = escapeHtml(img.filename);
-        // Resolve image URLs against the selected kiosk's origin
-        const imgUrl = img.url.startsWith('http') ? img.url : `${base}${img.url}`;
-        const escapedUrl = escapeHtml(imgUrl);
+        const escapedUrl = escapeHtml(img.url);
         return `
             <div class="bg-thumb${isActive ? ' active-bg' : ''}" onclick="selectBgImage('${escapedDbKey}')">
                 ${isActive ? '<span class="bg-active-badge">Active</span>' : ''}
@@ -289,7 +244,7 @@ function renderBgGallery(images, activeFilename) {
 
 async function selectBgImage(dbKey) {
     try {
-        const res = await fetch(`${getApiUrl()}/background-image`, {
+        const res = await fetch(`${API_URL}/background-image`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ filename: dbKey })
@@ -303,7 +258,7 @@ async function selectBgImage(dbKey) {
 async function deleteBgImage(filename) {
     if (!confirm(`Delete image "${filename}"? This cannot be undone.`)) return;
     try {
-        const res = await fetch(`${getApiUrl()}/background-images/${encodeURIComponent(filename)}`, { method: 'DELETE' });
+        const res = await fetch(`${API_URL}/background-images/${encodeURIComponent(filename)}`, { method: 'DELETE' });
         if (!res.ok) throw new Error(res.status);
         showMessage('Image deleted');
         loadBackgroundImage();
@@ -317,7 +272,7 @@ document.getElementById('background-form').addEventListener('submit', async (e) 
     const formData = new FormData();
     formData.append('image', file);
     try {
-        const res = await fetch(`${getApiUrl()}/background-image`, { method: 'POST', body: formData });
+        const res = await fetch(`${API_URL}/background-image`, { method: 'POST', body: formData });
         if (!res.ok) throw new Error(res.status);
         showMessage('Image uploaded and set as background');
         document.getElementById('bg-file').value = '';
@@ -325,7 +280,81 @@ document.getElementById('background-form').addEventListener('submit', async (e) 
     } catch (error) { showMessage('Failed to upload image', 'error'); }
 });
 
+async function loadDeployTab() {
+    try {
+        const [kioskRes, urlRes, keyRes] = await Promise.all([
+            fetch(`${API_URL}/kiosks`),
+            fetch(`${API_URL}/kiosks/server-url`),
+            fetch(`${API_URL}/kiosks/deploy-pubkey`)
+        ]);
+        const kiosks = await kioskRes.json();
+        const { url } = await urlRes.json();
+        const keyData = await keyRes.json();
+
+        document.getElementById('deploy-server-url').textContent = url;
+        document.getElementById('deploy-pubkey').textContent =
+            keyData.pubkey || ('Error: ' + keyData.error);
+
+        document.getElementById('kiosk-deploy-list').innerHTML = kiosks.map(k => `
+            <div class="kiosk-deploy-card">
+                <div class="kiosk-deploy-info">
+                    <strong>${escapeHtml(k.name)}</strong>
+                    <span class="kiosk-deploy-ip">${escapeHtml(k.user)}@${escapeHtml(k.ip)}</span>
+                </div>
+                <button class="btn btn-success" onclick="deployOne(${k.id}, '${escapeHtml(k.name)}')">Deploy</button>
+            </div>
+        `).join('');
+    } catch (error) { showMessage('Failed to load deploy info', 'error'); }
+}
+
+function copyDeployKey() {
+    const key = document.getElementById('deploy-pubkey').textContent;
+    navigator.clipboard.writeText(key)
+        .then(() => showMessage('Public key copied to clipboard'))
+        .catch(() => showMessage('Copy failed — select and copy manually', 'error'));
+}
+
+async function deployOne(id, name) {
+    appendDeployOutput(`\n--- Deploying to ${name} ---`);
+    const btn = document.querySelector(`#kiosk-deploy-list .kiosk-deploy-card:nth-child(${id}) button`);
+    try {
+        const res = await fetch(`${API_URL}/kiosks/${id}/deploy`, { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok) {
+            appendDeployOutput(`ERROR: ${data.error}\n${data.output || ''}`);
+            showMessage(`Deploy to ${name} failed`, 'error');
+        } else {
+            appendDeployOutput(data.output);
+            showMessage(`Deploy to ${name} complete`);
+        }
+    } catch (e) {
+        appendDeployOutput(`ERROR: ${e.message}`);
+        showMessage(`Deploy to ${name} failed`, 'error');
+    }
+}
+
+async function deployAll() {
+    const allBtn = document.getElementById('deploy-all-btn');
+    allBtn.disabled = true;
+    appendDeployOutput('\n=== Deploy All ===');
+    try {
+        const res = await fetch(`${API_URL}/kiosks`);
+        const kiosks = await res.json();
+        for (const k of kiosks) {
+            await deployOne(k.id, k.name);
+        }
+        showMessage('Deploy all complete');
+    } finally {
+        allBtn.disabled = false;
+    }
+}
+
+function appendDeployOutput(text) {
+    const el = document.getElementById('deploy-output');
+    el.textContent += '\n' + text;
+    el.scrollTop = el.scrollHeight;
+}
+
 window.addEventListener('DOMContentLoaded', () => {
-    initKioskSelector();
     loadCompanies();
 });
