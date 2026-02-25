@@ -1,30 +1,14 @@
 #!/bin/bash
 SERVER_URL="http://localhost"
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-
-# ── Breakout key watcher ──────────────────────────────────────────────────────
-# Runs in background alongside cage. Reads raw /dev/input events — works even
-# though cage holds the Wayland session. Kill combo: Right-Shift + Right-Ctrl +
-# Backspace (all three held, then Backspace is the trigger).
-# To change the combo pass --combo KEY_x,KEY_y,KEY_z (evdev key names).
-if command -v python3 &>/dev/null && python3 -c "import evdev" 2>/dev/null; then
-    python3 "$SCRIPT_DIR/kiosk-breakout.py" \
-        --combo KEY_RIGHTSHIFT,KEY_RIGHTCTRL,KEY_BACKSPACE \
-        2>/tmp/kiosk-breakout.log &
-    BREAKOUT_PID=$!
-else
-    echo "kiosk-breakout: python3-evdev not installed, breakout key disabled" \
-        >> /tmp/kiosk-breakout.log
-    BREAKOUT_PID=""
-fi
-
 # ── cage: hides cursor (-d), manages Chromium lifecycle ──────────────────────
-# wlr-randr sets the Wayland output resolution before Chromium starts.
-# It runs inside the cage session, exits after applying the mode, then
+# wlr-randr auto-detects the first connected output and sets 1920x1080.
+# Works in both the VirtualBox dev VM (Virtual-1) and on physical hardware
+# (HDMI-1 or similar) without any configuration change.
 # exec replaces sh with chromium so cage sees one long-lived client.
 cage -d -- sh -c '
-    wlr-randr --output Virtual-1 --mode 1920x1080 2>/tmp/wlr-randr.log
+    OUTPUT=$(wlr-randr 2>/dev/null | sed -n "1s/ .*//p")
+    [ -n "$OUTPUT" ] && wlr-randr --output "$OUTPUT" --mode 1920x1080 2>/tmp/wlr-randr.log
     exec chromium \
     --ozone-platform=wayland \
     --user-data-dir=/tmp/chromium-profile \
@@ -44,6 +28,3 @@ cage -d -- sh -c '
     --touch-events=enabled \
     '"$SERVER_URL"'
 '
-
-# cage exited (breakout or crash) — kill the watcher
-[ -n "$BREAKOUT_PID" ] && kill "$BREAKOUT_PID" 2>/dev/null

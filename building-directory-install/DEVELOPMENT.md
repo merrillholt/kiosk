@@ -22,26 +22,26 @@ Building Directory Kiosk on the `kiosk-dev` VirtualBox VM.
 
 ```
 building-directory-install/
-├── deploy.sh                   # One-shot deploy to VM
-├── install.sh                  # First-time installation script
+├── deploy.sh                       # One-shot deploy to VM
+├── install.sh                      # First-time installation script (Debian 13)
 ├── server/
-│   ├── server.js               # Express API server (Node.js)
-│   ├── persist-upload.sh       # Privileged helper — copy/delete files in lower layer
-│   ├── test.js                 # Server integration tests (run locally)
+│   ├── server.js                   # Express API server (Node.js)
+│   ├── persist-upload.sh           # Privileged helper — copy/delete files in lower layer
+│   ├── test.js                     # Server integration tests (run locally)
 │   ├── admin/
-│   │   ├── index.html          # Admin UI
-│   │   ├── admin.js            # Admin UI logic
-│   │   └── admin.css           # Admin UI styles
+│   │   ├── index.html              # Admin UI
+│   │   ├── admin.js                # Admin UI logic
+│   │   └── admin.css               # Admin UI styles
 │   └── package.json
 ├── kiosk/
-│   ├── index.html              # Kiosk display page
-│   ├── app.js                  # Kiosk logic (polling, search, idle reset)
-│   └── styles.css              # Kiosk styles
+│   ├── index.html                  # Kiosk display page
+│   ├── app.js                      # Kiosk logic (polling, search, idle reset)
+│   └── styles.css                  # Kiosk styles
 └── scripts/
-    ├── start-kiosk.sh          # Launches cage + kiosk-breakout.py
-    ├── kiosk-breakout.py       # Watches raw input for breakout key combo
-    ├── test-breakout.py        # Unit tests for kiosk-breakout.py
-    └── restart-kiosk.sh        # pkill cage (triggers autorestart)
+    ├── start-kiosk.sh              # Launches cage + Chromium
+    ├── restart-kiosk.sh            # pkill cage (triggers loop restart)
+    ├── kiosk-keyboard-added.sh     # Called by udev on keyboard insertion
+    └── 99-kiosk-keyboard.rules     # udev rule: keyboard add → stop kiosk
 ```
 
 ---
@@ -55,7 +55,7 @@ The VM is a VirtualBox machine managed from the host with `VBoxManage`.
 VBoxManage startvm "kiosk-dev" --type headless
 ```
 
-**With display** (testing the kiosk UI or breakout key):
+**With display** (testing the kiosk UI or keyboard detection):
 ```bash
 VBoxManage startvm "kiosk-dev"
 ```
@@ -68,9 +68,9 @@ until ssh -o ConnectTimeout=2 merrill@192.168.1.127 true 2>/dev/null; do
 done && echo "ready"
 ```
 
-> **Display resolution**: `start-kiosk.sh` runs `wlr-randr --output Virtual-1 --mode 1920x1080`
-> inside the cage Wayland session before launching Chromium, so the resolution is set
-> automatically on every boot without any host-side intervention.
+> **Display resolution**: `start-kiosk.sh` runs `wlr-randr` inside the cage
+> session to auto-detect the connected output and set 1920x1080. This works
+> without configuration on both the VM (Virtual-1) and physical hardware (HDMI-1).
 
 ---
 
@@ -82,7 +82,7 @@ VM never holds the source of truth.
 ### Server (API + admin UI)
 
 | File | What to change |
-|------|---------------|
+|------|----------------|
 | `server/server.js` | API routes, business logic, upload/delete handling |
 | `server/admin/index.html` | Admin page structure |
 | `server/admin/admin.js` | Admin page behaviour |
@@ -92,18 +92,17 @@ VM never holds the source of truth.
 ### Kiosk client
 
 | File | What to change |
-|------|---------------|
+|------|----------------|
 | `kiosk/index.html` | Kiosk page structure |
 | `kiosk/app.js` | Kiosk behaviour (search, idle timeout, background polling) |
 | `kiosk/styles.css` | Kiosk visual styles |
-| `scripts/start-kiosk.sh` | cage launch options, breakout combo |
-| `scripts/kiosk-breakout.py` | Breakout key watcher logic |
+| `scripts/start-kiosk.sh` | cage launch options, Chromium flags |
+| `scripts/kiosk-keyboard-added.sh` | Logic run when a keyboard is plugged in |
+| `scripts/99-kiosk-keyboard.rules` | udev match rule for keyboard insertion |
 
 ---
 
 ## 3. Test locally before deploying
-
-Running tests locally catches most bugs without a deploy round-trip.
 
 ### Server tests
 
@@ -114,21 +113,11 @@ node test.js
 
 Starts a real Express server on port 3099 with a temp SQLite DB and a
 mock persist script; exercises all background-image endpoints. Cleans up
-after itself. Expects Node.js and dependencies installed:
+after itself. Requires Node.js and dependencies:
 
 ```bash
 npm install   # first time only
 ```
-
-### Breakout watcher tests
-
-```bash
-cd building-directory-install/scripts
-python3 test-breakout.py
-```
-
-Unit-tests combo detection logic, `do_breakout()`, `parse_combo()`, and
-`open_keyboards()` via mocks — no hardware or `/dev/uinput` access needed.
 
 ---
 
@@ -150,36 +139,20 @@ The script handles everything; no manual SSH steps are needed.
 3. **Write to the ext4 lower layer** via `overlayroot-chroot` for every
    destination path:
    - `/usr/local/bin/persist-upload.sh` (chmod 755)
+   - `/usr/local/bin/kiosk-keyboard-added.sh` (chmod 755)
+   - `/etc/udev/rules.d/99-kiosk-keyboard.rules`
    - `/etc/sudoers.d/directory-server` (chmod 440)
    - `/home/merrill/building-directory/server/` (server files)
    - `/home/merrill/building-directory/scripts/` (kiosk scripts)
+   - `/home/merrill/.bash_profile` (kiosk loop + XFCE fallback)
    - `/etc/nginx/sites-available/directory` (nginx config)
    - `/home/merrill/building-directory/server/uploads/` (created if absent)
 4. **Drop the kernel dentry cache** (`echo 3 > /proc/sys/vm/drop_caches`) —
    new files written to the lower layer are invisible to the running overlay
    until the cache is dropped; this avoids requiring a reboot.
-5. **Install `python3-evdev`** via `overlayroot-chroot apt-get install` if
-   not already present (regular `apt` cannot write to its cache on the
-   read-only overlay).
+5. **Reload udev rules** so the keyboard detection rule takes effect immediately.
 6. **Reload nginx** to pick up any config changes.
 7. **Restart `directory-server`** systemd service.
-
-### Deploy a single file quickly
-
-If only one file changed, you can push it manually rather than running the
-full deploy:
-
-```bash
-# Example: update just server.js
-scp server/server.js merrill@192.168.1.127:/tmp/server.js
-ssh merrill@192.168.1.127 "
-  sudo cp /tmp/server.js /run/server.js
-  sudo overlayroot-chroot cp /run/server.js /home/merrill/building-directory/server/server.js
-  sudo rm /run/server.js
-  echo 3 | sudo tee /proc/sys/vm/drop_caches > /dev/null
-  sudo systemctl restart directory-server
-"
-```
 
 ---
 
@@ -231,21 +204,56 @@ not require thinking about the overlay.
 
 ---
 
-## Kiosk breakout key
+## Admin access: keyboard detection
 
-When the physical kiosk is running (cage compositor, Chromium fullscreen),
-press **Right-Shift + Right-Ctrl + Backspace** to kill cage and return to
-the tty1 shell. This is handled by `kiosk-breakout.py` which runs in the
-background alongside cage.
+On the physical kiosk (and in the VM with USB passthrough), plugging in a
+USB keyboard stops the kiosk and launches XFCE on the touchscreen.
 
-To change the combo, edit the `--combo` argument in `scripts/start-kiosk.sh`:
+### How it works
+
+1. udev rule `/etc/udev/rules.d/99-kiosk-keyboard.rules` matches
+   `ACTION=add, SUBSYSTEM=input, ID_BUS=usb, ID_INPUT_KEYBOARD=1`.
+   The `ID_BUS=usb` filter prevents spurious triggers from virtual/PS2/AT
+   keyboards (relevant in VirtualBox; not an issue on physical hardware).
+2. udev runs `/usr/local/bin/kiosk-keyboard-added.sh` as root.
+3. The script reads the autologin username from `autologin.conf`, touches
+   `/tmp/kiosk-exit` owned by that user, and calls `pkill cage`.
+   (`/tmp` has the sticky bit; the file must be owned by the kiosk user so
+   `.bash_profile` can delete it with `rm -f`.)
+4. cage exits → `start-kiosk.sh` returns → `.bash_profile` loop detects
+   `/tmp/kiosk-exit` → calls `startxfce4`.
+5. XFCE opens on the touchscreen. Admin uses keyboard + touch for maintenance.
+   XFCE/Xorg state is redirected to `/tmp` because overlayroot mounts `/` as
+   read-only (`XAUTHORITY`, `ICEAUTHORITY`, `XDG_*` all point to `/tmp`).
+6. Admin logs out of XFCE → `startxfce4` returns → loop removes sentinel →
+   loop restarts the kiosk.
+
+Touchscreens use `ID_INPUT_TOUCHSCREEN=1` and do **not** match the rule.
+
+### Testing keyboard detection in the VM
+
+**Quick SSH simulation** (no physical keyboard needed):
 
 ```bash
-python3 kiosk-breakout.py --combo KEY_RIGHTSHIFT,KEY_RIGHTCTRL,KEY_BACKSPACE
+ssh merrill@192.168.1.127 "sudo /usr/local/bin/kiosk-keyboard-added.sh"
+# XFCE opens; to restart the kiosk:
+ssh merrill@192.168.1.127 "DISPLAY=:0 xfce4-session-logout --logout"
 ```
 
-Key names are evdev constants (`KEY_*`). After changing, redeploy with
-`./deploy.sh`.
+**Full USB passthrough test** (closest to physical hardware):
+
+1. **Set up a USB filter** in VirtualBox Manager:
+   - VM Settings → USB → click **+** to add a filter
+   - Plug in the keyboard you'll use for testing; it appears in the list
+   - Select it and click OK
+2. **Start the VM with display** (`VBoxManage startvm "kiosk-dev"`)
+3. With the kiosk running, **plug the keyboard in** on the host — VirtualBox
+   passes the device through to the VM, udev fires, cage stops, XFCE opens.
+4. **Log out of XFCE** — the kiosk restarts automatically.
+
+> **Note**: while the keyboard is passed through to the VM, it is not
+> available to the host. Use a second keyboard or SSH for host-side work
+> during testing.
 
 ---
 

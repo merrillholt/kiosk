@@ -1,0 +1,11 @@
+# /etc/udev/rules.d/99-kiosk-keyboard.rules
+#
+# Stop the kiosk when a USB keyboard is plugged in.
+# Touchscreens are classified as ID_INPUT_TOUCHSCREEN, not ID_INPUT_KEYBOARD,
+# so this rule will not fire for the display's USB touch interface.
+#
+# After the kiosk stops, .bash_profile starts XFCE for admin access.
+# When the admin logs out of XFCE, the kiosk restarts automatically.
+
+ACTION=="add", SUBSYSTEM=="input", ENV{ID_BUS}=="usb", ENV{ID_INPUT_KEYBOARD}=="1", \
+    RUN+="/usr/local/bin/kiosk-keyboard-added.sh"
