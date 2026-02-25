@@ -1,4 +1,20 @@
-const API_URL = '/api';
+// --- KIOSK CONFIGURATION ---
+// Edit this array to list all kiosks in your deployment.
+// { name, ip } — set ip to null for "this server" (uses relative /api).
+const KIOSKS = [
+    { name: 'This Server', ip: null },
+    { name: 'Kiosk 1',     ip: '192.168.1.127' },
+    { name: 'Kiosk 2',     ip: '192.168.1.128' },
+    { name: 'Kiosk 3',     ip: '192.168.1.129' },
+];
+
+const LS_KEY = 'selectedKioskIp';
+
+function getApiUrl() {
+    const saved = localStorage.getItem(LS_KEY);
+    if (!saved || saved === 'null') return '/api';
+    return `http://${saved}/api`;
+}
 
 function escapeHtml(text) {
     const div = document.createElement('div');
@@ -11,7 +27,7 @@ function showTab(btn, tabName) {
     document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
     btn.classList.add('active');
     document.getElementById(`${tabName}-tab`).classList.add('active');
-    
+
     if (tabName === 'companies') loadCompanies();
     else if (tabName === 'individuals') { loadIndividuals(); loadCompaniesForDropdown(); }
     else if (tabName === 'building-info') loadBuildingInfo();
@@ -25,9 +41,36 @@ function showMessage(text, type = 'success') {
     setTimeout(() => msg.classList.remove('active'), 5000);
 }
 
+function initKioskSelector() {
+    const bar = document.getElementById('kiosk-selector-bar');
+    const savedIp = localStorage.getItem(LS_KEY);
+
+    KIOSKS.forEach(kiosk => {
+        const btn = document.createElement('button');
+        btn.className = 'kiosk-btn';
+        btn.textContent = kiosk.ip ? `${kiosk.name} (${kiosk.ip})` : kiosk.name;
+        btn.dataset.ip = kiosk.ip ?? 'null';
+
+        const isSelected = (!savedIp || savedIp === 'null')
+            ? kiosk.ip === null
+            : kiosk.ip === savedIp;
+        if (isSelected) btn.classList.add('active');
+
+        btn.addEventListener('click', () => {
+            localStorage.setItem(LS_KEY, kiosk.ip ?? 'null');
+            document.querySelectorAll('.kiosk-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            const activeTab = document.querySelector('.tab.active');
+            if (activeTab) activeTab.click();
+        });
+
+        bar.appendChild(btn);
+    });
+}
+
 async function loadCompanies() {
     try {
-        const response = await fetch(`${API_URL}/companies`);
+        const response = await fetch(`${getApiUrl()}/companies`);
         const companies = await response.json();
         document.getElementById('companies-list').innerHTML = companies.map(c => `
             <tr>
@@ -43,7 +86,7 @@ async function loadCompanies() {
 }
 
 function editCompany(id) {
-    fetch(`${API_URL}/companies`).then(r => r.json()).then(companies => {
+    fetch(`${getApiUrl()}/companies`).then(r => r.json()).then(companies => {
         const company = companies.find(c => c.id === id);
         if (company) {
             document.getElementById('company-id').value = company.id;
@@ -59,13 +102,13 @@ function editCompany(id) {
 
 async function deleteCompany(id) {
     try {
-        const individuals = await fetch(`${API_URL}/individuals`).then(r => r.json());
+        const individuals = await fetch(`${getApiUrl()}/individuals`).then(r => r.json());
         const linked = individuals.filter(p => p.company_id === id);
         const warning = linked.length > 0
             ? `\n\nWarning: ${linked.length} individual(s) are assigned to this company and will be left without a company.`
             : '';
         if (!confirm(`Delete this company?${warning}`)) return;
-        const res = await fetch(`${API_URL}/companies/${id}`, { method: 'DELETE' });
+        const res = await fetch(`${getApiUrl()}/companies/${id}`, { method: 'DELETE' });
         if (!res.ok) throw new Error(res.status);
         showMessage('Company deleted'); loadCompanies();
     } catch (error) { showMessage('Failed to delete', 'error'); }
@@ -87,7 +130,7 @@ document.getElementById('company-form').addEventListener('submit', async (e) => 
         phone: document.getElementById('company-phone').value
     };
     try {
-        const res = await fetch(id ? `${API_URL}/companies/${id}` : `${API_URL}/companies`, {
+        const res = await fetch(id ? `${getApiUrl()}/companies/${id}` : `${getApiUrl()}/companies`, {
             method: id ? 'PUT' : 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data)
@@ -100,7 +143,7 @@ document.getElementById('company-form').addEventListener('submit', async (e) => 
 
 async function loadIndividuals() {
     try {
-        const response = await fetch(`${API_URL}/individuals`);
+        const response = await fetch(`${getApiUrl()}/individuals`);
         const individuals = await response.json();
         document.getElementById('individuals-list').innerHTML = individuals.map(p => `
             <tr>
@@ -117,16 +160,16 @@ async function loadIndividuals() {
 
 async function loadCompaniesForDropdown() {
     try {
-        const response = await fetch(`${API_URL}/companies`);
+        const response = await fetch(`${getApiUrl()}/companies`);
         const companies = await response.json();
-        document.getElementById('individual-company').innerHTML = 
-            '<option value="">-- None --</option>' + 
+        document.getElementById('individual-company').innerHTML =
+            '<option value="">-- None --</option>' +
             companies.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
     } catch (error) { console.error('Failed to load companies'); }
 }
 
 function editIndividual(id) {
-    fetch(`${API_URL}/individuals`).then(r => r.json()).then(individuals => {
+    fetch(`${getApiUrl()}/individuals`).then(r => r.json()).then(individuals => {
         const person = individuals.find(p => p.id === id);
         if (person) {
             document.getElementById('individual-id').value = person.id;
@@ -145,7 +188,7 @@ function editIndividual(id) {
 async function deleteIndividual(id) {
     if (!confirm('Delete this individual?')) return;
     try {
-        await fetch(`${API_URL}/individuals/${id}`, { method: 'DELETE' });
+        await fetch(`${getApiUrl()}/individuals/${id}`, { method: 'DELETE' });
         showMessage('Individual deleted'); loadIndividuals();
     } catch (error) { showMessage('Failed to delete', 'error'); }
 }
@@ -168,7 +211,7 @@ document.getElementById('individual-form').addEventListener('submit', async (e) 
         phone: document.getElementById('individual-phone').value
     };
     try {
-        const res = await fetch(id ? `${API_URL}/individuals/${id}` : `${API_URL}/individuals`, {
+        const res = await fetch(id ? `${getApiUrl()}/individuals/${id}` : `${getApiUrl()}/individuals`, {
             method: id ? 'PUT' : 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data)
@@ -181,7 +224,7 @@ document.getElementById('individual-form').addEventListener('submit', async (e) 
 
 async function loadBuildingInfo() {
     try {
-        const response = await fetch(`${API_URL}/building-info`);
+        const response = await fetch(`${getApiUrl()}/building-info`);
         const content = await response.json();
         document.getElementById('building-info-content').value = content;
     } catch (error) { showMessage('Failed to load', 'error'); }
@@ -190,7 +233,7 @@ async function loadBuildingInfo() {
 document.getElementById('building-info-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     try {
-        await fetch(`${API_URL}/building-info`, {
+        await fetch(`${getApiUrl()}/building-info`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ content: document.getElementById('building-info-content').value })
@@ -202,8 +245,8 @@ document.getElementById('building-info-form').addEventListener('submit', async (
 async function loadBackgroundImage() {
     try {
         const [activeRes, galleryRes] = await Promise.all([
-            fetch(`${API_URL}/background-image`),
-            fetch(`${API_URL}/background-images`)
+            fetch(`${getApiUrl()}/background-image`),
+            fetch(`${getApiUrl()}/background-images`)
         ]);
         const { filename: activeFilename } = await activeRes.json();
         const images = await galleryRes.json();
@@ -217,12 +260,15 @@ function renderBgGallery(images, activeFilename) {
         gallery.innerHTML = '<p style="color:#999;">No images available.</p>';
         return;
     }
+    const base = getApiUrl().replace('/api', '');
     gallery.innerHTML = images.map(img => {
         const dbKey = img.builtin ? img.filename : `uploads/${img.filename}`;
         const isActive = dbKey === activeFilename;
         const escapedDbKey = escapeHtml(dbKey);
         const escapedFilename = escapeHtml(img.filename);
-        const escapedUrl = escapeHtml(img.url);
+        // Resolve image URLs against the selected kiosk's origin
+        const imgUrl = img.url.startsWith('http') ? img.url : `${base}${img.url}`;
+        const escapedUrl = escapeHtml(imgUrl);
         return `
             <div class="bg-thumb${isActive ? ' active-bg' : ''}" onclick="selectBgImage('${escapedDbKey}')">
                 ${isActive ? '<span class="bg-active-badge">Active</span>' : ''}
@@ -243,7 +289,7 @@ function renderBgGallery(images, activeFilename) {
 
 async function selectBgImage(dbKey) {
     try {
-        const res = await fetch(`${API_URL}/background-image`, {
+        const res = await fetch(`${getApiUrl()}/background-image`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ filename: dbKey })
@@ -257,7 +303,7 @@ async function selectBgImage(dbKey) {
 async function deleteBgImage(filename) {
     if (!confirm(`Delete image "${filename}"? This cannot be undone.`)) return;
     try {
-        const res = await fetch(`${API_URL}/background-images/${encodeURIComponent(filename)}`, { method: 'DELETE' });
+        const res = await fetch(`${getApiUrl()}/background-images/${encodeURIComponent(filename)}`, { method: 'DELETE' });
         if (!res.ok) throw new Error(res.status);
         showMessage('Image deleted');
         loadBackgroundImage();
@@ -271,7 +317,7 @@ document.getElementById('background-form').addEventListener('submit', async (e) 
     const formData = new FormData();
     formData.append('image', file);
     try {
-        const res = await fetch(`${API_URL}/background-image`, { method: 'POST', body: formData });
+        const res = await fetch(`${getApiUrl()}/background-image`, { method: 'POST', body: formData });
         if (!res.ok) throw new Error(res.status);
         showMessage('Image uploaded and set as background');
         document.getElementById('bg-file').value = '';
@@ -279,4 +325,7 @@ document.getElementById('background-form').addEventListener('submit', async (e) 
     } catch (error) { showMessage('Failed to upload image', 'error'); }
 });
 
-window.addEventListener('DOMContentLoaded', () => loadCompanies());
+window.addEventListener('DOMContentLoaded', () => {
+    initKioskSelector();
+    loadCompanies();
+});

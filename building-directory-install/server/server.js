@@ -20,7 +20,12 @@ const PERSIST_ARGV = process.env.KIOSK_PERSIST_CMD
 fs.mkdirSync(TEMP_DIR, { recursive: true });
 
 // Middleware
-app.use(cors());
+app.use(cors({
+    origin: '*',
+    methods: ['GET', 'HEAD', 'PUT', 'POST', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type'],
+    optionsSuccessStatus: 200
+}));
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../kiosk')));
 app.use('/uploads', express.static(UPLOADS_LOWER));
