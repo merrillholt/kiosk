@@ -12,8 +12,8 @@ function showTab(btn, tabName) {
     btn.classList.add('active');
     document.getElementById(`${tabName}-tab`).classList.add('active');
 
-    if (tabName === 'companies') loadCompanies();
-    else if (tabName === 'individuals') { loadIndividuals(); loadCompaniesForDropdown(); }
+    if (tabName === 'companies') { document.getElementById('company-search').value = ''; loadCompanies(); }
+    else if (tabName === 'individuals') { document.getElementById('individual-search').value = ''; loadIndividuals(); loadCompaniesForDropdown(); }
     else if (tabName === 'building-info') loadBuildingInfo();
     else if (tabName === 'appearance') loadBackgroundImage();
     else if (tabName === 'deploy') loadDeployTab();
@@ -26,21 +26,36 @@ function showMessage(text, type = 'success') {
     setTimeout(() => msg.classList.remove('active'), 5000);
 }
 
+function renderCompanies(companies) {
+    document.getElementById('companies-list').innerHTML = companies.map(c => `
+        <tr>
+            <td>${escapeHtml(c.name)}</td><td>${escapeHtml(c.building)}</td><td>${escapeHtml(c.suite)}</td>
+            <td>${escapeHtml(c.floor) || '-'}</td><td>${escapeHtml(c.phone) || '-'}</td>
+            <td class="actions">
+                <button class="btn btn-primary" onclick="editCompany(${c.id})">Edit</button>
+                <button class="btn btn-danger" onclick="deleteCompany(${c.id})">Delete</button>
+            </td>
+        </tr>
+    `).join('');
+}
+
 async function loadCompanies() {
     try {
-        const response = await fetch(`${API_URL}/companies`);
-        const companies = await response.json();
-        document.getElementById('companies-list').innerHTML = companies.map(c => `
-            <tr>
-                <td>${escapeHtml(c.name)}</td><td>${escapeHtml(c.building)}</td><td>${escapeHtml(c.suite)}</td>
-                <td>${escapeHtml(c.floor) || '-'}</td><td>${escapeHtml(c.phone) || '-'}</td>
-                <td class="actions">
-                    <button class="btn btn-primary" onclick="editCompany(${c.id})">Edit</button>
-                    <button class="btn btn-danger" onclick="deleteCompany(${c.id})">Delete</button>
-                </td>
-            </tr>
-        `).join('');
+        renderCompanies(await fetch(`${API_URL}/companies`).then(r => r.json()));
     } catch (error) { showMessage('Failed to load companies', 'error'); }
+}
+
+let _companySearchTimer;
+function searchCompanies(q) {
+    clearTimeout(_companySearchTimer);
+    _companySearchTimer = setTimeout(async () => {
+        try {
+            const url = q.trim()
+                ? `${API_URL}/companies/search?q=${encodeURIComponent(q)}`
+                : `${API_URL}/companies`;
+            renderCompanies(await fetch(url).then(r => r.json()));
+        } catch (e) { showMessage('Search failed', 'error'); }
+    }, 300);
 }
 
 function editCompany(id) {
@@ -99,21 +114,36 @@ document.getElementById('company-form').addEventListener('submit', async (e) => 
     } catch (error) { showMessage('Failed to save', 'error'); }
 });
 
+function renderIndividuals(individuals) {
+    document.getElementById('individuals-list').innerHTML = individuals.map(p => `
+        <tr>
+            <td>${escapeHtml(p.last_name)}, ${escapeHtml(p.first_name)}</td><td>${escapeHtml(p.title) || '-'}</td>
+            <td>${escapeHtml(p.building)}</td><td>${escapeHtml(p.suite)}</td><td>${escapeHtml(p.phone) || '-'}</td>
+            <td class="actions">
+                <button class="btn btn-primary" onclick="editIndividual(${p.id})">Edit</button>
+                <button class="btn btn-danger" onclick="deleteIndividual(${p.id})">Delete</button>
+            </td>
+        </tr>
+    `).join('');
+}
+
 async function loadIndividuals() {
     try {
-        const response = await fetch(`${API_URL}/individuals`);
-        const individuals = await response.json();
-        document.getElementById('individuals-list').innerHTML = individuals.map(p => `
-            <tr>
-                <td>${escapeHtml(p.last_name)}, ${escapeHtml(p.first_name)}</td><td>${escapeHtml(p.title) || '-'}</td>
-                <td>${escapeHtml(p.building)}</td><td>${escapeHtml(p.suite)}</td><td>${escapeHtml(p.phone) || '-'}</td>
-                <td class="actions">
-                    <button class="btn btn-primary" onclick="editIndividual(${p.id})">Edit</button>
-                    <button class="btn btn-danger" onclick="deleteIndividual(${p.id})">Delete</button>
-                </td>
-            </tr>
-        `).join('');
+        renderIndividuals(await fetch(`${API_URL}/individuals`).then(r => r.json()));
     } catch (error) { showMessage('Failed to load individuals', 'error'); }
+}
+
+let _individualSearchTimer;
+function searchIndividuals(q) {
+    clearTimeout(_individualSearchTimer);
+    _individualSearchTimer = setTimeout(async () => {
+        try {
+            const url = q.trim()
+                ? `${API_URL}/individuals/search?q=${encodeURIComponent(q)}`
+                : `${API_URL}/individuals`;
+            renderIndividuals(await fetch(url).then(r => r.json()));
+        } catch (e) { showMessage('Search failed', 'error'); }
+    }, 300);
 }
 
 async function loadCompaniesForDropdown() {
@@ -354,6 +384,22 @@ function appendDeployOutput(text) {
     el.textContent += '\n' + text;
     el.scrollTop = el.scrollHeight;
 }
+
+document.getElementById('restore-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const file = document.getElementById('restore-file').files[0];
+    if (!file) return;
+    if (!confirm('This will immediately overwrite all current data. Are you sure?')) return;
+    const formData = new FormData();
+    formData.append('database', file);
+    try {
+        const res = await fetch(`${API_URL}/restore`, { method: 'POST', body: formData });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || res.status);
+        showMessage('Database restored successfully');
+        document.getElementById('restore-file').value = '';
+    } catch (error) { showMessage('Restore failed: ' + error.message, 'error'); }
+});
 
 window.addEventListener('DOMContentLoaded', () => {
     loadCompanies();

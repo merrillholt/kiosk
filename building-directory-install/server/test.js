@@ -106,6 +106,20 @@ async function uploadFile(urlPath, fieldName, filename, fileContent, mimeType) {
 
 async function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+// Binary response helper (for backup download)
+async function reqBinary(method, urlPath) {
+    return new Promise((resolve, reject) => {
+        const opts = { hostname: 'localhost', port: PORT, path: urlPath, method };
+        const r = http.request(opts, res => {
+            const chunks = [];
+            res.on('data', c => chunks.push(c));
+            res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks), headers: res.headers }));
+        });
+        r.on('error', reject);
+        r.end();
+    });
+}
+
 // ── Start server ──────────────────────────────────────────────────────────────
 
 async function startServer() {
@@ -116,6 +130,8 @@ async function startServer() {
             KIOSK_TEMP_DIR: TEMP_DIR,
             KIOSK_UPLOADS_LOWER: UPLOADS_LOWER,
             KIOSK_PERSIST_CMD: PERSIST_SCRIPT,
+            KIOSK_DB: DB_PATH,
+            KIOSK_SSH_KEY: path.join(TEST_ROOT, 'kiosk_key'),
         };
         const proc = spawn('node', ['server.js'], {
             cwd: path.join(__dirname),
@@ -291,6 +307,164 @@ async function runTests(serverProc) {
             v2.body.version > v1.body.version,
             `${v1.body.version} → ${v2.body.version}`);
     }
+
+    console.log('\n── Companies ────────────────────────────────────────────────────');
+
+    let companyId;
+    {
+        const r = await req('POST', '/api/companies', { name: 'ACME Corp', building: 'A', suite: '101', phone: '555-0100', floor: '1' });
+        assert('POST /api/companies returns 200', r.status === 200, JSON.stringify(r.body));
+        assert('POST /api/companies returns id', typeof r.body.id === 'number', JSON.stringify(r.body));
+        companyId = r.body.id;
+    }
+    {
+        const r = await req('GET', '/api/companies');
+        assert('GET /api/companies returns array', r.status === 200 && Array.isArray(r.body), JSON.stringify(r.body));
+        assert('GET /api/companies includes created company', r.body.some(c => c.id === companyId && c.name === 'ACME Corp'), JSON.stringify(r.body));
+    }
+    {
+        const r = await req('GET', '/api/companies/search?q=ACME');
+        assert('GET /api/companies/search finds match', r.status === 200 && r.body.some(c => c.name === 'ACME Corp'), JSON.stringify(r.body));
+    }
+    {
+        const r = await req('GET', '/api/companies/search?q=ZZZNOMATCH');
+        assert('GET /api/companies/search returns empty for no match', r.status === 200 && r.body.length === 0, JSON.stringify(r.body));
+    }
+    {
+        const r = await req('PUT', `/api/companies/${companyId}`, { name: 'ACME Updated', building: 'B', suite: '202', phone: '555-0200', floor: '2' });
+        assert('PUT /api/companies/:id returns 200', r.status === 200, JSON.stringify(r.body));
+        const r2 = await req('GET', '/api/companies');
+        assert('PUT /api/companies/:id updates record', r2.body.some(c => c.id === companyId && c.name === 'ACME Updated'), JSON.stringify(r2.body));
+    }
+    {
+        const r = await req('DELETE', `/api/companies/${companyId}`);
+        assert('DELETE /api/companies/:id returns 200', r.status === 200, JSON.stringify(r.body));
+        const r2 = await req('GET', '/api/companies');
+        assert('DELETE /api/companies/:id removes record', !r2.body.some(c => c.id === companyId), JSON.stringify(r2.body));
+    }
+
+    console.log('\n── Individuals ──────────────────────────────────────────────────');
+
+    let indCompanyId;
+    {
+        const r = await req('POST', '/api/companies', { name: 'TestCo', building: 'C', suite: '303', phone: '', floor: '3' });
+        indCompanyId = r.body.id;
+    }
+    let individualId;
+    {
+        const r = await req('POST', '/api/individuals', { first_name: 'John', last_name: 'Doe', company_id: indCompanyId, building: 'C', suite: '303', title: 'Manager', phone: '555-0001' });
+        assert('POST /api/individuals returns 200', r.status === 200, JSON.stringify(r.body));
+        assert('POST /api/individuals returns id', typeof r.body.id === 'number', JSON.stringify(r.body));
+        individualId = r.body.id;
+    }
+    {
+        const r = await req('GET', '/api/individuals');
+        assert('GET /api/individuals returns array', r.status === 200 && Array.isArray(r.body), JSON.stringify(r.body));
+        assert('GET /api/individuals includes created', r.body.some(p => p.id === individualId), JSON.stringify(r.body));
+    }
+    {
+        const r = await req('GET', '/api/individuals/search?q=Doe');
+        assert('GET /api/individuals/search finds match', r.status === 200 && r.body.some(p => p.last_name === 'Doe'), JSON.stringify(r.body));
+    }
+    {
+        const r = await req('GET', '/api/individuals/search?q=ZZZNOMATCH');
+        assert('GET /api/individuals/search returns empty for no match', r.status === 200 && r.body.length === 0, JSON.stringify(r.body));
+    }
+    {
+        const r = await req('PUT', `/api/individuals/${individualId}`, { first_name: 'Jane', last_name: 'Doe', company_id: indCompanyId, building: 'C', suite: '304', title: 'Director', phone: '555-0002' });
+        assert('PUT /api/individuals/:id returns 200', r.status === 200, JSON.stringify(r.body));
+        const r2 = await req('GET', '/api/individuals');
+        assert('PUT /api/individuals/:id updates record', r2.body.some(p => p.id === individualId && p.first_name === 'Jane'), JSON.stringify(r2.body));
+    }
+    {
+        const r = await req('DELETE', `/api/individuals/${individualId}`);
+        assert('DELETE /api/individuals/:id returns 200', r.status === 200, JSON.stringify(r.body));
+        const r2 = await req('GET', '/api/individuals');
+        assert('DELETE /api/individuals/:id removes record', !r2.body.some(p => p.id === individualId), JSON.stringify(r2.body));
+    }
+    await req('DELETE', `/api/companies/${indCompanyId}`);
+
+    console.log('\n── Building info ────────────────────────────────────────────────');
+
+    {
+        const r = await req('GET', '/api/building-info');
+        assert('GET /api/building-info returns 200', r.status === 200, JSON.stringify(r.body));
+    }
+    {
+        const r = await req('PUT', '/api/building-info', { content: '<p>Test building info</p>' });
+        assert('PUT /api/building-info returns 200', r.status === 200, JSON.stringify(r.body));
+    }
+    {
+        const r = await req('GET', '/api/building-info');
+        assert('GET /api/building-info returns saved content',
+            r.status === 200 && r.body === '<p>Test building info</p>',
+            JSON.stringify(r.body));
+    }
+
+    console.log('\n── Kiosk management ─────────────────────────────────────────────');
+
+    {
+        const r = await req('GET', '/api/kiosks');
+        assert('GET /api/kiosks returns array', r.status === 200 && Array.isArray(r.body), JSON.stringify(r.body));
+        assert('GET /api/kiosks entries have required fields',
+            r.body.length > 0 && typeof r.body[0].id === 'number' && typeof r.body[0].ip === 'string',
+            JSON.stringify(r.body));
+    }
+    {
+        const r = await req('GET', '/api/kiosks/server-url');
+        assert('GET /api/kiosks/server-url returns url string', r.status === 200 && typeof r.body.url === 'string', JSON.stringify(r.body));
+    }
+    {
+        const r = await req('GET', '/api/kiosks/deploy-pubkey');
+        assert('GET /api/kiosks/deploy-pubkey returns pubkey', r.status === 200 && typeof r.body.pubkey === 'string', JSON.stringify(r.body));
+        assert('deploy-pubkey is an ed25519 key', r.body.pubkey.startsWith('ssh-ed25519'), r.body.pubkey ? r.body.pubkey.substring(0, 30) : 'empty');
+    }
+    {
+        const r = await req('POST', '/api/kiosks/999/deploy', {});
+        assert('POST /api/kiosks/999/deploy returns 404 for unknown kiosk', r.status === 404, JSON.stringify(r.body));
+    }
+
+    console.log('\n── Backup / restore ─────────────────────────────────────────────');
+
+    let backupBytes;
+    {
+        const r = await reqBinary('GET', '/api/backup');
+        assert('GET /api/backup returns 200', r.status === 200, `status=${r.status}`);
+        assert('GET /api/backup returns SQLite magic bytes',
+            r.body.length > 0 && r.body.slice(0, 15).toString() === 'SQLite format 3',
+            `magic="${r.body.slice(0, 15).toString()}"`);
+        backupBytes = r.body;
+    }
+
+    // Add a company after backup, restore, verify it's gone
+    let tempCompanyId;
+    {
+        const r = await req('POST', '/api/companies', { name: 'ToBeRestored', building: 'Z', suite: '999', phone: '', floor: '' });
+        tempCompanyId = r.body.id;
+        const r2 = await req('GET', '/api/companies');
+        assert('Company exists before restore', r2.body.some(c => c.id === tempCompanyId), JSON.stringify(r2.body));
+    }
+    {
+        const r = await uploadFile('/api/restore', 'database', 'backup.db', backupBytes, 'application/octet-stream');
+        assert('POST /api/restore returns 200', r.status === 200, JSON.stringify(r.body));
+    }
+    await sleep(300); // allow db reconnect
+    {
+        const r = await req('GET', '/api/companies');
+        assert('After restore, company added post-backup is gone',
+            r.status === 200 && !r.body.some(c => c.id === tempCompanyId),
+            JSON.stringify(r.body));
+    }
+    // Reject a non-SQLite file
+    {
+        const r = await uploadFile('/api/restore', 'database', 'notdb.db', Buffer.from('not a sqlite file at all'), 'application/octet-stream');
+        assert('POST /api/restore rejects non-SQLite content', r.status === 400, JSON.stringify(r.body));
+    }
+    // Reject a non-.db extension
+    {
+        const r = await uploadFile('/api/restore', 'database', 'backup.txt', backupBytes, 'text/plain');
+        assert('POST /api/restore rejects non-.db filename', r.status === 400, JSON.stringify(r.body));
+    }
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
@@ -308,9 +482,6 @@ async function runTests(serverProc) {
     } finally {
         if (serverProc) serverProc.kill();
         fs.rmSync(TEST_ROOT, { recursive: true, force: true });
-        // Clean up test DB created in server dir
-        const testDb = path.join(__dirname, 'directory.db');
-        if (fs.existsSync(testDb)) fs.unlinkSync(testDb);
         console.log(`\n────────────────────────────────────────`);
         console.log(`Results: ${passed} passed, ${failed} failed`);
         process.exit(failed > 0 ? 1 : 0);

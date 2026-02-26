@@ -17,6 +17,8 @@ const UPLOADS_LOWER = process.env.KIOSK_UPLOADS_LOWER || '/media/root-ro/home/me
 const PERSIST_ARGV = process.env.KIOSK_PERSIST_CMD
     ? process.env.KIOSK_PERSIST_CMD.split(' ')
     : ['sudo', '/usr/local/bin/persist-upload.sh'];
+// Database file path (overridable via KIOSK_DB for testing)
+const DB_FILE = process.env.KIOSK_DB || path.join(__dirname, 'directory.db');
 
 // --- Kiosk display client configuration ---
 // List the 3 kiosk display machines. Update IPs when machines are provisioned.
@@ -69,8 +71,21 @@ const bgUpload = multer({
     }
 });
 
+// Multer storage — accepts .db files for database restore
+const dbUpload = multer({
+    storage: multer.diskStorage({
+        destination: os.tmpdir(),
+        filename: (req, file, cb) => cb(null, `restore-${Date.now()}.db`)
+    }),
+    limits: { fileSize: 100 * 1024 * 1024 },
+    fileFilter: (req, file, cb) => {
+        if (path.extname(file.originalname).toLowerCase() === '.db') cb(null, true);
+        else cb(new Error('Only .db files allowed'));
+    }
+});
+
 // Database setup
-const db = new sqlite3.Database('./directory.db', (err) => {
+let db = new sqlite3.Database(DB_FILE, (err) => {
     if (err) {
         console.error('Database connection error:', err);
     } else {
@@ -305,6 +320,55 @@ app.put('/api/building-info', (req, res) => {
             }
         }
     );
+});
+
+// Database backup — VACUUM INTO a temp file then stream it to the client
+app.get('/api/backup', (req, res) => {
+    const backupPath = path.join(os.tmpdir(), `directory-backup-${Date.now()}.db`);
+    const escaped = backupPath.replace(/'/g, "''");
+    db.run(`VACUUM INTO '${escaped}'`, (err) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.download(backupPath, 'directory.db', () => {
+            fs.unlink(backupPath, () => {});
+        });
+    });
+});
+
+// Database restore — validate SQLite magic, close db, replace file, reopen
+app.post('/api/restore', (req, res) => {
+    dbUpload.single('database')(req, res, (uploadErr) => {
+        if (uploadErr) return res.status(400).json({ error: uploadErr.message });
+        if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+
+        // Validate SQLite magic bytes ("SQLite format 3\000")
+        const magic = Buffer.alloc(15);
+        try {
+            const fd = fs.openSync(req.file.path, 'r');
+            fs.readSync(fd, magic, 0, 15, 0);
+            fs.closeSync(fd);
+        } catch (e) {
+            fs.unlink(req.file.path, () => {});
+            return res.status(400).json({ error: 'Could not read uploaded file' });
+        }
+        if (!magic.equals(Buffer.from('SQLite format 3'))) {
+            fs.unlink(req.file.path, () => {});
+            return res.status(400).json({ error: 'Not a valid SQLite database file' });
+        }
+
+        db.close((closeErr) => {
+            if (closeErr) return res.status(500).json({ error: 'Failed to close database: ' + closeErr.message });
+            try {
+                fs.copyFileSync(req.file.path, DB_FILE);
+                fs.unlinkSync(req.file.path);
+            } catch (e) {
+                return res.status(500).json({ error: 'Failed to replace database: ' + e.message });
+            }
+            db = new sqlite3.Database(DB_FILE, (openErr) => {
+                if (openErr) return res.status(500).json({ error: 'Failed to reopen database: ' + openErr.message });
+                res.json({ success: true });
+            });
+        });
+    });
 });
 
 // Background image — get active

@@ -11,15 +11,16 @@
         <h1>🏢 Building Directory Administration</h1>
 
         <div id="message" class="message"></div>
-        
+
         <div class="tabs">
             <button class="tab active" onclick="showTab(this, 'companies')">Companies</button>
             <button class="tab" onclick="showTab(this, 'individuals')">Individuals</button>
             <button class="tab" onclick="showTab(this, 'building-info')">Building Info</button>
             <button class="tab" onclick="showTab(this, 'appearance')">Appearance</button>
             <button class="tab" onclick="showTab(this, 'deploy')">Deploy</button>
+            <button class="tab" onclick="showTab(this, 'maintenance')">Maintenance</button>
         </div>
-        
+
         <!-- Companies Tab -->
         <div id="companies-tab" class="tab-content active">
             <h2>Add/Edit Company</h2>
@@ -48,9 +49,12 @@
                 <button type="submit" class="btn btn-success">Save Company</button>
                 <button type="button" class="btn btn-primary" onclick="resetCompanyForm()">Clear Form</button>
             </form>
-            
+
             <div class="table-container">
                 <h2>Companies List</h2>
+                <div class="form-group" style="margin:0 0 12px 0;">
+                    <input type="text" id="company-search" placeholder="Search by name, building, or suite…" oninput="searchCompanies(this.value)">
+                </div>
                 <table>
                     <thead>
                         <tr>
@@ -66,7 +70,7 @@
                 </table>
             </div>
         </div>
-        
+
         <!-- Individuals Tab -->
         <div id="individuals-tab" class="tab-content">
             <h2>Add/Edit Individual</h2>
@@ -105,9 +109,12 @@
                 <button type="submit" class="btn btn-success">Save Individual</button>
                 <button type="button" class="btn btn-primary" onclick="resetIndividualForm()">Clear Form</button>
             </form>
-            
+
             <div class="table-container">
                 <h2>Individuals List</h2>
+                <div class="form-group" style="margin:0 0 12px 0;">
+                    <input type="text" id="individual-search" placeholder="Search by name, building, or suite…" oninput="searchIndividuals(this.value)">
+                </div>
                 <table>
                     <thead>
                         <tr>
@@ -123,7 +130,7 @@
                 </table>
             </div>
         </div>
-        
+
         <!-- Building Info Tab -->
         <div id="building-info-tab" class="tab-content">
             <h2>Building Information</h2>
@@ -151,8 +158,7 @@
                 <button type="submit" class="btn btn-success">Upload Image</button>
             </form>
         </div>
-    </div>
-    
+
         <!-- Deploy Tab -->
         <div id="deploy-tab" class="tab-content">
             <h2>Kiosk Client Deployment</h2>
@@ -179,6 +185,27 @@
             <h3 style="margin:24px 0 8px;color:#34495e;">Output</h3>
             <pre id="deploy-output" class="deploy-output">Ready.</pre>
         </div>
+
+        <!-- Maintenance Tab -->
+        <div id="maintenance-tab" class="tab-content">
+            <h2>Database Backup</h2>
+            <p style="margin-bottom:16px;color:#666;">Download a complete, consistent snapshot of the directory database.</p>
+            <a class="btn btn-primary" href="/api/backup" download="directory.db">Download Backup</a>
+
+            <h2>Restore Database</h2>
+            <div class="warn-box">
+                <strong>Warning:</strong> Restoring will immediately overwrite all current data with the contents of the uploaded file. Download a backup first if you want to preserve the current state.
+            </div>
+            <form id="restore-form">
+                <div class="form-group">
+                    <label for="restore-file">Database backup file (.db)</label>
+                    <input type="file" id="restore-file" accept=".db" required>
+                </div>
+                <button type="submit" class="btn btn-danger">Restore Database</button>
+            </form>
+        </div>
+
+    </div>
 
     <script src="admin.js"></script>
 </body>
