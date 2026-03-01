@@ -427,6 +427,8 @@ async function runTests(serverProc) {
     console.log('\n── Backup / restore ─────────────────────────────────────────────');
 
     let backupBytes;
+    let backupSqlText;
+    let backupTxtText;
     {
         const r = await reqBinary('GET', '/api/backup');
         assert('GET /api/backup returns 200', r.status === 200, `status=${r.status}`);
@@ -434,6 +436,24 @@ async function runTests(serverProc) {
             r.body.length > 0 && r.body.slice(0, 15).toString() === 'SQLite format 3',
             `magic="${r.body.slice(0, 15).toString()}"`);
         backupBytes = r.body;
+    }
+    {
+        const r = await reqBinary('GET', '/api/backup.sql');
+        const sql = r.body.toString('utf8');
+        assert('GET /api/backup.sql returns 200', r.status === 200, `status=${r.status}`);
+        assert('GET /api/backup.sql returns SQL text',
+            sql.includes('CREATE TABLE companies') && sql.includes('CREATE TABLE individuals'),
+            sql.slice(0, 120));
+        backupSqlText = sql;
+    }
+    {
+        const r = await reqBinary('GET', '/api/backup.txt');
+        const txt = r.body.toString('utf8');
+        assert('GET /api/backup.txt returns 200', r.status === 200, `status=${r.status}`);
+        assert('GET /api/backup.txt returns SQL text',
+            txt.includes('CREATE TABLE companies') && txt.includes('CREATE TABLE individuals'),
+            txt.slice(0, 120));
+        backupTxtText = txt;
     }
 
     // Add a company after backup, restore, verify it's gone
@@ -455,15 +475,38 @@ async function runTests(serverProc) {
             r.status === 200 && !r.body.some(c => c.id === tempCompanyId),
             JSON.stringify(r.body));
     }
+    // Add another company and restore via .txt SQL backup
+    let tempCompanyId2;
+    {
+        const r = await req('POST', '/api/companies', { name: 'ToBeRestoredTxt', building: 'Y', suite: '998', phone: '', floor: '' });
+        tempCompanyId2 = r.body.id;
+        const r2 = await req('GET', '/api/companies');
+        assert('Company exists before .txt restore', r2.body.some(c => c.id === tempCompanyId2), JSON.stringify(r2.body));
+    }
+    {
+        const r = await uploadFile('/api/restore', 'database', 'backup.txt', Buffer.from(backupTxtText, 'utf8'), 'text/plain');
+        assert('POST /api/restore accepts .txt SQL backup', r.status === 200, JSON.stringify(r.body));
+    }
+    await sleep(300); // allow db reconnect
+    {
+        const r = await req('GET', '/api/companies');
+        assert('After .txt restore, company added post-backup is gone',
+            r.status === 200 && !r.body.some(c => c.id === tempCompanyId2),
+            JSON.stringify(r.body));
+    }
+    {
+        const r = await uploadFile('/api/restore', 'database', 'backup.sql', Buffer.from(backupSqlText, 'utf8'), 'text/plain');
+        assert('POST /api/restore accepts .sql backup', r.status === 200, JSON.stringify(r.body));
+    }
     // Reject a non-SQLite file
     {
         const r = await uploadFile('/api/restore', 'database', 'notdb.db', Buffer.from('not a sqlite file at all'), 'application/octet-stream');
         assert('POST /api/restore rejects non-SQLite content', r.status === 400, JSON.stringify(r.body));
     }
-    // Reject a non-.db extension
+    // Reject an invalid .txt SQL file
     {
-        const r = await uploadFile('/api/restore', 'database', 'backup.txt', backupBytes, 'text/plain');
-        assert('POST /api/restore rejects non-.db filename', r.status === 400, JSON.stringify(r.body));
+        const r = await uploadFile('/api/restore', 'database', 'bad-backup.txt', Buffer.from('definitely not SQL'), 'text/plain');
+        assert('POST /api/restore rejects invalid .txt SQL content', r.status === 400, JSON.stringify(r.body));
     }
 }
 

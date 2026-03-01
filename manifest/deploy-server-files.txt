@@ -13,5 +13,6 @@ server/admin/admin.js
 server/admin/admin.css
 scripts/start-server.sh
 scripts/restart-server.sh
+scripts/kioskctl
 kiosk-fleet/kioskctl
 kiosk-fleet/hosts

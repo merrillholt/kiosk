@@ -66,3 +66,8 @@ Notes:
   - auth/session behavior
   - backup/restore endpoints
   - background upload handling
+
+## Fleet Script Convenience Wrapper
+
+- `scripts/kioskctl` is a thin wrapper that executes `kiosk-fleet/kioskctl`.
+- This lets operators run fleet commands from the `scripts/` path while keeping fleet tooling source under `kiosk-fleet/`.

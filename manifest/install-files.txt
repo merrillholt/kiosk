@@ -31,6 +31,7 @@ scripts/99-kiosk-keyboard.rules
 scripts/80-kiosk-power-button.conf
 scripts/start-server.sh
 scripts/restart-server.sh
+scripts/kioskctl
 
 # Fleet tools
 kiosk-fleet/kioskctl

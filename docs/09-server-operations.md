@@ -82,7 +82,9 @@ When this machine is both development and deployed runtime:
 Deploy behavior:
 1. Syncs manifest-managed files to `/home/security/building-directory`
 2. Runs `npm ci --omit=dev` in deployed server dir
-3. Restarts `directory-server` (or fallback start script if no service)
+3. Prints restart instruction (manual restart required):
+   - `sudo systemctl restart directory-server`
+   - or fallback start script if no systemd service
 4. Runs health checks:
    - `/api/auth/me`
    - `/api/data-version`
