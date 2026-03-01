@@ -46,6 +46,8 @@ This keeps home directory contents non-readable while allowing path traversal.
   - `POST /api/auth/login`
   - `POST /api/auth/logout`
   - `GET /api/auth/me`
+- Admin UI logout behavior:
+  - Clicking `Logout` in `/admin` clears session and redirects to `/` (kiosk client page).
 - Default password fallback: `kiosk` (override with `KIOSK_ADMIN_PASSWORD`).
 
 Important:
@@ -186,6 +188,34 @@ Common server vars:
 - `KIOSK_SERVER_URL`
 - `KIOSK_CLIENTS`
 - `KIOSK_SSH_KEY`
+- `KIOSK_UPLOADS_LOWER` (optional override for uploaded background image directory)
+
+## Admin Functions (Current Behavior)
+
+### Background image upload/gallery
+
+- Admin upload endpoint: `POST /api/background-image` (auth required).
+- Gallery endpoint: `GET /api/background-images` (auth required).
+- Upload persistence helper:
+  - `/usr/local/bin/persist-upload.sh`
+- Runtime upload directory selection:
+  - Uses `KIOSK_UPLOADS_LOWER` if set.
+  - Else uses overlay lower path when present.
+  - Else falls back to local `server/uploads` (maintenance mode / overlay disabled).
+
+### Backup/restore
+
+- Recommended admin backup download:
+  - `GET /api/backup.txt`
+  - Returns SQL text dump as `directory-backup.txt`.
+- Additional endpoint retained:
+  - `GET /api/backup.sql` returns SQL dump as `.sql`.
+- Restore endpoint:
+  - `POST /api/restore`
+  - Accepts `.txt`, `.sql`, `.sqlite`, `.db`.
+- Restore semantics:
+  - Replaces current database with uploaded content.
+  - Returns DB row counts for `companies` and `individuals`.
 
 ## Troubleshooting
 

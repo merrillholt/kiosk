@@ -279,6 +279,7 @@ Reason:
 \item Server path: \texttt{/home/kiosk/building-directory/server}
 \item App entrypoint: \texttt{server.js}
 \item nginx is required for standard port-80 access to \texttt{/} and \texttt{/admin}
+\item Admin logout behavior: selecting logout in \texttt{/admin} redirects to base URL \texttt{/}
 \item Environment is managed by installer and service overrides (if needed)
 \end{itemize}
 
@@ -435,6 +436,9 @@ If a kiosk is booted with \texttt{overlayroot=disabled} (maintenance mode), stan
 
 \begin{itemize}
 \item Capture regular backups before major deploys.
+\item Preferred admin backup download is SQL text: \texttt{GET /api/backup.txt} (\texttt{directory-backup.txt}).
+\item Additional SQL dump endpoint is available: \texttt{GET /api/backup.sql}.
+\item Restore endpoint \texttt{POST /api/restore} accepts \texttt{.txt}, \texttt{.sql}, \texttt{.sqlite}, and \texttt{.db}.
 \item Verify restore procedure periodically.
 \item Keep at least one known-good backup off-device.
 \end{itemize}
@@ -566,13 +570,18 @@ T6 & Keyboard maintenance mode & Insert USB keyboard & Kiosk exits, XFCE launche
 T7 & Return to kiosk & Logout XFCE & Kiosk relaunches automatically \\
 T8 & Admin login success & Login with admin password & Authenticated session established \\
 T9 & Admin login failure/lockout & Repeated wrong password & 401 then lockout/rate-limit response \\
-T10 & Companies CSV export & Download CSV & File downloads; header row present even with 0 rows \\
-T11 & Companies CSV import & Upload valid CSV & Success status and expected row count in DB \\
-T12 & Individuals CSV import & Upload valid CSV & Success status and expected row count in DB \\
-T13 & Unauthorized CSV access & Request without auth & HTTP 401 Unauthorized \\
-T14 & Data version change & Modify company/individual & \texttt{/api/data-version} increments \\
-T15 & Deploy kiosk scripts & Admin deploy tab or script & Deploy reports success; target script updated \\
-T16 & Power button long press & Hold power button on client & System powers off cleanly \\
+T10 & Admin logout redirect & Click logout in admin UI & Session cleared; browser redirects to \texttt{/} \\
+T11 & Text backup export & Download Text Backup & \texttt{directory-backup.txt} downloads successfully \\
+T12 & SQL text restore & Upload valid \texttt{.txt} SQL dump & Restore succeeds; expected DB counts returned \\
+T13 & Background image upload & Upload image in admin Appearance tab & Upload succeeds and new image appears in gallery \\
+T14 & Unauthorized admin access & Request protected endpoint without auth & HTTP 401 Unauthorized \\
+T15 & Companies CSV export & Download CSV & File downloads; header row present even with 0 rows \\
+T16 & Companies CSV import & Upload valid CSV & Success status and expected row count in DB \\
+T17 & Individuals CSV import & Upload valid CSV & Success status and expected row count in DB \\
+T18 & Unauthorized CSV access & Request CSV endpoint without auth & HTTP 401 Unauthorized \\
+T19 & Data version change & Modify company/individual & \texttt{/api/data-version} increments \\
+T20 & Deploy kiosk scripts & Admin deploy tab or script & Deploy reports success; target script updated \\
+T21 & Power button long press & Hold power button on client & System powers off cleanly \\
 \end{longtable}
 
 \subsection{Resilience and Negative Tests}
@@ -583,8 +592,9 @@ ID & Scenario & Pass Criteria \\
 R1 & Server restart during kiosk operation & Kiosk reconnects and resumes normal operation \\
 R2 & Network interruption (temporary) & UI recovers after network returns; no permanent lock-up \\
 R3 & Overlay maintenance mode deploy attempt & Procedure detects mode and uses correct deploy path \\
-R4 & Empty database export & CSV download still returns valid header row \\
+R4 & Empty companies export & CSV download still returns valid header row \\
 R5 & Invalid CSV upload & Clear error message; no partial/invalid DB write \\
+R6 & Invalid SQL/text restore upload & Restore rejected with clear error; no partial DB replacement \\
 \end{longtable}
 
 \subsection{Deployment Validation (Per Release)}
@@ -592,8 +602,9 @@ R5 & Invalid CSV upload & Clear error message; no partial/invalid DB write \\
 \begin{enumerate}
 \item Run core health checks on target server.
 \item Execute T1--T8 minimum.
-\item Execute T10--T13 for any CSV/auth-related changes.
-\item Execute T15 for any kiosk script changes.
+\item Execute T10--T14 for auth/backup/admin workflow changes.
+\item Execute T15--T18 for CSV workflow changes.
+\item Execute T20 for any kiosk script changes.
 \item Record results in deployment log.
 \end{enumerate}
 
@@ -603,7 +614,7 @@ Rollback is required if any of the following occur:
 \begin{itemize}
 \item \texttt{directory-server} fails to remain active.
 \item Kiosk UI fails to render or is non-interactive.
-\item Admin auth or CSV workflows fail.
+\item Admin auth, backup/restore, or CSV workflows fail.
 \item Data integrity checks fail (missing/incorrect records after import).
 \end{itemize}
 

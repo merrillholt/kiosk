@@ -51,8 +51,18 @@ Notes:
 - If remote host is currently in maintenance/writable mode, install prerequisite with:
   - `sudo apt-get update && sudo apt-get install -y rsync`
 - Script runs remote `npm ci --omit=dev` (or `npm install --omit=dev`) in `server/`.
+- Deploy scripts install/update `/usr/local/bin/persist-upload.sh` on target host.
 - Script attempts non-interactive `sudo systemctl restart directory-server`.
 - Remote host should already have `directory-server` service installed/enabled.
 - For standard URL access on port 80, remote host should have nginx installed/configured.
 - If remote sudo requires a password, restart must be done manually on remote host.
 - Database is not copied by default; use `--with-db --db-source <path>` when promoting data.
+
+## Admin-Related Deployment Notes
+
+- If kiosk UI image assets are changed (for example building info logo), use full deploy:
+  - `tools/deploy-ssh.sh --full --host <user@ip>`
+- Server-only deploy updates admin/API logic, including:
+  - auth/session behavior
+  - backup/restore endpoints
+  - background upload handling
