@@ -1,6 +1,7 @@
 const API_URL = '/api';
 let isAuthenticated = false;
 let authToken = '';
+let messageTimer = null;
 
 function apiFetch(url, options = {}) {
     const headers = new Headers(options.headers || {});
@@ -28,11 +29,33 @@ function showTab(btn, tabName) {
     else if (tabName === 'deploy') loadDeployTab();
 }
 
-function showMessage(text, type = 'success') {
+function showMessage(text, type = 'success', options = {}) {
+    const persistent = !!options.persistent;
     const msg = document.getElementById('message');
-    msg.textContent = text;
+    if (messageTimer) {
+        clearTimeout(messageTimer);
+        messageTimer = null;
+    }
+    msg.innerHTML = '';
+    const textEl = document.createElement('span');
+    textEl.className = 'message-text';
+    textEl.textContent = text;
+    msg.appendChild(textEl);
+    if (persistent) {
+        const okBtn = document.createElement('button');
+        okBtn.type = 'button';
+        okBtn.className = 'message-ok-btn';
+        okBtn.textContent = 'OK';
+        okBtn.addEventListener('click', () => msg.classList.remove('active'));
+        msg.appendChild(okBtn);
+    }
     msg.className = `message ${type} active`;
-    setTimeout(() => msg.classList.remove('active'), 5000);
+    if (!persistent) {
+        messageTimer = setTimeout(() => {
+            msg.classList.remove('active');
+            messageTimer = null;
+        }, 5000);
+    }
 }
 
 async function downloadCsv(kind) {
@@ -168,11 +191,11 @@ document.getElementById('company-csv-form').addEventListener('submit', async (e)
         const dbCount = data.db_counts && typeof data.db_counts.companies === 'number'
             ? data.db_counts.companies
             : 'unknown';
-        showMessage(`Companies CSV imported (${data.imported || 0} rows). DB companies count: ${dbCount}`);
+        showMessage(`Companies CSV imported (${data.imported || 0} rows). DB companies count: ${dbCount}`, 'success', { persistent: true });
         loadCompanies();
         loadCompaniesForDropdown();
     } catch (error) {
-        showMessage(`Companies CSV import failed: ${error.message}`, 'error');
+        showMessage(`Companies CSV import failed: ${error.message}`, 'error', { persistent: true });
     }
 });
 
@@ -283,15 +306,31 @@ document.getElementById('individual-csv-form').addEventListener('submit', async 
     try {
         const res = await apiFetch(`${API_URL}/individuals/csv`, { method: 'POST', body: formData, credentials: 'include' });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+        if (!res.ok) {
+            const st = data.status
+                ? ` [upload:${data.status.upload}, parse:${data.status.parse}, db:${data.status.db}]`
+                : '';
+            const cnt = data.db_counts && typeof data.db_counts.individuals === 'number'
+                ? ` [db individuals:${data.db_counts.individuals}]`
+                : '';
+            throw new Error((data.error || `HTTP ${res.status}`) + st + cnt);
+        }
         document.getElementById('individual-csv-file').value = '';
         const dbCount = data.db_counts && typeof data.db_counts.individuals === 'number'
             ? data.db_counts.individuals
             : 'unknown';
-        showMessage(`Individuals CSV imported (${data.imported || 0} rows). DB individuals count: ${dbCount}`);
+        const statusText = data.status
+            ? ` upload:${data.status.upload}, parse:${data.status.parse}, db:${data.status.db}`
+            : ' upload:ok, parse:ok, db:ok';
+        showMessage(
+            `Individuals CSV imported (${data.imported || 0} rows; uploaded:${data.uploaded_rows ?? 'n/a'}; parsed:${data.parsed_rows ?? 'n/a'}). ` +
+            `DB individuals count: ${dbCount}. Status:${statusText}`,
+            'success',
+            { persistent: true }
+        );
         loadIndividuals();
     } catch (error) {
-        showMessage(`Individuals CSV import failed: ${error.message}`, 'error');
+        showMessage(`Individuals CSV import failed: ${error.message}`, 'error', { persistent: true });
     }
 });
 

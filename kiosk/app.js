@@ -178,11 +178,10 @@ function displayCompanies(companies) {
         .slice()
         .sort((a, b) => a.name.localeCompare(b.name))
         .map(company => {
-            const isThisBuilding = String(company.building) === '4301' || String(company.building) === '4305' || String(company.building) === '4309';
             return `<div class="result-row">
                 <div class="result-name">${escapeHtml(company.name)}</div>
                 <div class="result-suite">${escapeHtml(company.suite)}</div>
-                <div class="result-building">${isThisBuilding ? 'This Bldg' : escapeHtml(company.building)}</div>
+                <div class="result-building">${escapeHtml(company.building)}</div>
             </div>`;
         });
 
@@ -205,11 +204,10 @@ function displayIndividuals(individuals) {
             return byLast !== 0 ? byLast : a.first_name.localeCompare(b.first_name);
         })
         .map(person => {
-            const isThisBuilding = String(person.building) === '4301' || String(person.building) === '4305' || String(person.building) === '4309';
             return `<div class="result-row">
                 <div class="result-name">${escapeHtml(person.last_name)}, ${escapeHtml(person.first_name)}</div>
                 <div class="result-suite">${escapeHtml(person.suite)}</div>
-                <div class="result-building">${isThisBuilding ? 'This Bldg' : escapeHtml(person.building)}</div>
+                <div class="result-building">${escapeHtml(person.building)}</div>
             </div>`;
         });
 

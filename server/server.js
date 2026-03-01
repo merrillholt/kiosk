@@ -678,26 +678,54 @@ app.get('/api/individuals/csv', (req, res) => {
 
 // Individuals CSV import (replaces all individuals)
 app.post('/api/individuals/csv', (req, res) => {
+    const sendIndividualsImportError = (httpStatus, error, stage, meta = {}) => {
+        db.get('SELECT COUNT(*) AS count FROM individuals', [], (countErr, countRow) => {
+            return res.status(httpStatus).json({
+                success: false,
+                error,
+                status: {
+                    upload: stage === 'upload' ? 'failed' : 'ok',
+                    parse: stage === 'parse' ? 'failed' : (stage === 'upload' ? 'not_run' : 'ok'),
+                    db: stage === 'db' ? 'failed' : (stage === 'upload' || stage === 'parse' ? 'not_run' : 'ok')
+                },
+                uploaded_rows: typeof meta.uploaded_rows === 'number' ? meta.uploaded_rows : 0,
+                parsed_rows: typeof meta.parsed_rows === 'number' ? meta.parsed_rows : 0,
+                db_counts: { individuals: countErr ? null : (countRow ? countRow.count : 0) }
+            });
+        });
+    };
+
     csvUpload.single('file')(req, res, (uploadErr) => {
-        if (uploadErr) return res.status(400).json({ error: uploadErr.message });
-        if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+        if (uploadErr) return sendIndividualsImportError(400, uploadErr.message, 'upload');
+        if (!req.file) return sendIndividualsImportError(400, 'No file uploaded', 'upload');
 
         fs.readFile(req.file.path, 'utf8', (readErr, data) => {
             fs.unlink(req.file.path, () => {});
-            if (readErr) return res.status(400).json({ error: 'Could not read uploaded CSV file' });
+            if (readErr) return sendIndividualsImportError(400, 'Could not read uploaded CSV file', 'upload');
 
             const { headers, records } = parseCsvText(data);
             const map = headerIndexMap(headers);
             const required = ['first_name', 'last_name', 'building', 'suite'];
             const missing = required.filter(h => !map.has(h));
             if (missing.length) {
-                return res.status(400).json({ error: `Missing required CSV column(s): ${missing.join(', ')}` });
+                return sendIndividualsImportError(
+                    400,
+                    `Missing required CSV column(s): ${missing.join(', ')}`,
+                    'parse',
+                    { uploaded_rows: records.length, parsed_rows: 0 }
+                );
             }
 
             db.all('SELECT id, name FROM companies', [], (companiesErr, companyRows) => {
-                if (companiesErr) return res.status(500).json({ error: companiesErr.message });
+                if (companiesErr) {
+                    return sendIndividualsImportError(
+                        500,
+                        companiesErr.message,
+                        'db',
+                        { uploaded_rows: records.length, parsed_rows: 0 }
+                    );
+                }
                 const companyByName = new Map(companyRows.map(c => [String(c.name || '').trim().toLowerCase(), c.id]));
-
                 const parsed = [];
                 for (let i = 0; i < records.length; i++) {
                     const row = records[i];
@@ -711,20 +739,35 @@ app.post('/api/individuals/csv', (req, res) => {
                     const companyNameText = cell(row, map, 'company_name').toLowerCase();
 
                     if (!first_name || !last_name || !building || !suite) {
-                        return res.status(400).json({ error: `Row ${i + 2}: first_name, last_name, building, and suite are required` });
+                        return sendIndividualsImportError(
+                            400,
+                            `Row ${i + 2}: first_name, last_name, building, and suite are required`,
+                            'parse',
+                            { uploaded_rows: records.length, parsed_rows: parsed.length }
+                        );
                     }
 
                     let company_id = null;
                     if (companyIdText) {
                         const parsedId = Number.parseInt(companyIdText, 10);
                         if (!Number.isInteger(parsedId) || parsedId <= 0) {
-                            return res.status(400).json({ error: `Row ${i + 2}: invalid company_id "${companyIdText}"` });
+                            return sendIndividualsImportError(
+                                400,
+                                `Row ${i + 2}: invalid company_id "${companyIdText}"`,
+                                'parse',
+                                { uploaded_rows: records.length, parsed_rows: parsed.length }
+                            );
                         }
                         company_id = parsedId;
                     } else if (companyNameText) {
                         const resolved = companyByName.get(companyNameText);
                         if (!resolved) {
-                            return res.status(400).json({ error: `Row ${i + 2}: unknown company_name "${cell(row, map, 'company_name')}"` });
+                            return sendIndividualsImportError(
+                                400,
+                                `Row ${i + 2}: unknown company_name "${cell(row, map, 'company_name')}"`,
+                                'parse',
+                                { uploaded_rows: records.length, parsed_rows: parsed.length }
+                            );
                         }
                         company_id = resolved;
                     }
@@ -737,7 +780,12 @@ app.post('/api/individuals/csv', (req, res) => {
                     db.run('DELETE FROM individuals', (delErr) => {
                         if (delErr) {
                             db.run('ROLLBACK');
-                            return res.status(500).json({ error: delErr.message });
+                            return sendIndividualsImportError(
+                                500,
+                                delErr.message,
+                                'db',
+                                { uploaded_rows: records.length, parsed_rows: parsed.length }
+                            );
                         }
 
                         const stmt = db.prepare(
@@ -753,16 +801,38 @@ app.post('/api/individuals/csv', (req, res) => {
                         stmt.finalize((finalizeErr) => {
                             if (rowErr || finalizeErr) {
                                 db.run('ROLLBACK');
-                                return res.status(500).json({ error: (rowErr || finalizeErr).message });
+                                return sendIndividualsImportError(
+                                    500,
+                                    (rowErr || finalizeErr).message,
+                                    'db',
+                                    { uploaded_rows: records.length, parsed_rows: parsed.length }
+                                );
                             }
                             db.run('COMMIT', (commitErr) => {
-                                if (commitErr) return res.status(500).json({ error: commitErr.message });
+                                if (commitErr) {
+                                    return sendIndividualsImportError(
+                                        500,
+                                        commitErr.message,
+                                        'db',
+                                        { uploaded_rows: records.length, parsed_rows: parsed.length }
+                                    );
+                                }
                                 incrementDataVersion();
                                 return db.get('SELECT COUNT(*) AS count FROM individuals', [], (countErr, countRow) => {
-                                    if (countErr) return res.status(500).json({ error: countErr.message });
+                                    if (countErr) {
+                                        return sendIndividualsImportError(
+                                            500,
+                                            countErr.message,
+                                            'db',
+                                            { uploaded_rows: records.length, parsed_rows: parsed.length }
+                                        );
+                                    }
                                     return res.json({
                                         success: true,
                                         imported: parsed.length,
+                                        status: { upload: 'ok', parse: 'ok', db: 'ok' },
+                                        uploaded_rows: records.length,
+                                        parsed_rows: parsed.length,
                                         db_counts: { individuals: countRow ? countRow.count : 0 }
                                     });
                                 });
