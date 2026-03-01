@@ -16,10 +16,12 @@ cage -d -- sh -c '
     --kiosk \
     --noerrdialogs \
     --disable-infobars \
+    --disable-notifications \
+    --deny-permission-prompts \
     --disable-session-crashed-bubble \
     --disable-pinch \
     --overscroll-history-navigation=0 \
-    --disable-features=TranslateUI \
+    --disable-features=TranslateUI,NotificationTriggers \
     --check-for-update-interval=31536000 \
     --no-first-run \
     --disable-restore-session-state \

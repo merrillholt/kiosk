@@ -14,6 +14,11 @@ if [[ "$(tty 2>/dev/null)" == "/dev/tty1" ]]; then
         rm -f /tmp/kiosk-exit
         "$HOME/building-directory/scripts/start-kiosk.sh"
         if [[ -f /tmp/kiosk-exit ]]; then
+            # Start XFCE as an X11 session (not Wayland) when exiting kiosk.
+            unset WAYLAND_DISPLAY
+            export XDG_SESSION_TYPE=x11
+            export DESKTOP_SESSION=xfce
+
             # overlayroot mounts / as ro; redirect all XFCE/Xorg state to /tmp.
             export XAUTHORITY=/tmp/.Xauthority
             export ICEAUTHORITY=/tmp/.ICEauthority

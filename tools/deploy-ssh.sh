@@ -1,0 +1,192 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SRC_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+HOST="${HOST:-kiosk@192.168.1.80}"
+DEPLOY_ROOT="${DEPLOY_ROOT:-/home/kiosk/building-directory}"
+SERVER_MANIFEST="$SRC_ROOT/manifest/deploy-server-files.txt"
+FULL_MANIFEST="$SRC_ROOT/manifest/install-files.txt"
+MANIFEST="${MANIFEST:-$SERVER_MANIFEST}"
+DRY_RUN=0
+FULL=0
+NO_RESTART=0
+WITH_DB=0
+DB_SOURCE="${DB_SOURCE:-}"
+
+usage() {
+  cat <<USAGE
+Usage: tools/deploy-ssh.sh [options]
+
+Deploy canonical files from Public-Kiosk to a remote server host over SSH.
+Default profile deploys server-only files; use --full for server+kiosk+scripts.
+
+Options:
+  -H, --host <user@ip>   Remote SSH target (default: kiosk@192.168.1.80)
+  -n, --dry-run          Preview actions without modifying remote host
+  -f, --full             Deploy full manifest (server + kiosk + scripts)
+      --no-restart       Skip remote service restart and health checks
+      --with-db          Also copy a SQLite DB file to remote server/directory.db
+      --db-source <path> SQLite DB source path for --with-db
+  -h, --help             Show this help
+
+Environment:
+  HOST                   Same as --host
+  DEPLOY_ROOT            Remote deploy root (default: /home/kiosk/building-directory)
+  MANIFEST               Override manifest path (default: deploy-server-files.txt)
+  DB_SOURCE              Same as --db-source
+USAGE
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -H|--host)
+      HOST="${2:-}"
+      shift 2
+      ;;
+    -n|--dry-run)
+      DRY_RUN=1
+      shift
+      ;;
+    -f|--full)
+      FULL=1
+      shift
+      ;;
+    --no-restart)
+      NO_RESTART=1
+      shift
+      ;;
+    --with-db)
+      WITH_DB=1
+      shift
+      ;;
+    --db-source)
+      DB_SOURCE="${2:-}"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      usage
+      exit 2
+      ;;
+  esac
+done
+
+if [[ -z "$HOST" ]]; then
+  echo "Host cannot be empty." >&2
+  exit 2
+fi
+
+if [[ "$FULL" -eq 1 ]]; then
+  MANIFEST="$FULL_MANIFEST"
+fi
+
+if [[ ! -d "$SRC_ROOT" ]]; then
+  echo "Missing source root: $SRC_ROOT" >&2
+  exit 1
+fi
+
+if [[ "$WITH_DB" -eq 1 && -z "$DB_SOURCE" ]]; then
+  echo "--with-db requires --db-source <path> (or DB_SOURCE env var)." >&2
+  exit 2
+fi
+if [[ "$WITH_DB" -eq 1 && ! -f "$DB_SOURCE" ]]; then
+  echo "DB source file not found: $DB_SOURCE" >&2
+  exit 1
+fi
+if [[ ! -f "$MANIFEST" ]]; then
+  echo "Missing manifest: $MANIFEST" >&2
+  exit 1
+fi
+
+TMP_MANIFEST="$(mktemp)"
+cleanup() { rm -f "$TMP_MANIFEST"; }
+trap cleanup EXIT
+
+awk '!/^\s*($|#)/ { print }' "$MANIFEST" > "$TMP_MANIFEST"
+
+echo "Deploy source: $SRC_ROOT"
+echo "Deploy target: $HOST:$DEPLOY_ROOT"
+[[ "$DRY_RUN" -eq 1 ]] && echo "Mode: dry-run"
+[[ "$FULL" -eq 1 ]] && echo "Profile: full" || echo "Profile: server-only"
+if [[ "$WITH_DB" -eq 1 ]]; then
+  echo "Database source: $DB_SOURCE"
+fi
+
+# Validate all source files exist before remote operations.
+missing=0
+while IFS= read -r rel; do
+  [[ -e "$SRC_ROOT/$rel" ]] || { echo "Missing source file: $rel" >&2; missing=1; }
+done < "$TMP_MANIFEST"
+if [[ "$missing" -ne 0 ]]; then
+  echo "Aborting: missing source files." >&2
+  exit 1
+fi
+
+RSYNC_ARGS=(-az --delete --files-from="$TMP_MANIFEST")
+if [[ "$DRY_RUN" -eq 1 ]]; then
+  RSYNC_ARGS+=(-n -v)
+fi
+
+echo "==> Syncing manifest files..."
+rsync "${RSYNC_ARGS[@]}" "$SRC_ROOT/" "$HOST:$DEPLOY_ROOT/"
+
+if [[ "$WITH_DB" -eq 1 ]]; then
+  echo "==> Deploying database file..."
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    echo "[dry-run] Would copy $DB_SOURCE -> $HOST:$DEPLOY_ROOT/server/directory.db (with service stop/start)"
+  else
+    scp "$DB_SOURCE" "$HOST:/tmp/directory.db.new"
+    ssh "$HOST" "set -e; sudo -n systemctl stop directory-server; cp /tmp/directory.db.new '$DEPLOY_ROOT/server/directory.db'; rm -f /tmp/directory.db.new; sudo -n systemctl start directory-server"
+  fi
+fi
+
+if [[ "$DRY_RUN" -eq 1 ]]; then
+  echo "==> [dry-run] Remote npm install/restart/health checks skipped."
+  echo "Remote deploy preview complete."
+  exit 0
+fi
+
+echo "==> Installing production dependencies on remote..."
+ssh "$HOST" "if [[ -f '$DEPLOY_ROOT/server/package-lock.json' ]]; then npm ci --omit=dev --no-audit --no-fund --loglevel=error --prefix '$DEPLOY_ROOT/server'; else npm install --omit=dev --no-audit --no-fund --loglevel=error --prefix '$DEPLOY_ROOT/server'; fi"
+
+echo "==> Installing persist-upload helper on remote..."
+ssh "$HOST" "sudo -n install -m 755 '$DEPLOY_ROOT/server/persist-upload.sh' /usr/local/bin/persist-upload.sh"
+
+if [[ "$NO_RESTART" -eq 1 ]]; then
+  echo "==> --no-restart set; skipping service restart and health checks."
+  echo "Remote deploy complete."
+  exit 0
+fi
+
+echo "==> Restarting remote service..."
+if ssh "$HOST" "command -v systemctl >/dev/null 2>&1 && (test -f /etc/systemd/system/directory-server.service || test -f /lib/systemd/system/directory-server.service)"; then
+  if ! ssh "$HOST" "sudo -n systemctl restart directory-server"; then
+    echo "WARN: non-interactive restart failed. Run on remote host:" >&2
+    echo "  sudo systemctl restart directory-server" >&2
+    exit 1
+  fi
+else
+  echo "WARN: directory-server systemd service not found on remote host." >&2
+  echo "Manual restart may be required." >&2
+  exit 1
+fi
+
+echo "==> Running remote health checks..."
+ssh "$HOST" "bash -lc '
+for i in {1..20}; do
+  curl -fsS http://127.0.0.1:3000/api/auth/me >/dev/null 2>&1 &&
+  curl -fsS http://127.0.0.1:3000/api/data-version >/dev/null 2>&1 &&
+  exit 0
+  sleep 1
+done
+echo \"Health checks did not pass within timeout\" >&2
+exit 1
+'"
+
+echo "Remote deploy complete."

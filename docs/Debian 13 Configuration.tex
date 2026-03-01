@@ -10,7 +10,7 @@
 \setlength{\parindent}{0pt}
 \setlength{\parskip}{1ex}
 
-\title{Debian 13 Kiosk Client Configuration Guide}
+\title{Debian 13 Building Directory Deployment Guide\\Current Model + Future Roadmap}
 \author{}
 \date{\today}
 
@@ -20,21 +20,44 @@
 
 \section*{Purpose}
 
-This document defines the standardized \textbf{client kiosk} installation and configuration procedure for Debian 13 (Trixie) display systems.
+This document defines the standardized deployment model for Debian 13 (Trixie) building directory systems.
 
-It is intentionally client-scoped and covers:
+It covers:
 
 \begin{itemize}
+\item Current implemented server/client deployment model
 \item Overlayroot read-only root filesystem
 \item Autologin kiosk environment (no display manager)
 \item Cage + Chromium Wayland kiosk runtime
 \item XFCE administrative fallback on USB keyboard insertion
+\item Day-2 deployment and operations entry points
 \end{itemize}
 
-\textbf{Server operations are documented separately in:}
+\section{Current Deployment Model (Implemented)}
+
+\subsection{Server Runtime Model}
+
 \begin{itemize}
-\item \texttt{docs/09-server-operations.md}
+\item Service name: \texttt{directory-server}
+\item Service managed by systemd (unit created by installer)
+\item Primary app path: \texttt{/home/<install-user>/building-directory}
+\item Node server entrypoint: \texttt{server/server.js}
+\end{itemize}
+
+\subsection{Deployment Paths in Use}
+
+\begin{itemize}
+\item \textbf{Local dev == deployed machine}: \texttt{tools/deploy-local.sh}
+\item \textbf{Server-to-kiosk script deploy}: Admin Deploy tab (or \texttt{server/kiosk-deploy.sh})
+\item \textbf{Full remote deployment workflow}: \texttt{building-directory-install/deploy.sh}
+\end{itemize}
+
+\subsection{Operations References}
+
+\begin{itemize}
 \item \texttt{docs/08-packaging-and-deploy.md}
+\item \texttt{docs/09-server-operations.md}
+\item \texttt{building-directory-install/DEVELOPMENT.md}
 \end{itemize}
 
 \section{Client System Architecture}
@@ -54,6 +77,7 @@ Example:
 \begin{itemize}
 \item Display node: 192.168.1.80
 \item Central server: 192.168.1.131
+\item Kiosk URL usually served from \texttt{http://<server-ip>/} (port 80 via nginx), with \texttt{:3000} used in some development deployments
 \end{itemize}
 
 \section{Debian 13 Base Installation}
@@ -85,6 +109,8 @@ sudo apt install \
   xfce4 xserver-xorg xserver-xorg-input-libinput \
   overlayroot curl vim
 \end{lstlisting}
+
+\textbf{Note:} The canonical package set for production install is maintained by \texttt{building-directory-install/install.sh}. Use that script as source of truth.
 
 \section{Overlayroot Configuration}
 
@@ -156,6 +182,9 @@ if [[ "$(tty 2>/dev/null)" == "/dev/tty1" ]]; then
         /home/kiosk/building-directory/scripts/start-kiosk.sh
 
         if [[ -f /tmp/kiosk-exit ]]; then
+            unset WAYLAND_DISPLAY
+            export XDG_SESSION_TYPE=x11
+            export DESKTOP_SESSION=xfce
             export XAUTHORITY=/tmp/.Xauthority
             export ICEAUTHORITY=/tmp/.ICEauthority
             export XDG_CONFIG_HOME=/tmp/xfce4-config
@@ -217,6 +246,17 @@ Udev rule detects keyboard insertion and triggers:
 
 On XFCE logout, kiosk restarts automatically.
 
+\section{Power Button Behavior}
+
+Power-button behavior is managed by:
+\begin{itemize}
+\item \texttt{/etc/systemd/logind.conf.d/80-kiosk-power-button.conf}
+\item \texttt{HandlePowerKey=poweroff}
+\item \texttt{HandlePowerKeyLongPress=poweroff}
+\end{itemize}
+
+This file is deployed by current kiosk deploy/install scripts.
+
 \section{Client Verification Checklist}
 
 \begin{itemize}
@@ -235,5 +275,18 @@ On XFCE logout, kiosk restarts automatically.
 \item systemd + tty1 loop handle restart behavior
 \item overlayroot protects client filesystem
 \end{itemize}
+
+\section{Future Architecture (Not Yet Implemented)}
+
+The following is a planned enhancement and is \textbf{not} the current production model:
+
+\begin{itemize}
+\item Release directories under \texttt{/srv/building-directory/releases/<timestamp>}
+\item Symlink-based atomic switch: \texttt{current -> releases/<timestamp>}
+\item Dedicated future service name (example: \texttt{building-directory.service})
+\item Optional rsync-based push pipeline with rollback by symlink reversal
+\end{itemize}
+
+\textbf{Important:} Do not use this future model for current operations until deployment scripts and service units are explicitly migrated.
 
 \end{document}

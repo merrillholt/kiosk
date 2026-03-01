@@ -87,6 +87,33 @@ async function downloadCsv(kind) {
     }
 }
 
+async function downloadBackup() {
+    try {
+        const res = await apiFetch(`${API_URL}/backup.txt`);
+        if (!res.ok) {
+            let message = `HTTP ${res.status}`;
+            try {
+                const data = await res.json();
+                if (data && data.error) message = data.error;
+            } catch (e) {}
+            throw new Error(message);
+        }
+
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'directory-backup.txt';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+        showMessage('Text backup downloaded');
+    } catch (error) {
+        showMessage(`Text backup download failed: ${error.message}`, 'error', { persistent: true });
+    }
+}
+
 function renderCompanies(companies) {
     document.getElementById('companies-list').innerHTML = companies.map(c => `
         <tr>
@@ -337,7 +364,11 @@ document.getElementById('individual-csv-form').addEventListener('submit', async 
 async function loadBuildingInfo() {
     try {
         const response = await apiFetch(`${API_URL}/building-info`);
-        const content = await response.json();
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const payload = await response.json();
+        const content = typeof payload === 'string'
+            ? payload
+            : (payload && typeof payload.content === 'string' ? payload.content : '');
         document.getElementById('building-info-content').value = content;
     } catch (error) { showMessage('Failed to load', 'error'); }
 }
@@ -427,11 +458,18 @@ document.getElementById('background-form').addEventListener('submit', async (e) 
     formData.append('image', file);
     try {
         const res = await apiFetch(`${API_URL}/background-image`, { method: 'POST', body: formData });
-        if (!res.ok) throw new Error(res.status);
+        if (!res.ok) {
+            let message = `HTTP ${res.status}`;
+            try {
+                const data = await res.json();
+                if (data && data.error) message = data.error;
+            } catch (e) {}
+            throw new Error(message);
+        }
         showMessage('Image uploaded and set as background');
         document.getElementById('bg-file').value = '';
         loadBackgroundImage();
-    } catch (error) { showMessage('Failed to upload image', 'error'); }
+    } catch (error) { showMessage(`Failed to upload image: ${error.message}`, 'error', { persistent: true }); }
 });
 
 async function loadDeployTab() {
@@ -539,6 +577,7 @@ window.addEventListener('DOMContentLoaded', () => {
 });
 
 window.downloadCsv = downloadCsv;
+window.downloadSqlBackup = downloadBackup;
 
 function setupAuthUi() {
     const loginForm = document.getElementById('auth-form');
@@ -569,7 +608,7 @@ function setupAuthUi() {
         authToken = '';
         isAuthenticated = false;
         setAuthState(false);
-        showMessage('Logged out');
+        window.location.href = '/';
     });
     setAuthState(false);
 }

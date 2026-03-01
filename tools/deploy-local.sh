@@ -104,12 +104,25 @@ fi
 
 # 2) Ensure production dependencies are installed.
 if [[ -f "$DEPLOY_ROOT/server/package-lock.json" ]]; then
-  run_cmd npm ci --omit=dev --prefix "$DEPLOY_ROOT/server"
+  run_cmd npm ci --omit=dev --no-audit --no-fund --loglevel=error --prefix "$DEPLOY_ROOT/server"
 else
-  run_cmd npm install --omit=dev --prefix "$DEPLOY_ROOT/server"
+  run_cmd npm install --omit=dev --no-audit --no-fund --loglevel=error --prefix "$DEPLOY_ROOT/server"
 fi
 
-# 3) Manual restart instruction (no sudo execution in deploy script).
+# 3) Ensure persist-upload helper is installed when non-interactive sudo is available.
+if [[ "$DRY_RUN" -eq 1 ]]; then
+  echo "[dry-run] Would install $DEPLOY_ROOT/server/persist-upload.sh to /usr/local/bin/persist-upload.sh"
+else
+  if command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+    sudo -n install -m 755 "$DEPLOY_ROOT/server/persist-upload.sh" /usr/local/bin/persist-upload.sh
+    echo "Installed helper: /usr/local/bin/persist-upload.sh"
+  else
+    echo "Manual step required:"
+    echo "  sudo install -m 755 $DEPLOY_ROOT/server/persist-upload.sh /usr/local/bin/persist-upload.sh"
+  fi
+fi
+
+# 4) Manual restart instruction (no sudo execution in deploy script).
 if command -v systemctl >/dev/null 2>&1 && [[ -f /etc/systemd/system/directory-server.service || -f /lib/systemd/system/directory-server.service ]]; then
   echo "Manual restart required:"
   echo "  sudo systemctl restart directory-server"
@@ -118,7 +131,7 @@ else
   echo "  $DEPLOY_ROOT/scripts/restart-server.sh"
 fi
 
-# 4) Health checks (skip in dry-run).
+# 5) Health checks (skip in dry-run).
 if [[ "$DRY_RUN" -eq 0 ]]; then
   sleep 2
   curl -fsS http://127.0.0.1:3000/api/auth/me > /dev/null

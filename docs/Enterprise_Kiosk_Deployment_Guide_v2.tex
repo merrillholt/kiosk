@@ -1,0 +1,658 @@
+\documentclass[11pt,letterpaper]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath, amssymb}
+\usepackage{tikz}
+\usepackage{enumitem}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{1ex}
+
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{longtable}
+
+\title{Enterprise Building Directory Kiosk Deployment Manual\\Debian 13 (Trixie)}
+\author{}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\section{Purpose}
+
+This document defines the enterprise deployment, hardware configuration, and long-term maintenance procedures for the Debian 13 building directory kiosk fleet.
+
+Scope includes:
+
+\begin{itemize}
+\item Initial hardware provisioning
+\item BIOS hardening
+\item Debian 13 installation
+\item Read-only resilient kiosk configuration
+\item Development vs production server placement
+\item Multi-kiosk fleet deployment
+\item Recovery and maintenance procedures
+\end{itemize}
+
+Audience: IT administrators and facilities technology staff.
+
+\subsection{Current-vs-Future Scope}
+
+\begin{itemize}
+\item This guide's operational commands target the \textbf{current implemented model}.
+\item Any future architecture items are explicitly marked as planned/non-implemented.
+\item If a future section conflicts with current scripts, follow current scripts.
+\end{itemize}
+
+\section{Hardware Platform}
+
+\subsection{Primary Platform: Qotom Q305P}
+
+Model: Qotom Q305P Mini Desktop PC  
+CPU: Intel 3205U  
+RAM: 4GB  
+Storage: 32GB SSD  
+Cooling: Fanless  
+Ports: HDMI, VGA, multiple USB, dual NIC, COM  
+
+\subsection{Rationale for Selection}
+
+\begin{itemize}
+\item Fanless for 24/7 public display reliability
+\item Low power draw (<15W typical)
+\item No moving parts
+\item Dual NIC (future VLAN segmentation possible)
+\item Compact mounting behind display
+\item Proven Linux compatibility
+\end{itemize}
+
+\subsection{Minimum Hardware Requirements}
+
+\begin{longtable}{p{3in} p{2in}}
+CPU & Dual core x86\_64 \\ 
+RAM & 4GB minimum (8GB recommended future) \\ 
+Storage & 32GB SSD minimum \\ 
+GPU & Integrated Intel supported by Debian \\ 
+Network & Gigabit Ethernet \\ 
+\end{longtable}
+
+\subsection{Recommended Future Hardware}
+
+For next refresh cycle:
+
+\begin{itemize}
+\item Intel N100 or N305 fanless mini PC
+\item 8GB RAM
+\item 128GB SSD
+\item Dual HDMI
+\item TPM optional
+\item Passive cooling only
+\end{itemize}
+
+\section{BIOS Configuration (AMI v5.010)}
+
+Enter BIOS: press DEL at boot.
+
+\subsection{Boot}
+
+\begin{longtable}{p{3in} p{2in}}
+Boot Mode & UEFI \\
+Secure Boot & Disabled \\
+Fast Boot & Disabled \\
+Boot from USB & Disabled (production) \\
+PXE Boot & Disabled \\
+Boot order & Internal SSD only \\
+\end{longtable}
+
+\subsection{Power}
+
+\begin{longtable}{p{3in} p{2in}}
+Restore after AC loss & Power On \\
+ErP & Disabled \\
+Wake timers & Disabled \\
+Sleep states & Disabled \\
+\end{longtable}
+
+\subsection{Security}
+
+\begin{longtable}{p{3in} p{2in}}
+Admin password & Set and documented \\
+External boot & Disabled \\
+TPM & Disabled unless required \\
+\end{longtable}
+
+\section{Debian 13 Installation}
+
+Install Debian 13 minimal.
+
+Select only:
+\begin{itemize}
+\item Standard system utilities
+\item SSH server
+\end{itemize}
+
+Create user:
+\begin{lstlisting}
+kiosk
+\end{lstlisting}
+
+\section{Base Packages}
+
+\begin{lstlisting}[language=bash]
+sudo apt update
+sudo apt install \
+xorg xfce4 \
+chromium cage wlr-randr \
+overlayroot curl vim
+\end{lstlisting}
+
+\textbf{Note:} Canonical package installation and system setup are defined by:
+\begin{itemize}
+\item \texttt{building-directory-install/install.sh}
+\item \texttt{building-directory-install/deploy.sh}
+\end{itemize}
+
+\section{Read-Only Resilience Configuration}
+
+\subsection{overlayroot}
+
+\begin{lstlisting}[language=bash]
+sudo vi /etc/overlayroot.conf
+\end{lstlisting}
+
+Set:
+\begin{lstlisting}
+overlayroot="tmpfs"
+\end{lstlisting}
+
+Reboot and verify:
+\begin{lstlisting}[language=bash]
+mount | grep overlayroot
+\end{lstlisting}
+
+\section{Maintenance Boot Mode}
+
+Add GRUB entry:
+
+\begin{lstlisting}
+menuentry "MAINTENANCE MODE (RW)" {
+ linux /vmlinuz root=/dev/sda2 ro overlayroot=disabled
+ initrd /initrd.img
+}
+\end{lstlisting}
+
+\begin{lstlisting}[language=bash]
+sudo update-grub
+\end{lstlisting}
+
+\section{Autologin and Kiosk Launch}
+
+Disable GUI manager:
+
+\begin{lstlisting}[language=bash]
+sudo systemctl disable lightdm --now
+sudo systemctl set-default multi-user.target
+\end{lstlisting}
+
+TTY autologin:
+
+\begin{lstlisting}
+[Service]
+ExecStart=
+ExecStart=-/sbin/agetty --autologin kiosk --noclear %I $TERM
+Type=simple
+\end{lstlisting}
+
+\section{Chromium Kiosk Launch}
+
+\begin{lstlisting}[language=bash]
+#!/bin/bash
+SERVER_URL="http://localhost"
+
+exec cage -d -- sh -c '
+exec chromium \
+--ozone-platform=wayland \
+--kiosk \
+--no-first-run \
+--disable-session-crashed-bubble \
+--disable-infobars \
+--disable-translate \
+'"$SERVER_URL"'
+\end{lstlisting}
+
+\section{Keyboard Maintenance Mode}
+
+When USB keyboard inserted:
+
+\begin{itemize}
+\item kiosk exits
+\item XFCE launches
+\item Admin performs maintenance
+\item Logout returns to kiosk
+\end{itemize}
+
+All XFCE state redirected to /tmp.
+
+\section{Server Placement Strategy}
+
+\subsection{Development Mode}
+
+Server on development workstation:
+\begin{lstlisting}
+http://192.168.1.131/
+http://192.168.1.131/admin
+\end{lstlisting}
+
+Local API health checks may still use localhost port 3000:
+\begin{lstlisting}[language=bash]
+curl -fsS http://127.0.0.1:3000/api/data-version
+\end{lstlisting}
+
+\subsection{Production Mode}
+
+Server hosted on one kiosk node:
+\begin{lstlisting}
+http://192.168.1.80/
+http://192.168.1.80/admin
+\end{lstlisting}
+
+Other kiosks connect via LAN.
+
+\subsection{Do Not Host Server On All Displays}
+
+One server only.
+
+Reason:
+\begin{itemize}
+\item Prevent data divergence
+\item Simplify updates
+\item Easier backup
+\end{itemize}
+
+\section{Current Runtime and Operations Model (Implemented)}
+
+\subsection{Server Runtime}
+
+\begin{itemize}
+\item Current systemd service name: \texttt{directory-server}
+\item Server path: \texttt{/home/kiosk/building-directory/server}
+\item App entrypoint: \texttt{server.js}
+\item nginx is required for standard port-80 access to \texttt{/} and \texttt{/admin}
+\item Environment is managed by installer and service overrides (if needed)
+\end{itemize}
+
+\subsection{Nginx Prerequisite Note}
+
+When static files are served from \texttt{/home/kiosk/building-directory/...}, nginx must be able to traverse \texttt{/home/kiosk}:
+\begin{lstlisting}[language=bash]
+sudo chmod 711 /home/kiosk
+\end{lstlisting}
+
+This preserves home privacy while allowing nginx path traversal.
+
+\subsection{Kiosk Client Runtime}
+
+\begin{itemize}
+\item Kiosk loop launches \texttt{cage + chromium} from tty1 autologin
+\item USB keyboard insertion exits kiosk and starts XFCE fallback
+\item Kiosk system scripts are updated via server-side deploy workflow
+\end{itemize}
+
+\subsection{Current Day-2 Deployment Flows}
+
+\begin{itemize}
+\item \textbf{Dev machine == deployed server:} use \texttt{tools/deploy-local.sh}
+\item \textbf{Deploy server code to target machine:} use \texttt{building-directory-install/deploy.sh}
+\item \textbf{Deploy kiosk system scripts to display clients:}
+  use Admin Deploy tab (\texttt{POST /api/kiosks/:id/deploy}) or \texttt{server/kiosk-deploy.sh}
+\end{itemize}
+
+\subsection{Current Health/Verification Commands}
+
+\begin{lstlisting}[language=bash]
+sudo systemctl status directory-server
+sudo systemctl restart directory-server
+curl -fsS http://127.0.0.1:3000/api/data-version
+\end{lstlisting}
+
+\section{Firewall Rules}
+
+Server system:
+
+\begin{lstlisting}[language=bash]
+sudo ufw allow 22
+sudo ufw allow from 192.168.1.0/24 to any port 80
+# Optional (only if direct Node access is intentionally required):
+# sudo ufw allow from 192.168.1.0/24 to any port 3000
+sudo ufw enable
+\end{lstlisting}
+
+Best practice: keep port 3000 internal and serve kiosk/admin traffic through nginx on port 80.
+
+\section{Fleet Deployment Plan}
+
+Clone master image after validation.
+
+Steps:
+
+\begin{enumerate}
+\item Install first kiosk fully
+\item Validate power-loss recovery
+\item Validate overlayroot
+\item Clone disk to other units
+\item Assign static IPs
+\item Update hostname
+\end{enumerate}
+
+\section{Operational Validation}
+
+\begin{enumerate}
+\item Cold boot → kiosk auto starts
+\item Power loss recovery works
+\item Chromium launches full screen
+\item Server reachable
+\item Keyboard triggers admin mode
+\item Logout returns to kiosk
+\end{enumerate}
+
+\section{Failure Recovery}
+
+\subsection{If kiosk frozen}
+
+Power cycle.
+
+\subsection{If corrupted config}
+
+Boot maintenance mode.
+
+\subsection{If server unreachable}
+
+Check:
+\begin{itemize}
+\item network link
+\item firewall
+\item node server running
+\end{itemize}
+
+\section{Change Control and Deployment Best Practices}
+
+\subsection{Source of Truth and Promotion}
+
+\begin{itemize}
+\item Develop and review in \texttt{Public-Kiosk}.
+\item Promote to deployed environment only via documented deploy scripts.
+\item Avoid manual file edits on production nodes outside maintenance mode.
+\end{itemize}
+
+\subsection{Pre-Deployment Checklist}
+
+\begin{enumerate}
+\item Confirm target environment (dev vs production)
+\item Confirm current git commit and pending local changes
+\item Run dry-run where supported:
+\begin{lstlisting}[language=bash]
+tools/deploy-local.sh --dry-run
+\end{lstlisting}
+\item Verify required service account access (SSH keys, sudo rules)
+\item Confirm backup/restore path is available
+\end{enumerate}
+
+\subsection{Post-Deployment Checklist}
+
+\begin{enumerate}
+\item Service active:
+\begin{lstlisting}[language=bash]
+systemctl is-active directory-server
+\end{lstlisting}
+\item API health:
+\begin{lstlisting}[language=bash]
+curl -fsS http://127.0.0.1:3000/api/data-version
+\end{lstlisting}
+\item UI checks: kiosk main screen, company/individual search, building info
+\item Admin checks: login, CSV upload/download, deploy tab
+\item Kiosk checks: keyboard maintenance flow and return to kiosk
+\end{enumerate}
+
+\subsection{Rollback (Current Model)}
+
+\begin{enumerate}
+\item Revert source to known-good commit/tag
+\item Re-run deploy script (\texttt{tools/deploy-local.sh} or target deploy workflow)
+\item Restart service:
+\begin{lstlisting}[language=bash]
+sudo systemctl restart directory-server
+\end{lstlisting}
+\item Re-run health and UI validation checks
+\end{enumerate}
+
+\subsection{Overlayroot/Maintenance Mode Note}
+
+Kiosk script deploys are designed for normal overlayroot runtime.  
+If a kiosk is booted with \texttt{overlayroot=disabled} (maintenance mode), standard overlayroot-chroot deploy helpers may fail and direct filesystem updates may be required.
+
+\subsection{Backup and Restore Practice}
+
+\begin{itemize}
+\item Capture regular backups before major deploys.
+\item Verify restore procedure periodically.
+\item Keep at least one known-good backup off-device.
+\end{itemize}
+
+
+\section{Current Update System (Admin Workstation and Server Deploy)}
+
+This section documents the update process that is currently implemented in the repository and deployment environment.
+
+\subsection{Design Goals}
+
+\begin{itemize}
+\item Updates are initiated from development/admin machine workflows
+\item One server node remains the data source for all displays
+\item Display nodes auto-consume client UI updates from the server
+\item Kiosk machine script updates are pushed explicitly via SSH deploy
+\end{itemize}
+
+\subsection{Implemented Components}
+
+\begin{itemize}
+\item Local deploy script: \texttt{tools/deploy-local.sh}
+\item Remote SSH deploy script: \texttt{tools/deploy-ssh.sh}
+\item Remote/full deploy script: \texttt{building-directory-install/deploy.sh}
+\item Kiosk script deploy script: \texttt{server/kiosk-deploy.sh}
+\item Admin UI deploy endpoints:
+\begin{itemize}
+\item \texttt{GET /api/kiosks}
+\item \texttt{GET /api/kiosks/deploy-pubkey}
+\item \texttt{POST /api/kiosks/:id/deploy}
+\end{itemize}
+\end{itemize}
+
+\subsection{Typical Current Workflow}
+
+\begin{enumerate}
+\item Make and verify changes in \texttt{Public-Kiosk}
+\item For remote server nodes, preview and deploy:
+\begin{lstlisting}[language=bash]
+tools/deploy-ssh.sh --dry-run --host kiosk@192.168.1.80
+tools/deploy-ssh.sh --host kiosk@192.168.1.80
+# Optional data promotion:
+tools/deploy-ssh.sh --host kiosk@192.168.1.80 \
+  --with-db --db-source /home/security/building-directory/server/directory.db
+\end{lstlisting}
+\item Ensure \texttt{rsync} is installed on both source and target hosts:
+\begin{lstlisting}[language=bash]
+sudo apt-get update && sudo apt-get install -y rsync
+\end{lstlisting}
+\item Preview deploy impact:
+\begin{lstlisting}[language=bash]
+tools/deploy-local.sh --dry-run
+\end{lstlisting}
+\item Deploy server changes:
+\begin{lstlisting}[language=bash]
+tools/deploy-local.sh
+\end{lstlisting}
+\item Restart service if prompted:
+\begin{lstlisting}[language=bash]
+sudo systemctl restart directory-server
+\end{lstlisting}
+\item Deploy kiosk script updates from Admin Deploy tab (or \texttt{kiosk-deploy.sh})
+\item Validate health:
+\begin{lstlisting}[language=bash]
+curl -fsS http://127.0.0.1:3000/api/data-version
+systemctl is-active directory-server
+journalctl -u directory-server -n 80 --no-pager
+\end{lstlisting}
+\end{enumerate}
+
+\subsection{Fleet Consideration}
+
+Display nodes generally do not require direct content deployment for kiosk HTML/CSS/JS changes; they load client assets from the server URL.
+
+System-script changes (\texttt{start-kiosk.sh}, \texttt{.bash\_profile}, udev rules, power-button policy) do require explicit kiosk deploy.
+
+\section{Testing Procedures}
+
+\subsection{Purpose}
+
+This section defines repeatable test procedures with explicit pass/fail criteria for development, deployment, and production readiness.
+
+\subsection{Test Environments}
+
+\begin{longtable}{p{2.2in} p{3.1in}}
+Development Server & 192.168.1.131 \\
+Production Server & 192.168.1.80 \\
+Kiosk Clients & 192.168.1.80, 192.168.1.81, 192.168.1.82 \\
+Admin URL & \texttt{http://<server-ip>/admin} \\
+Kiosk URL & \texttt{http://<server-ip>/} \\
+\end{longtable}
+
+\subsection{Entry Criteria}
+
+\begin{itemize}
+\item Target host is reachable via SSH.
+\item \texttt{directory-server} service is installed.
+\item Correct branch/commit is deployed.
+\item Backup is taken before production deployment.
+\end{itemize}
+
+\subsection{Core Health Checks}
+
+\begin{lstlisting}[language=bash]
+systemctl is-active directory-server
+curl -fsS http://127.0.0.1:3000/api/data-version
+curl -fsS http://127.0.0.1:3000/api/auth/me
+journalctl -u directory-server -n 80 --no-pager
+\end{lstlisting}
+
+\textbf{Pass criteria:}
+\begin{itemize}
+\item Service state is \texttt{active}.
+\item API endpoints return HTTP 200.
+\item No crash loop or fatal errors in recent logs.
+\end{itemize}
+
+\subsection{Functional Test Matrix}
+
+\begin{longtable}{p{0.6in} p{2.0in} p{1.6in} p{1.7in}}
+ID & Test & Method & Pass Criteria \\
+\hline
+T1 & Kiosk auto-start after reboot & Reboot client & Cage + Chromium launch fullscreen within 60s \\
+T2 & Main UI render & Visual check & Welcome banner, buttons, background render correctly \\
+T3 & Company search & Use on-screen keyboard & Matching results shown; no UI error \\
+T4 & Individual search & Use on-screen keyboard & Matching results shown; building number shown \\
+T5 & Building info screen & Open from main menu & Static content renders correctly \\
+T6 & Keyboard maintenance mode & Insert USB keyboard & Kiosk exits, XFCE launches \\
+T7 & Return to kiosk & Logout XFCE & Kiosk relaunches automatically \\
+T8 & Admin login success & Login with admin password & Authenticated session established \\
+T9 & Admin login failure/lockout & Repeated wrong password & 401 then lockout/rate-limit response \\
+T10 & Companies CSV export & Download CSV & File downloads; header row present even with 0 rows \\
+T11 & Companies CSV import & Upload valid CSV & Success status and expected row count in DB \\
+T12 & Individuals CSV import & Upload valid CSV & Success status and expected row count in DB \\
+T13 & Unauthorized CSV access & Request without auth & HTTP 401 Unauthorized \\
+T14 & Data version change & Modify company/individual & \texttt{/api/data-version} increments \\
+T15 & Deploy kiosk scripts & Admin deploy tab or script & Deploy reports success; target script updated \\
+T16 & Power button long press & Hold power button on client & System powers off cleanly \\
+\end{longtable}
+
+\subsection{Resilience and Negative Tests}
+
+\begin{longtable}{p{0.6in} p{2.0in} p{3.3in}}
+ID & Scenario & Pass Criteria \\
+\hline
+R1 & Server restart during kiosk operation & Kiosk reconnects and resumes normal operation \\
+R2 & Network interruption (temporary) & UI recovers after network returns; no permanent lock-up \\
+R3 & Overlay maintenance mode deploy attempt & Procedure detects mode and uses correct deploy path \\
+R4 & Empty database export & CSV download still returns valid header row \\
+R5 & Invalid CSV upload & Clear error message; no partial/invalid DB write \\
+\end{longtable}
+
+\subsection{Deployment Validation (Per Release)}
+
+\begin{enumerate}
+\item Run core health checks on target server.
+\item Execute T1--T8 minimum.
+\item Execute T10--T13 for any CSV/auth-related changes.
+\item Execute T15 for any kiosk script changes.
+\item Record results in deployment log.
+\end{enumerate}
+
+\subsection{Rollback Trigger Criteria}
+
+Rollback is required if any of the following occur:
+\begin{itemize}
+\item \texttt{directory-server} fails to remain active.
+\item Kiosk UI fails to render or is non-interactive.
+\item Admin auth or CSV workflows fail.
+\item Data integrity checks fail (missing/incorrect records after import).
+\end{itemize}
+
+\subsection{Test Evidence Template}
+
+\begin{longtable}{p{1.1in} p{1.0in} p{0.7in} p{1.3in} p{1.7in}}
+Date/Time & Tester & Test ID & Result (Pass/Fail) & Notes / Evidence \\
+\hline
+ &  &  &  &  \\
+ &  &  &  &  \\
+ &  &  &  &  \\
+\end{longtable}
+
+
+\section{Production Signoff}
+
+System approved when:
+
+\begin{itemize}
+\item BIOS locked
+\item Read-only root active
+\item Auto-start verified
+\item Network stable
+\item 72-hour continuous run test passed
+\end{itemize}
+
+\section{Future Expansion}
+
+Planned enhancements:
+
+\begin{itemize}
+\item Central management node
+\item Health heartbeat monitoring
+\item Secondary backup server
+\item VLAN isolation
+\end{itemize}
+
+\section{Future Architecture (Planned, Not Yet Implemented)}
+
+The following model is a proposed future-state architecture and should not be treated as current operations until scripts and services are migrated.
+
+\begin{itemize}
+\item \texttt{/srv/building-directory/releases/<timestamp>} layout
+\item \texttt{current} symlink for atomic release switching
+\item Separate persistent shared directories (\texttt{db}, \texttt{uploads}, \texttt{logs})
+\item Optional dedicated service (example: \texttt{building-directory.service})
+\item rsync release push with symlink rollback
+\end{itemize}
+
+When this migration is executed, update this guide and the deploy scripts together in the same release.
+
+\end{document}

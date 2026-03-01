@@ -42,6 +42,7 @@ scp $SSH_OPTS \
     "$SCRIPTS_SRC/restart-kiosk.sh" \
     "$SCRIPTS_SRC/kiosk-keyboard-added.sh" \
     "$SCRIPTS_SRC/99-kiosk-keyboard.rules" \
+    "$SCRIPTS_SRC/80-kiosk-power-button.conf" \
     "$SCRIPTS_SRC/bash_profile" \
     "${KIOSK_USER}@${KIOSK_IP}:/tmp/kiosk-deploy-staging/"
 
@@ -68,6 +69,10 @@ sudo overlayroot-chroot cp    "\$STAGE/kiosk-keyboard-added.sh" /usr/local/bin/k
 sudo overlayroot-chroot chmod 755                                /usr/local/bin/kiosk-keyboard-added.sh
 
 sudo overlayroot-chroot cp    "\$STAGE/99-kiosk-keyboard.rules" /etc/udev/rules.d/99-kiosk-keyboard.rules
+sudo overlayroot-chroot mkdir -p                                 /etc/systemd/logind.conf.d
+sudo overlayroot-chroot cp    "\$STAGE/80-kiosk-power-button.conf" /etc/systemd/logind.conf.d/80-kiosk-power-button.conf
+sudo overlayroot-chroot mkdir -p                                 /etc/systemd/user
+sudo overlayroot-chroot ln -sfn                                  /dev/null /etc/systemd/user/xfce4-notifyd.service
 
 sudo overlayroot-chroot cp    "\$STAGE/bash_profile"            /home/${KIOSK_USER}/.bash_profile
 

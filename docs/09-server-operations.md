@@ -20,6 +20,25 @@ Related docs:
 - SQLite DB: `server/directory.db`.
 - Service name: `directory-server`.
 
+## Nginx Requirement
+
+Production-style access expects nginx on port `80`:
+- `http://<server-ip>/`
+- `http://<server-ip>/admin`
+
+If nginx is missing on a target host:
+```bash
+sudo apt-get update
+sudo apt-get install -y nginx
+```
+
+If application files are under `/home/kiosk/...`, nginx must be able to
+traverse `/home/kiosk`:
+```bash
+sudo chmod 711 /home/kiosk
+```
+This keeps home directory contents non-readable while allowing path traversal.
+
 ## Security Model (Current)
 
 - Kiosk read API routes are IP allowlisted via `KIOSK_ALLOWED_IPS`.
@@ -65,6 +84,48 @@ Deploy behavior:
 4. Runs health checks:
    - `/api/auth/me`
    - `/api/data-version`
+
+## Day-2 Deploy (Remote Server over SSH)
+
+When development and server deployment are on different machines:
+
+- Server-only deploy:
+  - `tools/deploy-ssh.sh`
+  - `make deploy-ssh`
+- Full deploy (server + kiosk + scripts):
+  - `tools/deploy-ssh.sh --full`
+  - `make deploy-ssh-full`
+- Preview actions:
+  - `tools/deploy-ssh.sh --dry-run`
+- Target a different host:
+  - `tools/deploy-ssh.sh --host kiosk@192.168.1.80`
+- Include database promotion:
+  - `tools/deploy-ssh.sh --host kiosk@192.168.1.80 --with-db --db-source /home/security/building-directory/server/directory.db`
+
+Remote deploy behavior:
+1. Syncs manifest-managed files over SSH to remote deploy root.
+2. Runs remote `npm ci --omit=dev` (or `npm install --omit=dev`).
+3. Attempts remote `sudo systemctl restart directory-server`.
+4. Runs remote health checks:
+   - `/api/auth/me`
+   - `/api/data-version`
+
+If non-interactive sudo is unavailable remotely, run:
+```bash
+sudo systemctl restart directory-server
+```
+on the target host after deploy.
+
+Requirement:
+- Target host should have `directory-server` systemd unit installed and enabled.
+- DB note: `directory.db` is not copied unless `--with-db --db-source ...` is provided.
+
+Prerequisite:
+- `rsync` must exist on both local and target host.
+- On a target in maintenance/writable mode, install with:
+```bash
+sudo apt-get update && sudo apt-get install -y rsync
+```
 
 ## Service Operations
 

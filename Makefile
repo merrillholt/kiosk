@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: drift sync package package-clean deploy-local deploy-local-full
+.PHONY: drift sync package package-clean deploy-local deploy-local-full deploy-ssh deploy-ssh-full
 
 drift:
 	tools/check-install-drift.sh
@@ -21,3 +21,11 @@ deploy-local:
 
 deploy-local-full:
 	tools/deploy-local.sh --full
+
+
+deploy-ssh:
+	tools/deploy-ssh.sh
+
+
+deploy-ssh-full:
+	tools/deploy-ssh.sh --full

@@ -8,6 +8,7 @@ const CONFIG = {
 const state = {
     companies: [],
     individuals: [],
+    buildingInfoContent: '',
     backgroundImage: '',
     dataVersion: 0,
     currentScreen: 'main-menu',
@@ -23,7 +24,7 @@ async function init() {
 
 async function refreshData() {
     try {
-        const [companies, individuals, bgData] = await Promise.all([
+        const [companies, individuals, backgroundData, buildingInfo] = await Promise.all([
             fetch(`${CONFIG.API_URL}/companies`).then(r => {
                 if (!r.ok) throw new Error(r.status);
                 return r.json();
@@ -35,16 +36,22 @@ async function refreshData() {
             fetch(`${CONFIG.API_URL}/background-image`).then(r => {
                 if (!r.ok) throw new Error(r.status);
                 return r.json();
-            })
+            }),
+            fetch(`${CONFIG.API_URL}/building-info`).then(r => {
+                if (!r.ok) throw new Error(r.status);
+                return r.json();
+            }).catch(() => '')
         ]);
 
         state.companies = companies;
         state.individuals = individuals;
+        state.buildingInfoContent = typeof buildingInfo === 'string' ? buildingInfo : '';
 
-        if (bgData.filename) {
-            state.backgroundImage = bgData.filename;
-            applyBackgroundImage(bgData.filename);
+        if (backgroundData.filename) {
+            state.backgroundImage = backgroundData.filename;
+            applyBackgroundImage(backgroundData.filename);
         }
+        applyBuildingInfoContent(state.buildingInfoContent);
 
         localStorage.setItem(CONFIG.CACHE_KEY, JSON.stringify(state));
 
@@ -90,12 +97,24 @@ function loadCachedData() {
         const data = JSON.parse(cached);
         state.companies = data.companies || [];
         state.individuals = data.individuals || [];
+        state.buildingInfoContent = data.buildingInfoContent || '';
         state.backgroundImage = data.backgroundImage || '';
         state.dataVersion = data.dataVersion || 0;
         if (state.backgroundImage) applyBackgroundImage(state.backgroundImage);
+        applyBuildingInfoContent(state.buildingInfoContent);
     } catch {
         localStorage.removeItem(CONFIG.CACHE_KEY);
     }
+}
+
+function applyBuildingInfoContent(content) {
+    const el = document.getElementById('building-info-content');
+    if (!el) return;
+    if (!el.dataset.defaultHtml) {
+        el.dataset.defaultHtml = el.innerHTML;
+    }
+    const html = (content || '').trim();
+    el.innerHTML = html || el.dataset.defaultHtml;
 }
 
 function showScreen(screenId) {
@@ -110,6 +129,9 @@ function showScreen(screenId) {
     } else if (screenId === 'individuals') {
         displayIndividuals(state.individuals);
     }
+
+    updateScrollButtons('companies-list');
+    updateScrollButtons('individuals-list');
 
     resetInactivityTimer();
 }
@@ -171,6 +193,7 @@ function displayCompanies(companies) {
 
     if (companies.length === 0) {
         container.innerHTML = '<div class="result-row"><div class="result-name">No companies found</div><div></div><div></div></div>';
+        updateScrollButtons('companies-list');
         return;
     }
 
@@ -186,6 +209,8 @@ function displayCompanies(companies) {
         });
 
     container.innerHTML = rows.join('');
+    container.scrollTop = 0;
+    updateScrollButtons('companies-list');
 }
 
 function displayIndividuals(individuals) {
@@ -194,6 +219,7 @@ function displayIndividuals(individuals) {
 
     if (individuals.length === 0) {
         container.innerHTML = '<div class="result-row"><div class="result-name">No individuals found</div><div></div><div></div></div>';
+        updateScrollButtons('individuals-list');
         return;
     }
 
@@ -212,6 +238,46 @@ function displayIndividuals(individuals) {
         });
 
     container.innerHTML = rows.join('');
+    container.scrollTop = 0;
+    updateScrollButtons('individuals-list');
+}
+
+function scrollResults(listId, direction) {
+    const list = document.getElementById(listId);
+    if (!list) return;
+
+    const amount = Math.max(180, Math.floor(list.clientHeight * 0.42));
+    list.scrollBy({ top: direction * amount, behavior: 'smooth' });
+    setTimeout(() => updateScrollButtons(listId), 220);
+    resetInactivityTimer();
+}
+
+function updateScrollButtons(listId) {
+    const list = document.getElementById(listId);
+    if (!list) return;
+
+    const controls = list.parentElement && list.parentElement.querySelector('.scroll-controls');
+    if (!controls) return;
+
+    const [upBtn, downBtn] = controls.querySelectorAll('.scroll-btn');
+    if (!upBtn || !downBtn) return;
+
+    const maxScroll = Math.max(0, list.scrollHeight - list.clientHeight);
+    const atTop = list.scrollTop <= 2;
+    const atBottom = list.scrollTop >= maxScroll - 2;
+    const noScrollNeeded = maxScroll <= 2;
+
+    upBtn.disabled = noScrollNeeded || atTop;
+    downBtn.disabled = noScrollNeeded || atBottom;
+}
+
+function setupScrollControls() {
+    ['companies-list', 'individuals-list'].forEach((id) => {
+        const list = document.getElementById(id);
+        if (!list) return;
+        list.addEventListener('scroll', () => updateScrollButtons(id), { passive: true });
+        updateScrollButtons(id);
+    });
 }
 
 function setupInactivityDetection() {
@@ -262,5 +328,9 @@ window.listAll = listAll;
 window.showScreen = showScreen;
 window.searchCompanies = searchCompanies;
 window.searchIndividuals = searchIndividuals;
+window.scrollResults = scrollResults;
 
-window.addEventListener('DOMContentLoaded', init);
+window.addEventListener('DOMContentLoaded', () => {
+    setupScrollControls();
+    init();
+});

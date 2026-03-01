@@ -31,3 +31,28 @@ When this machine is both development and deployed runtime, use:
 - `tools/deploy-local.sh --full` to deploy full manifest (server + kiosk + scripts).
 - `tools/deploy-local.sh --dry-run` to preview actions.
 - `make deploy-local` and `make deploy-local-full` as shortcuts.
+
+## Remote Deploy (SSH Push to Server Node)
+
+For deploying from this development machine to a separate server host:
+
+- `tools/deploy-ssh.sh` deploys server-only manifest files to remote `DEPLOY_ROOT` (default host: `kiosk@192.168.1.80`).
+- `tools/deploy-ssh.sh --full` deploys the full manifest (server + kiosk + scripts).
+- `tools/deploy-ssh.sh --dry-run` previews sync actions only.
+- `tools/deploy-ssh.sh --host <user@ip>` targets a specific host.
+- `tools/deploy-ssh.sh --no-restart` skips service restart/health checks.
+- `tools/deploy-ssh.sh --with-db --db-source <path>` also deploys a SQLite DB file.
+- `make deploy-ssh` and `make deploy-ssh-full` are shortcuts.
+
+Notes:
+
+- Script uses manifest-driven `rsync` over SSH.
+- `rsync` must be installed on both local and remote hosts.
+- If remote host is currently in maintenance/writable mode, install prerequisite with:
+  - `sudo apt-get update && sudo apt-get install -y rsync`
+- Script runs remote `npm ci --omit=dev` (or `npm install --omit=dev`) in `server/`.
+- Script attempts non-interactive `sudo systemctl restart directory-server`.
+- Remote host should already have `directory-server` service installed/enabled.
+- For standard URL access on port 80, remote host should have nginx installed/configured.
+- If remote sudo requires a password, restart must be done manually on remote host.
+- Database is not copied by default; use `--with-db --db-source <path>` when promoting data.

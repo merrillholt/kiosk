@@ -23,6 +23,7 @@ scp "$SERVER_DIR/kiosk-deploy.sh"                    "$VM:/tmp/deploy-staging/ki
 scp "$SCRIPT_DIR/scripts/start-kiosk.sh"             "$VM:/tmp/deploy-staging/start-kiosk.sh"
 scp "$SCRIPT_DIR/scripts/kiosk-keyboard-added.sh"    "$VM:/tmp/deploy-staging/kiosk-keyboard-added.sh"
 scp "$SCRIPT_DIR/scripts/99-kiosk-keyboard.rules"    "$VM:/tmp/deploy-staging/99-kiosk-keyboard.rules"
+scp "$SCRIPT_DIR/scripts/80-kiosk-power-button.conf" "$VM:/tmp/deploy-staging/80-kiosk-power-button.conf"
 scp "$SCRIPT_DIR/scripts/bash_profile"               "$VM:/tmp/deploy-staging/bash_profile_template"
 
 # Step 2: Move everything to /run staging area (visible inside overlayroot-chroot)
@@ -43,6 +44,7 @@ sudo cp /tmp/deploy-staging/admin.css                "$STAGE/admin.css"
 sudo cp /tmp/deploy-staging/start-kiosk.sh           "$STAGE/start-kiosk.sh"
 sudo cp /tmp/deploy-staging/kiosk-keyboard-added.sh  "$STAGE/kiosk-keyboard-added.sh"
 sudo cp /tmp/deploy-staging/99-kiosk-keyboard.rules  "$STAGE/99-kiosk-keyboard.rules"
+sudo cp /tmp/deploy-staging/80-kiosk-power-button.conf "$STAGE/80-kiosk-power-button.conf"
 sudo cp /tmp/deploy-staging/bash_profile_template    "$STAGE/bash_profile_template"
 
 # Write sudoers content to staging
@@ -67,6 +69,11 @@ if [[ "$(tty 2>/dev/null)" == "/dev/tty1" ]]; then
         rm -f /tmp/kiosk-exit
         /home/merrill/building-directory/scripts/start-kiosk.sh
         if [[ -f /tmp/kiosk-exit ]]; then
+            # Start XFCE as an X11 session (not Wayland) when exiting kiosk.
+            unset WAYLAND_DISPLAY
+            export XDG_SESSION_TYPE=x11
+            export DESKTOP_SESSION=xfce
+
             # overlayroot mounts / as ro; redirect all XFCE/Xorg state to /tmp.
             export XAUTHORITY=/tmp/.Xauthority
             export ICEAUTHORITY=/tmp/.ICEauthority
@@ -96,6 +103,9 @@ sudo overlayroot-chroot chmod 755                              /usr/local/bin/ki
 # udev rule
 sudo overlayroot-chroot cp "$STAGE/99-kiosk-keyboard.rules" \
     /etc/udev/rules.d/99-kiosk-keyboard.rules
+sudo overlayroot-chroot mkdir -p /etc/systemd/logind.conf.d
+sudo overlayroot-chroot cp "$STAGE/80-kiosk-power-button.conf" \
+    /etc/systemd/logind.conf.d/80-kiosk-power-button.conf
 
 # Sudoers drop-in
 sudo overlayroot-chroot cp    "$STAGE/directory-server-sudoers" /etc/sudoers.d/directory-server

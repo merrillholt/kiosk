@@ -12,8 +12,13 @@ const PORT = process.env.PORT || 3000;
 
 // Temp dir for multer uploads (lost on reboot — persist script copies to lower layer)
 const TEMP_DIR = process.env.KIOSK_TEMP_DIR || '/tmp/kiosk-uploads';
-// Persistent uploads dir on ext4 lower layer (survives reboots via overlayroot)
-const UPLOADS_LOWER = process.env.KIOSK_UPLOADS_LOWER || `/media/root-ro/home/${os.userInfo().username}/building-directory/server/uploads`;
+// Persistent uploads dir. Prefer explicit env override; otherwise use the
+// overlayroot lower path when present, and fall back to local server/uploads
+// for maintenance mode (overlayroot=disabled).
+const OVERLAY_UPLOADS_LOWER = `/media/root-ro/home/${os.userInfo().username}/building-directory/server/uploads`;
+const LOCAL_UPLOADS_DIR = path.join(__dirname, 'uploads');
+const UPLOADS_LOWER = process.env.KIOSK_UPLOADS_LOWER ||
+    (fs.existsSync(OVERLAY_UPLOADS_LOWER) ? OVERLAY_UPLOADS_LOWER : LOCAL_UPLOADS_DIR);
 // Persist command: space-separated argv[0..n], e.g. "/tmp/mock-persist.sh" for tests
 const PERSIST_ARGV = process.env.KIOSK_PERSIST_CMD
     ? process.env.KIOSK_PERSIST_CMD.split(' ')
@@ -73,7 +78,29 @@ const KIOSK_SERVER_URL = process.env.KIOSK_SERVER_URL || (() => {
     return 'http://localhost';
 })();
 const KIOSK_DEPLOY_SCRIPT = path.join(__dirname, 'kiosk-deploy.sh');
+const DEFAULT_BUILDING_INFO_HTML = `
+<div class="building-info-panel">
+    <div class="building-info-column">
+        <h2>Managed by:</h2>
+        <p>Mike Lam - Property Manager</p>
+        <p>Embarcadero Realty Services LP</p>
+        <p>925-227-8655</p>
+        <p>Owned by Spieker Keech Hacienda, LLC</p>
+    </div>
+    <div class="building-info-column">
+        <h2>Leased by:</h2>
+        <div class="leasing-logo-wrap">
+            <img class="leasing-logo" src="cushman-wakefield-logo.png" alt="Cushman & Wakefield">
+        </div>
+        <p>Brian Lagomarsino</p>
+        <p>Chad Arnold</p>
+        <p>Cushman &amp; Wakefield</p>
+        <p>925-621-3858</p>
+    </div>
+</div>
+`.trim();
 fs.mkdirSync(TEMP_DIR, { recursive: true });
+fs.mkdirSync(UPLOADS_LOWER, { recursive: true });
 
 // Middleware
 app.use(express.json());
@@ -283,16 +310,17 @@ const bgUpload = multer({
     }
 });
 
-// Multer storage — accepts .db files for database restore
+// Multer storage — accepts SQLite backup files for database restore
 const dbUpload = multer({
     storage: multer.diskStorage({
         destination: os.tmpdir(),
-        filename: (req, file, cb) => cb(null, `restore-${Date.now()}.db`)
+        filename: (req, file, cb) => cb(null, `restore-${Date.now()}.sqlite`)
     }),
     limits: { fileSize: 100 * 1024 * 1024 },
     fileFilter: (req, file, cb) => {
-        if (path.extname(file.originalname).toLowerCase() === '.db') cb(null, true);
-        else cb(new Error('Only .db files allowed'));
+        const ext = path.extname(file.originalname).toLowerCase();
+        if (ext === '.db' || ext === '.sqlite' || ext === '.sql' || ext === '.txt') cb(null, true);
+        else cb(new Error('Only .txt, .sql, .sqlite, or .db files allowed'));
     }
 });
 
@@ -897,7 +925,8 @@ app.get('/api/building-info', (req, res) => {
         if (err) {
             res.status(500).json({ error: err.message });
         } else {
-            res.json(row ? row.content : '');
+            const content = row && typeof row.content === 'string' ? row.content : '';
+            res.json(content || DEFAULT_BUILDING_INFO_HTML);
         }
     });
 });
@@ -921,21 +950,137 @@ app.put('/api/building-info', (req, res) => {
 
 // Database backup — VACUUM INTO a temp file then stream it to the client
 app.get('/api/backup', (req, res) => {
-    const backupPath = path.join(os.tmpdir(), `directory-backup-${Date.now()}.db`);
+    const backupPath = path.join(os.tmpdir(), `directory-backup-${Date.now()}.sqlite`);
     const escaped = backupPath.replace(/'/g, "''");
     db.run(`VACUUM INTO '${escaped}'`, (err) => {
         if (err) return res.status(500).json({ error: err.message });
-        res.download(backupPath, 'directory.db', () => {
+        res.download(backupPath, 'directory-backup.sqlite', () => {
             fs.unlink(backupPath, () => {});
         });
     });
 });
 
-// Database restore — validate SQLite magic, close db, replace file, reopen
+// SQL text backup — sqlite3 .dump
+app.get('/api/backup.sql', (req, res) => {
+    const dump = spawnSync('sqlite3', [DB_FILE, '.dump'], { encoding: 'utf8', maxBuffer: 100 * 1024 * 1024 });
+    if (dump.error) return res.status(500).json({ error: `sqlite3 failed: ${dump.error.message}` });
+    if (dump.status !== 0) {
+        return res.status(500).json({ error: `sqlite3 dump failed: ${(dump.stderr || '').trim() || 'unknown error'}` });
+    }
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="directory-backup.sql"');
+    res.send(dump.stdout || '');
+});
+
+// SQL text backup in .txt format (most permissive for browser download policies)
+app.get('/api/backup.txt', (req, res) => {
+    const dump = spawnSync('sqlite3', [DB_FILE, '.dump'], { encoding: 'utf8', maxBuffer: 100 * 1024 * 1024 });
+    if (dump.error) return res.status(500).json({ error: `sqlite3 failed: ${dump.error.message}` });
+    if (dump.status !== 0) {
+        return res.status(500).json({ error: `sqlite3 dump failed: ${(dump.stderr || '').trim() || 'unknown error'}` });
+    }
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="directory-backup.txt"');
+    res.send(dump.stdout || '');
+});
+
+function reopenDbAndRespond(res) {
+    db = new sqlite3.Database(DB_FILE, (openErr) => {
+        if (openErr) return res.status(500).json({ error: 'Failed to reopen database: ' + openErr.message });
+        db.get(
+            'SELECT (SELECT COUNT(*) FROM companies) AS companies, (SELECT COUNT(*) FROM individuals) AS individuals',
+            [],
+            (countErr, row) => {
+                if (countErr) return res.status(500).json({ error: 'Restore succeeded but count query failed: ' + countErr.message });
+                incrementDataVersion();
+                res.json({
+                    success: true,
+                    db_counts: {
+                        companies: row ? row.companies : 0,
+                        individuals: row ? row.individuals : 0
+                    }
+                });
+            }
+        );
+    });
+}
+
+function replaceDatabaseFile(uploadPath, res) {
+    db.close((closeErr) => {
+        if (closeErr) return res.status(500).json({ error: 'Failed to close database: ' + closeErr.message });
+        try {
+            fs.copyFileSync(uploadPath, DB_FILE);
+        } catch (e) {
+            return res.status(500).json({ error: 'Failed to replace database: ' + e.message });
+        } finally {
+            fs.unlink(uploadPath, () => {});
+        }
+        return reopenDbAndRespond(res);
+    });
+}
+
+function restoreFromSqlDump(uploadPath, res) {
+    let sqlText = '';
+    try {
+        sqlText = fs.readFileSync(uploadPath, 'utf8');
+    } catch (e) {
+        return res.status(400).json({ error: 'Could not read uploaded SQL file' });
+    } finally {
+        fs.unlink(uploadPath, () => {});
+    }
+    if (!sqlText.trim()) {
+        return res.status(400).json({ error: 'Uploaded SQL file is empty' });
+    }
+
+    const tempDbPath = path.join(os.tmpdir(), `restore-import-${Date.now()}.sqlite`);
+    const importResult = spawnSync('sqlite3', [tempDbPath], { input: sqlText, encoding: 'utf8', maxBuffer: 100 * 1024 * 1024 });
+    if (importResult.error) {
+        fs.unlink(tempDbPath, () => {});
+        return res.status(500).json({ error: `sqlite3 import failed: ${importResult.error.message}` });
+    }
+    if (importResult.status !== 0) {
+        const detail = (importResult.stderr || '').trim() || 'unknown error';
+        fs.unlink(tempDbPath, () => {});
+        return res.status(400).json({ error: `Invalid SQL backup: ${detail}` });
+    }
+
+    const verify = spawnSync(
+        'sqlite3',
+        [tempDbPath, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('companies','individuals','settings');"],
+        { encoding: 'utf8' }
+    );
+    const tableCount = Number.parseInt((verify.stdout || '').trim(), 10);
+    if (verify.status !== 0 || Number.isNaN(tableCount) || tableCount < 3) {
+        fs.unlink(tempDbPath, () => {});
+        return res.status(400).json({ error: 'Invalid SQL backup: missing required tables' });
+    }
+
+    db.close((closeErr) => {
+        if (closeErr) {
+            fs.unlink(tempDbPath, () => {});
+            return res.status(500).json({ error: 'Failed to close database: ' + closeErr.message });
+        }
+        try {
+            fs.copyFileSync(tempDbPath, DB_FILE);
+        } catch (e) {
+            fs.unlink(tempDbPath, () => {});
+            return res.status(500).json({ error: 'Failed to replace database: ' + e.message });
+        }
+        fs.unlink(tempDbPath, () => {});
+        return reopenDbAndRespond(res);
+    });
+}
+
+// Database restore — accepts SQL dumps and SQLite database files
 app.post('/api/restore', (req, res) => {
     dbUpload.single('database')(req, res, (uploadErr) => {
         if (uploadErr) return res.status(400).json({ error: uploadErr.message });
         if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+
+        const ext = path.extname(req.file.originalname).toLowerCase();
+        if (ext === '.sql' || ext === '.txt') {
+            return restoreFromSqlDump(req.file.path, res);
+        }
 
         // Validate SQLite magic bytes ("SQLite format 3\000")
         const magic = Buffer.alloc(15);
@@ -952,32 +1097,7 @@ app.post('/api/restore', (req, res) => {
             return res.status(400).json({ error: 'Not a valid SQLite database file' });
         }
 
-        db.close((closeErr) => {
-            if (closeErr) return res.status(500).json({ error: 'Failed to close database: ' + closeErr.message });
-            try {
-                fs.copyFileSync(req.file.path, DB_FILE);
-                fs.unlinkSync(req.file.path);
-            } catch (e) {
-                return res.status(500).json({ error: 'Failed to replace database: ' + e.message });
-            }
-            db = new sqlite3.Database(DB_FILE, (openErr) => {
-                if (openErr) return res.status(500).json({ error: 'Failed to reopen database: ' + openErr.message });
-                db.get(
-                    'SELECT (SELECT COUNT(*) FROM companies) AS companies, (SELECT COUNT(*) FROM individuals) AS individuals',
-                    [],
-                    (countErr, row) => {
-                        if (countErr) return res.status(500).json({ error: 'Restore succeeded but count query failed: ' + countErr.message });
-                        res.json({
-                            success: true,
-                            db_counts: {
-                                companies: row ? row.companies : 0,
-                                individuals: row ? row.individuals : 0
-                            }
-                        });
-                    }
-                );
-            });
-        });
+        return replaceDatabaseFile(req.file.path, res);
     });
 });
 

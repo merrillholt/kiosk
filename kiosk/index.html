@@ -41,12 +41,18 @@
             <div id="company-search-wrap" class="search-wrap hidden">
                 <input type="text" id="company-search" class="search-input" placeholder="Search companies..." oninput="searchCompanies(this.value)">
             </div>
-            <div id="companies-list" class="results-list"></div>
+            <div class="results-wrap">
+                <div id="companies-list" class="results-list"></div>
+                <div class="scroll-controls" aria-label="Companies list scroll controls">
+                    <button class="scroll-btn" onclick="scrollResults('companies-list', -1)" aria-label="Scroll up">▲</button>
+                    <button class="scroll-btn" onclick="scrollResults('companies-list', 1)" aria-label="Scroll down">▼</button>
+                </div>
+            </div>
         </div>
         <div class="dock">
             <button class="dock-btn" onclick="showScreen('companies')">LIST OF COMPANIES</button>
             <button class="dock-btn" onclick="showScreen('individuals')">LIST OF INDIVIDUALS</button>
-            <button class="dock-btn" onclick="showScreen('building-info')">BUILDING INFO</button>
+            <button class="dock-btn" onclick="showScreen('building-info')">BUILDING<br>INFO</button>
             <button class="dock-btn home" onclick="showScreen('main-menu')">HOME</button>
         </div>
     </div>
@@ -61,12 +67,18 @@
             <div id="individual-search-wrap" class="search-wrap hidden">
                 <input type="text" id="individual-search" class="search-input" placeholder="Search individuals..." oninput="searchIndividuals(this.value)">
             </div>
-            <div id="individuals-list" class="results-list"></div>
+            <div class="results-wrap">
+                <div id="individuals-list" class="results-list"></div>
+                <div class="scroll-controls" aria-label="Individuals list scroll controls">
+                    <button class="scroll-btn" onclick="scrollResults('individuals-list', -1)" aria-label="Scroll up">▲</button>
+                    <button class="scroll-btn" onclick="scrollResults('individuals-list', 1)" aria-label="Scroll down">▼</button>
+                </div>
+            </div>
         </div>
         <div class="dock">
             <button class="dock-btn" onclick="showScreen('companies')">LIST OF COMPANIES</button>
             <button class="dock-btn" onclick="showScreen('individuals')">LIST OF INDIVIDUALS</button>
-            <button class="dock-btn" onclick="showScreen('building-info')">BUILDING INFO</button>
+            <button class="dock-btn" onclick="showScreen('building-info')">BUILDING<br>INFO</button>
             <button class="dock-btn home" onclick="showScreen('main-menu')">HOME</button>
         </div>
     </div>
@@ -97,7 +109,7 @@
         <div class="dock">
             <button class="dock-btn" onclick="showScreen('companies')">LIST OF COMPANIES</button>
             <button class="dock-btn" onclick="showScreen('individuals')">LIST OF INDIVIDUALS</button>
-            <button class="dock-btn" onclick="showScreen('building-info')">BUILDING INFO</button>
+            <button class="dock-btn" onclick="showScreen('building-info')">BUILDING<br>INFO</button>
             <button class="dock-btn home" onclick="showScreen('main-menu')">HOME</button>
         </div>
     </div>

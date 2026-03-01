@@ -443,6 +443,15 @@ if [ "$INSTALL_MODE" = "client" ] || [ "$INSTALL_MODE" = "both" ]; then
         /usr/local/bin/kiosk-keyboard-added.sh
     sudo chmod 755 /usr/local/bin/kiosk-keyboard-added.sh
 
+    # Ensure pressing or holding the physical power button powers down.
+    sudo mkdir -p /etc/systemd/logind.conf.d
+    sudo cp scripts/80-kiosk-power-button.conf \
+        /etc/systemd/logind.conf.d/80-kiosk-power-button.conf
+
+    # Disable xfce4-notifyd in kiosk mode (cage Wayland) to avoid
+    # notification daemon errors on the display.
+    sudo systemctl --global mask xfce4-notifyd.service
+
     sudo udevadm control --reload-rules
 
     # Allow kiosk deploys to run required root commands without a password.
@@ -481,6 +490,11 @@ if [[ "\$(tty 2>/dev/null)" == "/dev/tty1" ]]; then
         rm -f /tmp/kiosk-exit
         $INSTALL_DIR/scripts/start-kiosk.sh
         if [[ -f /tmp/kiosk-exit ]]; then
+            # Start XFCE as an X11 session (not Wayland) when exiting kiosk.
+            unset WAYLAND_DISPLAY
+            export XDG_SESSION_TYPE=x11
+            export DESKTOP_SESSION=xfce
+
             # overlayroot mounts / as ro; redirect all XFCE/Xorg state to /tmp.
             export XAUTHORITY=/tmp/.Xauthority
             export ICEAUTHORITY=/tmp/.ICEauthority
