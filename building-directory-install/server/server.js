@@ -4,6 +4,7 @@ const path = require('path');
 const multer = require('multer');
 const fs = require('fs');
 const os = require('os');
+const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 
 const app = express();
@@ -12,7 +13,7 @@ const PORT = process.env.PORT || 3000;
 // Temp dir for multer uploads (lost on reboot — persist script copies to lower layer)
 const TEMP_DIR = process.env.KIOSK_TEMP_DIR || '/tmp/kiosk-uploads';
 // Persistent uploads dir on ext4 lower layer (survives reboots via overlayroot)
-const UPLOADS_LOWER = process.env.KIOSK_UPLOADS_LOWER || '/media/root-ro/home/merrill/building-directory/server/uploads';
+const UPLOADS_LOWER = process.env.KIOSK_UPLOADS_LOWER || `/media/root-ro/home/${os.userInfo().username}/building-directory/server/uploads`;
 // Persist command: space-separated argv[0..n], e.g. "/tmp/mock-persist.sh" for tests
 const PERSIST_ARGV = process.env.KIOSK_PERSIST_CMD
     ? process.env.KIOSK_PERSIST_CMD.split(' ')
@@ -25,10 +26,28 @@ const DB_FILE = process.env.KIOSK_DB || path.join(__dirname, 'directory.db');
 const KIOSK_CLIENTS = process.env.KIOSK_CLIENTS
     ? JSON.parse(process.env.KIOSK_CLIENTS)
     : [
-        { id: 1, name: 'Kiosk 1', ip: '192.168.1.127', user: 'merrill' },
-        { id: 2, name: 'Kiosk 2', ip: '192.168.1.128', user: 'merrill' },
-        { id: 3, name: 'Kiosk 3', ip: '192.168.1.129', user: 'merrill' },
+        { id: 1, name: 'Kiosk 1', ip: '192.168.1.80',  user: 'kiosk' },
+        { id: 2, name: 'Kiosk 2', ip: '192.168.1.81',  user: 'kiosk' },
+        { id: 3, name: 'Kiosk 3', ip: '192.168.1.82',  user: 'kiosk' },
     ];
+// Kiosk read APIs are restricted to these client IPs (comma-separated list).
+const KIOSK_ALLOWED_IPS = new Set(
+    (process.env.KIOSK_ALLOWED_IPS || '192.168.1.80,192.168.1.81,192.168.1.82,192.168.1.131')
+        .split(',')
+        .map(ip => ip.trim())
+        .filter(Boolean)
+);
+const KIOSK_READ_PATHS = new Set([
+    '/companies',
+    '/individuals',
+    '/building-info',
+    '/background-image',
+    '/data-version'
+]);
+const ADMIN_PASSWORD = process.env.KIOSK_ADMIN_PASSWORD || 'kiosk';
+const SESSION_COOKIE = 'kiosk_admin_session';
+const SESSION_TTL_MS = 8 * 60 * 60 * 1000; // 8 hours
+const adminSessions = new Map();
 // SSH private key used to connect to kiosk machines for deployment
 const KIOSK_SSH_KEY = process.env.KIOSK_SSH_KEY ||
     path.join(os.homedir(), '.ssh', 'kiosk_deploy_key');
@@ -49,6 +68,97 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, '../kiosk')));
 app.use('/uploads', express.static(UPLOADS_LOWER));
 app.use('/admin', express.static(path.join(__dirname, 'admin')));
+app.use('/api', (req, res, next) => {
+    if (req.method !== 'GET' || !KIOSK_READ_PATHS.has(req.path)) return next();
+    const rawIp = req.ip || req.socket.remoteAddress || '';
+    const clientIp = rawIp.startsWith('::ffff:') ? rawIp.slice(7) : rawIp;
+    if (clientIp === '127.0.0.1' || clientIp === '::1' || KIOSK_ALLOWED_IPS.has(clientIp)) return next();
+    return res.status(403).json({ error: 'Forbidden' });
+});
+app.use('/api', (req, res, next) => {
+    // Public auth endpoints.
+    if (req.path === '/auth/login' || req.path === '/auth/logout' || req.path === '/auth/me') return next();
+    // Kiosk read APIs stay unauthenticated but are IP-restricted by middleware above.
+    if (req.method === 'GET' && KIOSK_READ_PATHS.has(req.path)) return next();
+    const sessionId = parseCookies(req)[SESSION_COOKIE];
+    if (isValidAdminSession(sessionId)) return next();
+    return res.status(401).json({ error: 'Unauthorized' });
+});
+
+if (ADMIN_PASSWORD === 'kiosk') {
+    console.warn('WARNING: KIOSK_ADMIN_PASSWORD is not set. Default password "kiosk" is active.');
+}
+
+function parseCookies(req) {
+    const header = req.headers.cookie || '';
+    const out = {};
+    for (const pair of header.split(';')) {
+        const idx = pair.indexOf('=');
+        if (idx === -1) continue;
+        const k = pair.slice(0, idx).trim();
+        const v = pair.slice(idx + 1).trim();
+        if (k) out[k] = decodeURIComponent(v);
+    }
+    return out;
+}
+
+function timingSafeEqualStr(a, b) {
+    const ab = Buffer.from(String(a));
+    const bb = Buffer.from(String(b));
+    if (ab.length !== bb.length) return false;
+    return crypto.timingSafeEqual(ab, bb);
+}
+
+function createAdminSession() {
+    const sessionId = crypto.randomBytes(32).toString('hex');
+    adminSessions.set(sessionId, Date.now() + SESSION_TTL_MS);
+    return sessionId;
+}
+
+function isValidAdminSession(sessionId) {
+    if (!sessionId) return false;
+    const expiresAt = adminSessions.get(sessionId);
+    if (!expiresAt) return false;
+    if (expiresAt < Date.now()) {
+        adminSessions.delete(sessionId);
+        return false;
+    }
+    // Rolling expiration.
+    adminSessions.set(sessionId, Date.now() + SESSION_TTL_MS);
+    return true;
+}
+
+function clearAdminSession(sessionId) {
+    if (sessionId) adminSessions.delete(sessionId);
+}
+
+function sessionCookieHeader(value, maxAgeSeconds) {
+    const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+    return `${SESSION_COOKIE}=${value}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAgeSeconds}${secure}`;
+}
+
+// Auth endpoints for admin UI.
+app.post('/api/auth/login', (req, res) => {
+    const { password } = req.body || {};
+    if (!timingSafeEqualStr(password || '', ADMIN_PASSWORD)) {
+        return res.status(401).json({ error: 'Invalid credentials' });
+    }
+    const sessionId = createAdminSession();
+    res.setHeader('Set-Cookie', sessionCookieHeader(sessionId, Math.floor(SESSION_TTL_MS / 1000)));
+    return res.json({ success: true });
+});
+
+app.post('/api/auth/logout', (req, res) => {
+    const sessionId = parseCookies(req)[SESSION_COOKIE];
+    clearAdminSession(sessionId);
+    res.setHeader('Set-Cookie', sessionCookieHeader('', 0));
+    return res.json({ success: true });
+});
+
+app.get('/api/auth/me', (req, res) => {
+    const sessionId = parseCookies(req)[SESSION_COOKIE];
+    return res.json({ authenticated: isValidAdminSession(sessionId) });
+});
 
 // Multer storage — saves uploaded image to TEMP_DIR with sanitized original filename
 const bgStorage = multer.diskStorage({

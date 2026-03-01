@@ -1,0 +1,300 @@
+\documentclass[11pt,letterpaper]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath, amssymb}
+\usepackage{tikz}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{longtable}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{1ex}
+
+\title{Debian 13 Kiosk and Building Directory Deployment Guide}
+\author{}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\section*{Purpose}
+
+This document defines the standardized installation and configuration procedure for the Debian 13 (Trixie) kiosk display systems and building directory server environment.
+
+It replaces all previous Debian 13 installation notes and integrates updated deployment practices including:
+
+\begin{itemize}
+\item Overlayroot read-only root filesystem
+\item Autologin kiosk environment (no display manager)
+\item Cage + Chromium Wayland kiosk
+\item XFCE administrative fallback on USB keyboard insertion
+\item Central directory server architecture
+\item Removal of legacy monit usage
+\end{itemize}
+
+\section{System Architecture}
+
+\subsection{Display Nodes}
+
+Each display node runs:
+
+\begin{itemize}
+\item Debian 13 minimal install
+\item Read-only overlayroot
+\item Autologin kiosk user on tty1
+\item Chromium kiosk pointing to central server
+\item Optional XFCE admin mode triggered by USB keyboard
+\end{itemize}
+
+Example:
+
+\begin{itemize}
+\item Display node: 192.168.1.80
+\item Server (dev): 192.168.1.131
+\end{itemize}
+
+\subsection{Directory Server}
+
+NodeJS server providing:
+
+\begin{itemize}
+\item Static UI
+\item REST API endpoints
+\item Data storage (JSON or database)
+\end{itemize}
+
+Runs on port 3000.
+
+\section{Debian 13 Base Installation}
+
+\subsection{Install Debian 13}
+
+Use official Debian 13 installer (amd64).
+
+Select:
+
+\begin{itemize}
+\item Minimal system utilities only
+\item SSH server
+\item No desktop environment
+\end{itemize}
+
+Create user:
+
+\begin{itemize}
+\item username: kiosk
+\end{itemize}
+
+\subsection{Post-install packages}
+
+\begin{lstlisting}[language=bash]
+sudo apt update
+sudo apt install \
+xorg xfce4 xfce4-terminal \
+chromium cage wlr-randr \
+unclutter seatd \
+overlayroot curl vim
+\end{lstlisting}
+
+\section{Overlayroot Configuration}
+
+\subsection{Enable read-only root}
+
+Edit:
+
+\begin{lstlisting}[language=bash]
+sudo vi /etc/overlayroot.conf
+\end{lstlisting}
+
+Set:
+
+\begin{lstlisting}
+overlayroot="tmpfs"
+\end{lstlisting}
+
+Reboot.
+
+Verify:
+
+\begin{lstlisting}[language=bash]
+mount | grep overlayroot
+\end{lstlisting}
+
+\section{Autologin Configuration}
+
+Disable display manager:
+
+\begin{lstlisting}[language=bash]
+sudo systemctl disable lightdm --now
+sudo systemctl set-default multi-user.target
+\end{lstlisting}
+
+Configure tty1 autologin:
+
+\begin{lstlisting}[language=bash]
+sudo mkdir -p /etc/systemd/system/getty@tty1.service.d
+sudo vi /etc/systemd/system/getty@tty1.service.d/override.conf
+\end{lstlisting}
+
+Insert:
+
+\begin{lstlisting}
+[Service]
+ExecStart=
+ExecStart=-/sbin/agetty --autologin kiosk --noclear %I $TERM
+Type=simple
+\end{lstlisting}
+
+Reload:
+
+\begin{lstlisting}[language=bash]
+sudo systemctl daemon-reload
+\end{lstlisting}
+
+\section{Kiosk Startup Logic}
+
+\subsection{.bash\_profile}
+
+\begin{lstlisting}[language=bash]
+if [[ "$(tty 2>/dev/null)" == "/dev/tty1" ]]; then
+    export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+    mkdir -p "$XDG_RUNTIME_DIR"
+    chmod 700 "$XDG_RUNTIME_DIR"
+
+    while true; do
+        rm -f /tmp/kiosk-exit
+        /home/kiosk/building-directory/scripts/start-kiosk.sh
+
+        if [[ -f /tmp/kiosk-exit ]]; then
+            export XAUTHORITY=/tmp/.Xauthority
+            export XDG_CONFIG_HOME=/tmp/xfce4-config
+            export XDG_CACHE_HOME=/tmp/xfce4-cache
+            export XDG_DATA_HOME=/tmp/xfce4-data
+            mkdir -p /tmp/xfce4-config /tmp/xfce4-cache /tmp/xfce4-data
+
+            startxfce4 -- -logfile /tmp/Xorg.0.log \
+            >/tmp/xfce4-start.log 2>&1
+        fi
+    done
+fi
+\end{lstlisting}
+
+\section{Cage + Chromium Startup}
+
+\subsection{start-kiosk.sh}
+
+\begin{lstlisting}[language=bash]
+#!/bin/bash
+SERVER_URL="http://192.168.1.131:3000"
+
+cage -d -- sh -c '
+OUTPUT=$(wlr-randr 2>/dev/null | sed -n "1s/ .*//p")
+[ -n "$OUTPUT" ] && wlr-randr --output "$OUTPUT" --mode 1920x1080
+rm -rf /tmp/chromium-profile 2>/dev/null || true
+
+exec chromium \
+--ozone-platform=wayland \
+--user-data-dir=/tmp/chromium-profile \
+--kiosk \
+--noerrdialogs \
+--disable-infobars \
+--no-first-run \
+--disable-session-crashed-bubble \
+--overscroll-history-navigation=0 \
+--disable-translate \
+--touch-events=enabled \
+'"$SERVER_URL"'
+'
+\end{lstlisting}
+
+Make executable:
+
+\begin{lstlisting}[language=bash]
+chmod +x start-kiosk.sh
+\end{lstlisting}
+
+\section{USB Keyboard Admin Mode}
+
+Udev rule detects keyboard insertion and triggers:
+
+\begin{itemize}
+\item Kill cage
+\item Create /tmp/kiosk-exit
+\item XFCE launches
+\end{itemize}
+
+On XFCE logout, kiosk restarts automatically.
+
+\section{Server Deployment (NodeJS)}
+
+\subsection{Directory server}
+
+\begin{lstlisting}[language=bash]
+cd ~/building-directory/server
+npm install
+node server.js
+\end{lstlisting}
+
+Verify:
+
+\begin{lstlisting}[language=bash]
+curl http://localhost:3000
+\end{lstlisting}
+
+\subsection{Allow LAN access}
+
+If firewall enabled:
+
+\begin{lstlisting}[language=bash]
+sudo ufw allow 3000/tcp
+\end{lstlisting}
+
+\section{Testing Connectivity from Display}
+
+\begin{lstlisting}[language=bash]
+curl http://192.168.1.131:3000
+curl http://192.168.1.131:3000/api/data-version
+\end{lstlisting}
+
+\section{Deployment Strategy}
+
+\subsection{Recommended}
+
+\begin{itemize}
+\item Develop server on workstation (192.168.1.131)
+\item Test kiosk connectivity
+\item Freeze code
+\item Deploy server to one display node or dedicated server
+\end{itemize}
+
+\subsection{Production Option}
+
+Run server on one display node:
+
+\begin{itemize}
+\item Choose most reliable hardware
+\item Assign static IP
+\item Use systemd service for Node server
+\end{itemize}
+
+\section{Maintenance Checklist}
+
+\begin{itemize}
+\item Verify overlayroot active
+\item Confirm kiosk autostarts after reboot
+\item Confirm keyboard triggers admin XFCE
+\item Confirm server reachable from kiosk
+\item Confirm Chromium reloads after crash
+\end{itemize}
+
+\section{Notes}
+
+\begin{itemize}
+\item LightDM not used
+\item Monit removed
+\item Systemd handles all restart logic
+\item Overlayroot protects filesystem
+\end{itemize}
+
+\end{document}

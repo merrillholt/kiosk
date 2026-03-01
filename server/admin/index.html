@@ -9,132 +9,231 @@
 <body>
     <div class="container">
         <h1>🏢 Building Directory Administration</h1>
-        
+        <button id="logout-btn" class="btn btn-primary" style="display:none;float:right;margin-top:-50px;">Log Out</button>
+
         <div id="message" class="message"></div>
-        
-        <div class="tabs">
-            <button class="tab active" onclick="showTab('companies')">Companies</button>
-            <button class="tab" onclick="showTab('individuals')">Individuals</button>
-            <button class="tab" onclick="showTab('building-info')">Building Info</button>
-        </div>
-        
-        <!-- Companies Tab -->
-        <div id="companies-tab" class="tab-content active">
-            <h2>Add/Edit Company</h2>
-            <form id="company-form">
-                <input type="hidden" id="company-id">
+
+        <div id="auth-panel" style="display:none;margin-bottom:20px;">
+            <h2>Admin Login</h2>
+            <form id="auth-form">
                 <div class="form-group">
-                    <label for="company-name">Company Name *</label>
-                    <input type="text" id="company-name" required>
+                    <label for="auth-password">Password</label>
+                    <input type="password" id="auth-password" required autocomplete="current-password">
                 </div>
-                <div class="form-group">
-                    <label for="company-building">Building *</label>
-                    <input type="text" id="company-building" required>
-                </div>
-                <div class="form-group">
-                    <label for="company-suite">Suite *</label>
-                    <input type="text" id="company-suite" required>
-                </div>
-                <div class="form-group">
-                    <label for="company-floor">Floor</label>
-                    <input type="text" id="company-floor">
-                </div>
-                <div class="form-group">
-                    <label for="company-phone">Phone</label>
-                    <input type="text" id="company-phone">
-                </div>
-                <button type="submit" class="btn btn-success">Save Company</button>
-                <button type="button" class="btn btn-primary" onclick="resetCompanyForm()">Clear Form</button>
+                <button type="submit" class="btn btn-success">Log In</button>
             </form>
-            
-            <div class="table-container">
-                <h2>Companies List</h2>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Name</th>
-                            <th>Building</th>
-                            <th>Suite</th>
-                            <th>Floor</th>
-                            <th>Phone</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody id="companies-list"></tbody>
-                </table>
+        </div>
+
+        <div id="tabs-container" style="display:none;">
+            <div class="tabs">
+                <button class="tab active" onclick="showTab(this, 'companies')">Companies</button>
+                <button class="tab" onclick="showTab(this, 'individuals')">Individuals</button>
+                <button class="tab" onclick="showTab(this, 'building-info')">Building Info</button>
+                <button class="tab" onclick="showTab(this, 'appearance')">Appearance</button>
+                <button class="tab" onclick="showTab(this, 'deploy')">Deploy</button>
+                <button class="tab" onclick="showTab(this, 'maintenance')">Maintenance</button>
             </div>
-        </div>
-        
-        <!-- Individuals Tab -->
-        <div id="individuals-tab" class="tab-content">
-            <h2>Add/Edit Individual</h2>
-            <form id="individual-form">
-                <input type="hidden" id="individual-id">
-                <div class="form-group">
-                    <label for="individual-first-name">First Name *</label>
-                    <input type="text" id="individual-first-name" required>
+
+            <!-- Companies Tab -->
+            <div id="companies-tab" class="tab-content active">
+                <h2>Add/Edit Company</h2>
+                <form id="company-form">
+                    <input type="hidden" id="company-id">
+                    <div class="form-group">
+                        <label for="company-name">Company Name *</label>
+                        <input type="text" id="company-name" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="company-building">Building *</label>
+                        <input type="text" id="company-building" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="company-suite">Suite *</label>
+                        <input type="text" id="company-suite" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="company-floor">Floor</label>
+                        <input type="text" id="company-floor">
+                    </div>
+                    <div class="form-group">
+                        <label for="company-phone">Phone</label>
+                        <input type="text" id="company-phone">
+                    </div>
+                    <button type="submit" class="btn btn-success">Save Company</button>
+                    <button type="button" class="btn btn-primary" onclick="resetCompanyForm()">Clear Form</button>
+                </form>
+
+                <div class="table-container">
+                    <h2>Companies List</h2>
+                    <div class="form-group" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 12px 0;">
+                        <button type="button" class="btn btn-primary" onclick="downloadCsv('companies')">Download CSV</button>
+                        <form id="company-csv-form" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                            <input type="file" id="company-csv-file" accept=".csv" required>
+                            <button type="submit" class="btn btn-success">Upload CSV</button>
+                        </form>
+                    </div>
+                    <div class="form-group" style="margin:0 0 12px 0;">
+                        <input type="text" id="company-search" placeholder="Search by name, building, or suite…" oninput="searchCompanies(this.value)">
+                    </div>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Building</th>
+                                <th>Suite</th>
+                                <th>Floor</th>
+                                <th>Phone</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="companies-list"></tbody>
+                    </table>
                 </div>
-                <div class="form-group">
-                    <label for="individual-last-name">Last Name *</label>
-                    <input type="text" id="individual-last-name" required>
-                </div>
-                <div class="form-group">
-                    <label for="individual-title">Title</label>
-                    <input type="text" id="individual-title">
-                </div>
-                <div class="form-group">
-                    <label for="individual-company">Company</label>
-                    <select id="individual-company">
-                        <option value="">-- None --</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label for="individual-building">Building *</label>
-                    <input type="text" id="individual-building" required>
-                </div>
-                <div class="form-group">
-                    <label for="individual-suite">Suite *</label>
-                    <input type="text" id="individual-suite" required>
-                </div>
-                <div class="form-group">
-                    <label for="individual-phone">Phone</label>
-                    <input type="text" id="individual-phone">
-                </div>
-                <button type="submit" class="btn btn-success">Save Individual</button>
-                <button type="button" class="btn btn-primary" onclick="resetIndividualForm()">Clear Form</button>
-            </form>
-            
-            <div class="table-container">
-                <h2>Individuals List</h2>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Name</th>
-                            <th>Title</th>
-                            <th>Building</th>
-                            <th>Suite</th>
-                            <th>Phone</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody id="individuals-list"></tbody>
-                </table>
             </div>
-        </div>
-        
-        <!-- Building Info Tab -->
-        <div id="building-info-tab" class="tab-content">
-            <h2>Building Information</h2>
-            <form id="building-info-form">
-                <div class="form-group">
-                    <label for="building-info-content">Content (HTML allowed)</label>
-                    <textarea id="building-info-content"></textarea>
+
+            <!-- Individuals Tab -->
+            <div id="individuals-tab" class="tab-content">
+                <h2>Add/Edit Individual</h2>
+                <form id="individual-form">
+                    <input type="hidden" id="individual-id">
+                    <div class="form-group">
+                        <label for="individual-first-name">First Name *</label>
+                        <input type="text" id="individual-first-name" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="individual-last-name">Last Name *</label>
+                        <input type="text" id="individual-last-name" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="individual-title">Title</label>
+                        <input type="text" id="individual-title">
+                    </div>
+                    <div class="form-group">
+                        <label for="individual-company">Company</label>
+                        <select id="individual-company">
+                            <option value="">-- None --</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="individual-building">Building *</label>
+                        <input type="text" id="individual-building" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="individual-suite">Suite *</label>
+                        <input type="text" id="individual-suite" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="individual-phone">Phone</label>
+                        <input type="text" id="individual-phone">
+                    </div>
+                    <button type="submit" class="btn btn-success">Save Individual</button>
+                    <button type="button" class="btn btn-primary" onclick="resetIndividualForm()">Clear Form</button>
+                </form>
+
+                <div class="table-container">
+                    <h2>Individuals List</h2>
+                    <div class="form-group" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 12px 0;">
+                        <button type="button" class="btn btn-primary" onclick="downloadCsv('individuals')">Download CSV</button>
+                        <form id="individual-csv-form" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                            <input type="file" id="individual-csv-file" accept=".csv" required>
+                            <button type="submit" class="btn btn-success">Upload CSV</button>
+                        </form>
+                    </div>
+                    <div class="form-group" style="margin:0 0 12px 0;">
+                        <input type="text" id="individual-search" placeholder="Search by name, building, or suite…" oninput="searchIndividuals(this.value)">
+                    </div>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Title</th>
+                                <th>Building</th>
+                                <th>Suite</th>
+                                <th>Phone</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="individuals-list"></tbody>
+                    </table>
                 </div>
-                <button type="submit" class="btn btn-success">Save Building Info</button>
-            </form>
+            </div>
+
+            <!-- Building Info Tab -->
+            <div id="building-info-tab" class="tab-content">
+                <h2>Building Information</h2>
+                <form id="building-info-form">
+                    <div class="form-group">
+                        <label for="building-info-content">Content (HTML allowed)</label>
+                        <textarea id="building-info-content"></textarea>
+                    </div>
+                    <button type="submit" class="btn btn-success">Save Building Info</button>
+                </form>
+            </div>
+
+            <!-- Appearance Tab -->
+            <div id="appearance-tab" class="tab-content">
+                <h2>Background Images</h2>
+                <p style="margin-bottom:16px;color:#666;">Click an image to set it as the active kiosk background. Uploaded images persist across reboots.</p>
+                <div id="bg-gallery" class="bg-gallery"></div>
+                <h3 style="margin-top:24px;margin-bottom:16px;color:#34495e;">Upload New Image</h3>
+                <p style="margin-bottom:12px;color:#666;">Accepted formats: JPG, PNG, GIF, WebP (max 20 MB).</p>
+                <form id="background-form">
+                    <div class="form-group">
+                        <label for="bg-file">Choose Image</label>
+                        <input type="file" id="bg-file" accept="image/jpeg,image/png,image/gif,image/webp" required>
+                    </div>
+                    <button type="submit" class="btn btn-success">Upload Image</button>
+                </form>
+            </div>
+
+            <!-- Deploy Tab -->
+            <div id="deploy-tab" class="tab-content">
+                <h2>Kiosk Client Deployment</h2>
+                <p style="margin-bottom:16px;color:#666;">Deploy system script updates to the kiosk display machines. The kiosk browser app (HTML/JS/CSS) is served from this server and updates automatically — only system-level scripts require a deploy.</p>
+
+                <div class="deploy-info-bar">
+                    <span class="deploy-info-label">Server URL configured on kiosks:</span>
+                    <code id="deploy-server-url">loading...</code>
+                </div>
+
+                <h3 style="margin:24px 0 8px;color:#34495e;">SSH Deploy Key</h3>
+                <p style="color:#666;margin-bottom:10px;">Each kiosk machine must have this public key in <code>~/.ssh/authorized_keys</code> for the kiosk user. The key is generated automatically on first use.</p>
+                <div class="deploy-pubkey-row">
+                    <code id="deploy-pubkey" class="deploy-pubkey">loading...</code>
+                    <button class="btn btn-primary" onclick="copyDeployKey()" style="white-space:nowrap;">Copy Key</button>
+                </div>
+
+                <h3 style="margin:24px 0 12px;color:#34495e;">Kiosk Machines</h3>
+                <div style="margin-bottom:16px;">
+                    <button class="btn btn-primary" id="deploy-all-btn" onclick="deployAll()">Deploy to All</button>
+                </div>
+                <div id="kiosk-deploy-list"></div>
+
+                <h3 style="margin:24px 0 8px;color:#34495e;">Output</h3>
+                <pre id="deploy-output" class="deploy-output">Ready.</pre>
+            </div>
+
+            <!-- Maintenance Tab -->
+            <div id="maintenance-tab" class="tab-content">
+                <h2>Database Backup</h2>
+                <p style="margin-bottom:16px;color:#666;">Download a complete, consistent snapshot of the directory database.</p>
+                <a class="btn btn-primary" href="/api/backup" download="directory.db">Download Backup</a>
+
+                <h2>Restore Database</h2>
+                <div class="warn-box">
+                    <strong>Warning:</strong> Restoring will immediately overwrite all current data with the contents of the uploaded file. Download a backup first if you want to preserve the current state.
+                </div>
+                <form id="restore-form">
+                    <div class="form-group">
+                        <label for="restore-file">Database backup file (.db)</label>
+                        <input type="file" id="restore-file" accept=".db" required>
+                    </div>
+                    <button type="submit" class="btn btn-danger">Restore Database</button>
+                </form>
+            </div>
         </div>
     </div>
-    
+
     <script src="admin.js"></script>
 </body>
 </html>

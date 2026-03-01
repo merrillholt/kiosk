@@ -1,41 +1,18 @@
 #!/bin/bash
-
-# Configuration
 SERVER_URL="http://localhost"
 
-# Detect the display
-if [ -z "$DISPLAY" ]; then
-    export DISPLAY=:0
-fi
-
-# Set X authority if not set
-if [ -z "$XAUTHORITY" ]; then
-    export XAUTHORITY=$HOME/.Xauthority
-fi
-
-# Check if we can access the display
-if ! xset q &>/dev/null; then
-    echo "ERROR: Cannot access display $DISPLAY"
-    echo "Make sure you're running as the logged-in user or set XAUTHORITY correctly"
-    exit 1
-fi
-
-# Kill existing Chromium instances
-pkill -f chromium
-sleep 1
-
-# Hide mouse cursor after 2 seconds of inactivity
-unclutter -idle 2 2>/dev/null &
-
-# Disable screen blanking and power management
-xset s off 2>/dev/null
-xset -dpms 2>/dev/null
-xset s noblank 2>/dev/null
-
-# Start Chromium in kiosk mode
-# Using snap chromium, add --ozone-platform=x11 to fix Wayland warning
-chromium-browser \
-    --ozone-platform=x11 \
+# ── cage: hides cursor (-d), manages Chromium lifecycle ──────────────────────
+# wlr-randr auto-detects the first connected output and sets 1920x1080.
+# Works in both the VirtualBox dev VM (Virtual-1) and on physical hardware
+# (HDMI-1 or similar) without any configuration change.
+# exec replaces sh with chromium so cage sees one long-lived client.
+cage -d -- sh -c '
+    OUTPUT=$(wlr-randr 2>/dev/null | sed -n "1s/ .*//p")
+    [ -n "$OUTPUT" ] && wlr-randr --output "$OUTPUT" --mode 1920x1080 2>/tmp/wlr-randr.log
+    exec chromium \
+    --ozone-platform=wayland \
+    --user-data-dir=/tmp/chromium-profile \
+    --password-store=basic \
     --kiosk \
     --noerrdialogs \
     --disable-infobars \
@@ -45,11 +22,9 @@ chromium-browser \
     --disable-features=TranslateUI \
     --check-for-update-interval=31536000 \
     --no-first-run \
-    --fast \
-    --fast-start \
-    --disable-java \
     --disable-restore-session-state \
     --disable-sync \
     --disable-translate \
     --touch-events=enabled \
-    "$SERVER_URL" 2>&1 | grep -v "libpxbackend\|libgiolibproxy\|Gtk-WARNING\|PHONE_REGISTRATION_ERROR\|DEPRECATED_ENDPOINT"
+    '"$SERVER_URL"'
+'

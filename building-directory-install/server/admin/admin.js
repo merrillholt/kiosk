@@ -1,4 +1,5 @@
 const API_URL = '/api';
+let isAuthenticated = false;
 
 function escapeHtml(text) {
     const div = document.createElement('div');
@@ -7,6 +8,7 @@ function escapeHtml(text) {
 }
 
 function showTab(btn, tabName) {
+    if (!isAuthenticated) return;
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
     btn.classList.add('active');
@@ -402,5 +404,61 @@ document.getElementById('restore-form').addEventListener('submit', async (e) => 
 });
 
 window.addEventListener('DOMContentLoaded', () => {
-    loadCompanies();
+    setupAuthUi();
+    ensureAuthenticated().then(ok => {
+        if (ok) {
+            isAuthenticated = true;
+            setAuthState(true);
+            loadCompanies();
+        }
+    });
 });
+
+function setupAuthUi() {
+    const loginForm = document.getElementById('auth-form');
+    const logoutBtn = document.getElementById('logout-btn');
+    loginForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const password = document.getElementById('auth-password').value;
+        try {
+            const res = await fetch(`${API_URL}/auth/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+            isAuthenticated = true;
+            document.getElementById('auth-password').value = '';
+            setAuthState(true);
+            loadCompanies();
+            showMessage('Logged in');
+        } catch (err) {
+            showMessage('Login failed', 'error');
+        }
+    });
+    logoutBtn.addEventListener('click', async () => {
+        try { await fetch(`${API_URL}/auth/logout`, { method: 'POST' }); } catch (e) {}
+        isAuthenticated = false;
+        setAuthState(false);
+        showMessage('Logged out');
+    });
+    setAuthState(false);
+}
+
+function setAuthState(authenticated) {
+    document.getElementById('auth-panel').style.display = authenticated ? 'none' : 'block';
+    document.getElementById('logout-btn').style.display = authenticated ? 'inline-block' : 'none';
+    document.getElementById('tabs-container').style.display = authenticated ? 'block' : 'none';
+}
+
+async function ensureAuthenticated() {
+    try {
+        const res = await fetch(`${API_URL}/auth/me`);
+        if (!res.ok) return false;
+        const data = await res.json();
+        return !!data.authenticated;
+    } catch (e) {
+        return false;
+    }
+}

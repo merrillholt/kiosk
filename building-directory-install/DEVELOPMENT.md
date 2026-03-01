@@ -169,9 +169,9 @@ If the kiosk is already running with overlayroot, write via chroot so the key
 persists:
 ```bash
 sudo overlayroot-chroot bash -c "
-  mkdir -p /home/merrill/.ssh && chmod 700 /home/merrill/.ssh
-  echo '<public key>' >> /home/merrill/.ssh/authorized_keys
-  chmod 600 /home/merrill/.ssh/authorized_keys
+  mkdir -p /home/kiosk/.ssh && chmod 700 /home/kiosk/.ssh
+  echo '<public key>' >> /home/kiosk/.ssh/authorized_keys
+  chmod 600 /home/kiosk/.ssh/authorized_keys
 "
 ```
 
@@ -331,9 +331,9 @@ cd building-directory-install
    - `/usr/local/bin/kiosk-keyboard-added.sh` (chmod 755)
    - `/etc/udev/rules.d/99-kiosk-keyboard.rules`
    - `/etc/sudoers.d/directory-server` (chmod 440)
-   - `/home/merrill/building-directory/server/` (all server files)
-   - `/home/merrill/building-directory/scripts/` (kiosk scripts + bash_profile template)
-   - `/home/merrill/.bash_profile`
+   - `/home/kiosk/building-directory/server/` (all server files)
+   - `/home/kiosk/building-directory/scripts/` (kiosk scripts + bash_profile template)
+   - `/home/kiosk/.bash_profile`
    - `/etc/nginx/sites-available/directory`
 4. **Drop the kernel dentry cache** so new lower-layer files become visible
    to the running overlay without a reboot.
@@ -397,11 +397,11 @@ Files deployed to each kiosk:
 
 | Source | Destination on kiosk |
 |--------|----------------------|
-| `scripts/start-kiosk.sh` (SERVER_URL patched) | `/home/merrill/building-directory/scripts/start-kiosk.sh` |
-| `scripts/restart-kiosk.sh` | `/home/merrill/building-directory/scripts/restart-kiosk.sh` |
+| `scripts/start-kiosk.sh` (SERVER_URL patched) | `/home/kiosk/building-directory/scripts/start-kiosk.sh` |
+| `scripts/restart-kiosk.sh` | `/home/kiosk/building-directory/scripts/restart-kiosk.sh` |
 | `scripts/kiosk-keyboard-added.sh` | `/usr/local/bin/kiosk-keyboard-added.sh` |
 | `scripts/99-kiosk-keyboard.rules` | `/etc/udev/rules.d/99-kiosk-keyboard.rules` |
-| `scripts/bash_profile` | `/home/merrill/.bash_profile` |
+| `scripts/bash_profile` | `/home/kiosk/.bash_profile` |
 
 Script changes take effect on the kiosk's **next cage restart** (i.e. next
 keyboard-triggered XFCE session, or next reboot). The running cage session
@@ -540,7 +540,7 @@ Background images uploaded through the admin Appearance tab are written to
 the ext4 lower layer on the server at:
 
 ```
-/media/root-ro/home/merrill/building-directory/server/uploads/
+/media/root-ro/home/kiosk/building-directory/server/uploads/
 ```
 
 via `sudo /usr/local/bin/persist-upload.sh copy <src> <filename>`. They

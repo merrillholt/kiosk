@@ -48,7 +48,7 @@ After installation:
 - Kiosk Display: `http://SERVER_IP/`
 - Admin Interface: `http://SERVER_IP/admin`
 
-**Default Credentials:** None (add authentication separately if needed)
+**Default Credentials:** Optional. Server install now offers built-in HTTP Basic Auth setup for `/admin` and protected API endpoints.
 
 ## Installation Modes
 
@@ -68,6 +68,10 @@ This installs:
 - Nginx web server
 - Systemd service for auto-start
 
+During server install, you can optionally enable:
+- HTTP Basic Auth for `/admin` and write/sensitive `/api` endpoints
+- IP/CIDR allowlist for `/admin` and protected API endpoints
+
 ### Client Installation  
 
 On each kiosk display machine:
@@ -82,6 +86,7 @@ This installs:
 - Chromium browser in kiosk mode
 - Auto-start configuration
 - Screen management utilities
+- **Keyboard breakout to admin desktop**: Plugging in a USB keyboard stops the kiosk and launches XFCE for admin access. Logging out of XFCE restarts the kiosk.
 
 ### Testing Installation
 
@@ -105,6 +110,23 @@ sudo systemctl restart directory-server
 
 # View logs
 sudo journalctl -u directory-server -f
+```
+
+### Server Verification
+
+```bash
+# Service health
+sudo systemctl status directory-server --no-pager
+
+# Confirm running code path
+PID=$(systemctl show -p MainPID --value directory-server)
+sudo readlink -f /proc/$PID/cwd
+sudo tr '\0' ' ' < /proc/$PID/cmdline; echo
+
+# API checks
+curl -i http://127.0.0.1:3000/api/data-version
+curl -i http://127.0.0.1:3000/api/kiosks
+curl -I http://127.0.0.1:3000/api/backup
 ```
 
 ### Kiosk Client Management
@@ -157,6 +179,8 @@ Manual backup:
    - **Building Info**: Update general building information
 
 Changes sync automatically to all kiosks within 60 seconds.
+
+If Basic Auth is enabled during install, your browser will prompt for credentials before accessing `/admin` and protected API operations.
 
 ## Troubleshooting
 

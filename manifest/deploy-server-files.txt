@@ -1,0 +1,17 @@
+# Server-only local deploy manifest (default for deploy-local.sh)
+# Paths are relative to project root.
+
+server/server.js
+server/package.json
+server/package-lock.json
+server/persist-upload.sh
+server/kiosk-deploy.sh
+server/.env.example
+server/test.js
+server/admin/index.html
+server/admin/admin.js
+server/admin/admin.css
+scripts/start-server.sh
+scripts/restart-server.sh
+kiosk-fleet/kioskctl
+kiosk-fleet/hosts

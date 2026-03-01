@@ -1,0 +1,239 @@
+\documentclass[11pt,letterpaper]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath, amssymb}
+\usepackage{tikz}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{longtable}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{1ex}
+
+\title{Debian 13 Kiosk Client Configuration Guide}
+\author{}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\section*{Purpose}
+
+This document defines the standardized \textbf{client kiosk} installation and configuration procedure for Debian 13 (Trixie) display systems.
+
+It is intentionally client-scoped and covers:
+
+\begin{itemize}
+\item Overlayroot read-only root filesystem
+\item Autologin kiosk environment (no display manager)
+\item Cage + Chromium Wayland kiosk runtime
+\item XFCE administrative fallback on USB keyboard insertion
+\end{itemize}
+
+\textbf{Server operations are documented separately in:}
+\begin{itemize}
+\item \texttt{docs/09-server-operations.md}
+\item \texttt{docs/08-packaging-and-deploy.md}
+\end{itemize}
+
+\section{Client System Architecture}
+
+Each display node runs:
+
+\begin{itemize}
+\item Debian 13 minimal install
+\item Read-only overlayroot
+\item Autologin kiosk user on tty1
+\item Chromium kiosk pointing to central server
+\item Optional XFCE admin mode triggered by USB keyboard
+\end{itemize}
+
+Example:
+
+\begin{itemize}
+\item Display node: 192.168.1.80
+\item Central server: 192.168.1.131
+\end{itemize}
+
+\section{Debian 13 Base Installation}
+
+\subsection{Install Debian 13}
+
+Use official Debian 13 installer (amd64).
+
+Select:
+
+\begin{itemize}
+\item Minimal system utilities only
+\item SSH server
+\item No desktop environment
+\end{itemize}
+
+Create user:
+
+\begin{itemize}
+\item username: kiosk
+\end{itemize}
+
+\subsection{Post-install packages}
+
+\begin{lstlisting}[language=bash]
+sudo apt update
+sudo apt install \
+  cage chromium wlr-randr \
+  xfce4 xserver-xorg xserver-xorg-input-libinput \
+  overlayroot curl vim
+\end{lstlisting}
+
+\section{Overlayroot Configuration}
+
+\subsection{Enable read-only root}
+
+Edit:
+
+\begin{lstlisting}[language=bash]
+sudo vi /etc/overlayroot.conf
+\end{lstlisting}
+
+Set:
+
+\begin{lstlisting}
+overlayroot="tmpfs"
+\end{lstlisting}
+
+Reboot.
+
+Verify:
+
+\begin{lstlisting}[language=bash]
+mount | grep "^overlayroot on /"
+\end{lstlisting}
+
+\section{Autologin Configuration}
+
+Disable display manager (if present):
+
+\begin{lstlisting}[language=bash]
+sudo systemctl disable lightdm --now || true
+sudo systemctl set-default multi-user.target
+\end{lstlisting}
+
+Configure tty1 autologin:
+
+\begin{lstlisting}[language=bash]
+sudo mkdir -p /etc/systemd/system/getty@tty1.service.d
+sudo vi /etc/systemd/system/getty@tty1.service.d/override.conf
+\end{lstlisting}
+
+Insert:
+
+\begin{lstlisting}
+[Service]
+ExecStart=
+ExecStart=-/sbin/agetty --autologin kiosk --noclear %I $TERM
+Type=simple
+\end{lstlisting}
+
+Reload:
+
+\begin{lstlisting}[language=bash]
+sudo systemctl daemon-reload
+\end{lstlisting}
+
+\section{Kiosk Startup Logic}
+
+\subsection{.bash\_profile}
+
+\begin{lstlisting}[language=bash]
+if [[ "$(tty 2>/dev/null)" == "/dev/tty1" ]]; then
+    export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+    mkdir -p "$XDG_RUNTIME_DIR"
+    chmod 700 "$XDG_RUNTIME_DIR"
+
+    while true; do
+        rm -f /tmp/kiosk-exit
+        /home/kiosk/building-directory/scripts/start-kiosk.sh
+
+        if [[ -f /tmp/kiosk-exit ]]; then
+            export XAUTHORITY=/tmp/.Xauthority
+            export ICEAUTHORITY=/tmp/.ICEauthority
+            export XDG_CONFIG_HOME=/tmp/xfce4-config
+            export XDG_CACHE_HOME=/tmp/xfce4-cache
+            export XDG_DATA_HOME=/tmp/xfce4-data
+            mkdir -p /tmp/xfce4-config /tmp/xfce4-cache /tmp/xfce4-data
+
+            startxfce4 -- -logfile /tmp/Xorg.0.log \
+            >/tmp/xfce4-start.log 2>&1
+        fi
+    done
+fi
+\end{lstlisting}
+
+\section{Cage + Chromium Startup}
+
+\subsection{start-kiosk.sh}
+
+\begin{lstlisting}[language=bash]
+#!/bin/bash
+SERVER_URL="http://localhost"
+
+cage -d -- sh -c '
+OUTPUT=$(wlr-randr 2>/dev/null | sed -n "1s/ .*//p")
+[ -n "$OUTPUT" ] && wlr-randr --output "$OUTPUT" --mode 1920x1080
+
+exec chromium \
+--ozone-platform=wayland \
+--user-data-dir=/tmp/chromium-profile \
+--password-store=basic \
+--kiosk \
+--noerrdialogs \
+--disable-infobars \
+--disable-session-crashed-bubble \
+--disable-pinch \
+--overscroll-history-navigation=0 \
+--disable-features=TranslateUI \
+--check-for-update-interval=31536000 \
+--no-first-run \
+--disable-restore-session-state \
+--disable-sync \
+--disable-translate \
+--touch-events=enabled \
+'"$SERVER_URL"'
+'
+\end{lstlisting}
+
+\textbf{Note:} In client-only installs, installer/deploy scripts patch \texttt{SERVER\_URL} to point at the central server.
+
+\section{USB Keyboard Admin Mode}
+
+Udev rule detects keyboard insertion and triggers:
+
+\begin{itemize}
+\item Kill cage
+\item Create \texttt{/tmp/kiosk-exit}
+\item XFCE launches on logout from kiosk loop
+\end{itemize}
+
+On XFCE logout, kiosk restarts automatically.
+
+\section{Client Verification Checklist}
+
+\begin{itemize}
+\item Verify overlayroot active in normal mode
+\item Verify kiosk autostarts after reboot
+\item Verify keyboard insertion triggers XFCE admin mode
+\item Verify kiosk can reach server URL
+\item Verify kiosk restarts after XFCE logout
+\end{itemize}
+
+\section{Notes}
+
+\begin{itemize}
+\item LightDM not used in target runtime
+\item Monit removed
+\item systemd + tty1 loop handle restart behavior
+\item overlayroot protects client filesystem
+\end{itemize}
+
+\end{document}

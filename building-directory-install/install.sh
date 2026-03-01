@@ -13,9 +13,6 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-# Installation directory
-INSTALL_DIR="$HOME/building-directory"
-
 # Print functions
 print_info() {
     echo -e "${GREEN}[INFO]${NC} $1"
@@ -42,6 +39,15 @@ if [ "$EUID" -eq 0 ]; then
     print_error "Please do not run this script as root or with sudo"
     exit 1
 fi
+
+# Resolve target home directory from the install user account instead of $HOME.
+# This avoids path mistakes when users copy/paste root shell commands later.
+INSTALL_USER="$USER"
+INSTALL_HOME="$(getent passwd "$INSTALL_USER" | cut -d: -f6)"
+if [ -z "$INSTALL_HOME" ]; then
+    INSTALL_HOME="$HOME"
+fi
+INSTALL_DIR="$INSTALL_HOME/building-directory"
 
 # Get installation type
 print_header "Building Directory Kiosk Installation"
@@ -91,7 +97,7 @@ sudo apt upgrade -y
 
 # Install common dependencies
 print_header "Installing Common Dependencies"
-sudo apt install -y git curl wget unzip sqlite3
+sudo apt install -y git curl wget unzip sqlite3 openssl
 
 # ── Server components ─────────────────────────────────────────────────────────
 if [ "$INSTALL_MODE" = "server" ] || [ "$INSTALL_MODE" = "both" ]; then
@@ -119,6 +125,9 @@ if [ "$INSTALL_MODE" = "server" ] || [ "$INSTALL_MODE" = "both" ]; then
     cp -r server "$INSTALL_DIR/"
     cp -r scripts "$INSTALL_DIR/"
     cp -r kiosk "$INSTALL_DIR/"
+    if [ -d kiosk-fleet ]; then
+        cp -r kiosk-fleet "$INSTALL_DIR/"
+    fi
 
     # Install Node.js dependencies
     print_info "Installing Node.js dependencies..."
@@ -136,8 +145,11 @@ if [ "$INSTALL_MODE" = "server" ] || [ "$INSTALL_MODE" = "both" ]; then
     fi
 
     # Install privileged persist helper (writes uploads to overlayroot lower layer)
+    # Patch the username placeholder before installing so the path is correct
+    # regardless of which user ran this script.
     print_info "Installing persist-upload helper..."
-    sudo cp server/persist-upload.sh /usr/local/bin/persist-upload.sh
+    sed "s|/home/merrill/|/home/$USER/|g" server/persist-upload.sh \
+        | sudo tee /usr/local/bin/persist-upload.sh > /dev/null
     sudo chmod 755 /usr/local/bin/persist-upload.sh
 
     # Install kiosk-deploy script (SSHes to kiosk display machines to push system scripts)
@@ -158,9 +170,9 @@ After=network.target
 
 [Service]
 Type=simple
-User=$USER
+User=$INSTALL_USER
 WorkingDirectory=$INSTALL_DIR/server
-ExecStart=/usr/bin/node server.js
+ExecStart=/usr/bin/node $INSTALL_DIR/server/server.js
 Restart=on-failure
 RestartSec=10
 StandardOutput=syslog
@@ -175,9 +187,62 @@ EOF
     sudo systemctl daemon-reload
     sudo systemctl enable directory-server
 
+    # Optional admin hardening
+    ADMIN_AUTH_ENABLED="n"
+    ADMIN_AUTH_USER="admin"
+    ADMIN_AUTH_FILE="/etc/nginx/.directory-admin.htpasswd"
+    ADMIN_ALLOWLIST_ENABLED="n"
+    ADMIN_ALLOWLISTS=""
+    ADMIN_ALLOWLIST_DIRECTIVES=""
+
+    print_header "Admin Access Hardening (Optional)"
+    read -p "Enable HTTP Basic Auth for /admin and write/sensitive /api endpoints? (y/n): " ADMIN_AUTH_ENABLED
+    if [ "$ADMIN_AUTH_ENABLED" = "y" ]; then
+        read -p "Admin username [admin]: " INPUT_ADMIN_USER
+        ADMIN_AUTH_USER="${INPUT_ADMIN_USER:-admin}"
+        while true; do
+            read -s -p "Admin password: " ADMIN_PASS_1
+            echo ""
+            read -s -p "Confirm password: " ADMIN_PASS_2
+            echo ""
+            if [ -z "$ADMIN_PASS_1" ]; then
+                print_warn "Password cannot be empty."
+            elif [ "$ADMIN_PASS_1" != "$ADMIN_PASS_2" ]; then
+                print_warn "Passwords do not match."
+            else
+                break
+            fi
+        done
+        ADMIN_PASS_HASH="$(openssl passwd -6 "$ADMIN_PASS_1")"
+        unset ADMIN_PASS_1 ADMIN_PASS_2
+        echo "$ADMIN_AUTH_USER:$ADMIN_PASS_HASH" | sudo tee "$ADMIN_AUTH_FILE" > /dev/null
+        sudo chmod 640 "$ADMIN_AUTH_FILE"
+        print_info "Basic auth enabled for admin and protected API endpoints."
+    fi
+
+    read -p "Restrict /admin and protected APIs to specific IP/CIDR ranges? (y/n): " ADMIN_ALLOWLIST_ENABLED
+    if [ "$ADMIN_ALLOWLIST_ENABLED" = "y" ]; then
+        read -p "Enter allowed IP/CIDR values (space-separated): " ADMIN_ALLOWLISTS
+        if [ -n "$ADMIN_ALLOWLISTS" ]; then
+            ADMIN_ALLOWLIST_DIRECTIVES="        allow 127.0.0.1;
+        allow ::1;
+"
+            for CIDR in $ADMIN_ALLOWLISTS; do
+                ADMIN_ALLOWLIST_DIRECTIVES="${ADMIN_ALLOWLIST_DIRECTIVES}        allow $CIDR;
+"
+            done
+            ADMIN_ALLOWLIST_DIRECTIVES="${ADMIN_ALLOWLIST_DIRECTIVES}        deny all;
+"
+            print_info "IP allowlist enabled for admin and protected API endpoints."
+        else
+            print_warn "No IP/CIDR values entered. Skipping allowlist."
+        fi
+    fi
+
     # Configure Nginx
     print_info "Configuring Nginx..."
-    sudo bash -c "cat > /etc/nginx/sites-available/directory" <<EOF
+    if [ "$ADMIN_AUTH_ENABLED" = "y" ]; then
+        sudo bash -c "cat > /etc/nginx/sites-available/directory" <<EOF
 server {
     listen 80;
     server_name _;
@@ -193,6 +258,68 @@ server {
         alias $INSTALL_DIR/server/admin;
         index index.html;
         try_files \$uri \$uri/ /admin/index.html;
+${ADMIN_ALLOWLIST_DIRECTIVES}        auth_basic "Directory Admin";
+        auth_basic_user_file $ADMIN_AUTH_FILE;
+    }
+
+    location ~ ^/api/(kiosks|backup|restore)$ {
+${ADMIN_ALLOWLIST_DIRECTIVES}        auth_basic "Directory Admin";
+        auth_basic_user_file $ADMIN_AUTH_FILE;
+        proxy_pass http://localhost:3000;
+        proxy_http_version 1.1;
+        proxy_request_buffering off;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_cache_bypass \$http_upgrade;
+    }
+
+    location /api {
+        proxy_pass http://localhost:3000;
+        proxy_http_version 1.1;
+        proxy_request_buffering off;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_cache_bypass \$http_upgrade;
+        limit_except GET HEAD OPTIONS {
+${ADMIN_ALLOWLIST_DIRECTIVES}            auth_basic "Directory Admin";
+            auth_basic_user_file $ADMIN_AUTH_FILE;
+        }
+    }
+
+    location /uploads {
+        proxy_pass http://localhost:3000;
+    }
+}
+EOF
+    else
+        sudo bash -c "cat > /etc/nginx/sites-available/directory" <<EOF
+server {
+    listen 80;
+    server_name _;
+    client_max_body_size 20m;
+
+    location / {
+        root $INSTALL_DIR/kiosk;
+        index index.html;
+        try_files \$uri \$uri/ =404;
+    }
+
+    location /admin {
+        alias $INSTALL_DIR/server/admin;
+        index index.html;
+        try_files \$uri \$uri/ /admin/index.html;
+${ADMIN_ALLOWLIST_DIRECTIVES}    }
+
+    location ~ ^/api/(kiosks|backup|restore)$ {
+${ADMIN_ALLOWLIST_DIRECTIVES}        proxy_pass http://localhost:3000;
+        proxy_http_version 1.1;
+        proxy_request_buffering off;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_cache_bypass \$http_upgrade;
     }
 
     location /api {
@@ -210,6 +337,7 @@ server {
     }
 }
 EOF
+    fi
 
     sudo ln -sf /etc/nginx/sites-available/directory /etc/nginx/sites-enabled/
     sudo rm -f /etc/nginx/sites-enabled/default
@@ -228,6 +356,29 @@ EOF
         sleep 2
         sqlite3 "$INSTALL_DIR/server/directory.db" < "$INSTALL_DIR/scripts/sample-data.sql"
         rm "$INSTALL_DIR/server/.load-sample-data"
+    fi
+
+    # Post-install verification
+    print_header "Server Verification"
+    if sudo systemctl is-active --quiet directory-server; then
+        print_info "directory-server service is active"
+    else
+        print_error "directory-server service is not active"
+    fi
+    if curl -fsS http://127.0.0.1:3000/api/data-version > /dev/null; then
+        print_info "API health check passed (/api/data-version)"
+    else
+        print_warn "API health check failed on /api/data-version"
+    fi
+    if curl -fsS http://127.0.0.1:3000/api/kiosks > /dev/null; then
+        print_info "Deploy API check passed (/api/kiosks)"
+    else
+        print_warn "Deploy API check failed (/api/kiosks)"
+    fi
+    if curl -fsS -I http://127.0.0.1:3000/api/backup > /dev/null; then
+        print_info "Backup API check passed (/api/backup)"
+    else
+        print_warn "Backup API check failed (/api/backup)"
     fi
 
     LOCAL_IP=$(ip route get 1.1.1.1 | awk '{print $7; exit}')
@@ -293,6 +444,14 @@ if [ "$INSTALL_MODE" = "client" ] || [ "$INSTALL_MODE" = "both" ]; then
     sudo chmod 755 /usr/local/bin/kiosk-keyboard-added.sh
 
     sudo udevadm control --reload-rules
+
+    # Allow kiosk deploys to run required root commands without a password.
+    # Used by server-side kiosk-deploy.sh.
+    print_info "Configuring passwordless sudo for kiosk deploy..."
+    sudo bash -c "cat > /etc/sudoers.d/kiosk-deploy" <<EOF
+$USER ALL=(root) NOPASSWD: /usr/sbin/overlayroot-chroot, /usr/bin/udevadm, /usr/bin/tee, /bin/mkdir, /bin/cp, /bin/rm
+EOF
+    sudo chmod 440 /etc/sudoers.d/kiosk-deploy
 
     # Configure getty autologin on tty1 (no display manager needed)
     print_info "Configuring getty autologin..."

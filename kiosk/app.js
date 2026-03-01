@@ -5,10 +5,9 @@ const CONFIG = {
     CACHE_KEY: 'directory-data'
 };
 
-let state = {
+const state = {
     companies: [],
     individuals: [],
-    buildingInfo: '',
     backgroundImage: '',
     dataVersion: 0,
     currentScreen: 'main-menu',
@@ -16,28 +15,32 @@ let state = {
 };
 
 async function init() {
-    console.log('Initializing directory kiosk...');
     loadCachedData();
-    await refreshData();
+    await Promise.all([refreshData(), loadKioskLocationLine()]);
     setInterval(checkForUpdates, CONFIG.REFRESH_INTERVAL);
     setupInactivityDetection();
-    createKeyboard('keyboard-company', 'company-search');
-    createKeyboard('keyboard-individual', 'individual-search');
-    console.log('Kiosk initialized successfully');
 }
 
 async function refreshData() {
     try {
-        const [companies, individuals, buildingInfo, bgData] = await Promise.all([
-            fetch(`${CONFIG.API_URL}/companies`).then(r => r.json()),
-            fetch(`${CONFIG.API_URL}/individuals`).then(r => r.json()),
-            fetch(`${CONFIG.API_URL}/building-info`).then(r => r.json()),
-            fetch(`${CONFIG.API_URL}/background-image`).then(r => r.json())
+        const [companies, individuals, bgData] = await Promise.all([
+            fetch(`${CONFIG.API_URL}/companies`).then(r => {
+                if (!r.ok) throw new Error(r.status);
+                return r.json();
+            }),
+            fetch(`${CONFIG.API_URL}/individuals`).then(r => {
+                if (!r.ok) throw new Error(r.status);
+                return r.json();
+            }),
+            fetch(`${CONFIG.API_URL}/background-image`).then(r => {
+                if (!r.ok) throw new Error(r.status);
+                return r.json();
+            })
         ]);
 
         state.companies = companies;
         state.individuals = individuals;
-        state.buildingInfo = buildingInfo;
+
         if (bgData.filename) {
             state.backgroundImage = bgData.filename;
             applyBackgroundImage(bgData.filename);
@@ -45,10 +48,8 @@ async function refreshData() {
 
         localStorage.setItem(CONFIG.CACHE_KEY, JSON.stringify(state));
 
-        console.log('Data refreshed:', {
-            companies: companies.length,
-            individuals: individuals.length
-        });
+        if (state.currentScreen === 'companies') displayCompanies(state.companies);
+        if (state.currentScreen === 'individuals') displayIndividuals(state.individuals);
 
         return true;
     } catch (error) {
@@ -61,66 +62,104 @@ async function checkForUpdates() {
     try {
         const response = await fetch(`${CONFIG.API_URL}/data-version`);
         const { version } = await response.json();
-        
         if (version > state.dataVersion) {
-            console.log('New data available, refreshing...');
-            await refreshData();
             state.dataVersion = version;
+            await refreshData();
         }
     } catch (error) {
-        console.error('Failed to check for updates:', error);
+        // noop
     }
 }
 
 function applyBackgroundImage(filename) {
-    document.getElementById('main-menu').style.backgroundImage = filename ? `url('/${filename}')` : '';
+    if (!filename) return;
+    const url = `url('/${filename}')`;
+    ['main-menu', 'companies', 'individuals', 'building-info'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.style.backgroundImage = url;
+        }
+    });
 }
 
 function loadCachedData() {
     const cached = localStorage.getItem(CONFIG.CACHE_KEY);
-    if (cached) {
+    if (!cached) return;
+
+    try {
         const data = JSON.parse(cached);
         state.companies = data.companies || [];
         state.individuals = data.individuals || [];
-        state.buildingInfo = data.buildingInfo || '';
         state.backgroundImage = data.backgroundImage || '';
+        state.dataVersion = data.dataVersion || 0;
         if (state.backgroundImage) applyBackgroundImage(state.backgroundImage);
-        console.log('Loaded cached data');
+    } catch {
+        localStorage.removeItem(CONFIG.CACHE_KEY);
     }
 }
 
 function showScreen(screenId) {
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-    document.getElementById(screenId).classList.add('active');
+    const target = document.getElementById(screenId);
+    if (target) target.classList.add('active');
+
     state.currentScreen = screenId;
-    
+
     if (screenId === 'companies') {
         displayCompanies(state.companies);
     } else if (screenId === 'individuals') {
         displayIndividuals(state.individuals);
-    } else if (screenId === 'building-info') {
-        displayBuildingInfo();
     }
-    
+
+    resetInactivityTimer();
+}
+
+function openSearch(type) {
+    const wrapId = type === 'company' ? 'company-search-wrap' : 'individual-search-wrap';
+    const inputId = type === 'company' ? 'company-search' : 'individual-search';
+
+    const wrap = document.getElementById(wrapId);
+    const input = document.getElementById(inputId);
+
+    if (!wrap || !input) return;
+
+    wrap.classList.remove('hidden');
+    input.focus();
+    resetInactivityTimer();
+}
+
+function listAll(type) {
+    if (type === 'company') {
+        const input = document.getElementById('company-search');
+        if (input) input.value = '';
+        displayCompanies(state.companies);
+    } else {
+        const input = document.getElementById('individual-search');
+        if (input) input.value = '';
+        displayIndividuals(state.individuals);
+    }
+
     resetInactivityTimer();
 }
 
 function searchCompanies(query) {
-    const filtered = state.companies.filter(company => 
-        company.name.toLowerCase().includes(query.toLowerCase()) ||
-        company.building.toLowerCase().includes(query.toLowerCase()) ||
-        company.suite.toLowerCase().includes(query.toLowerCase())
+    const q = query.trim().toLowerCase();
+    const filtered = state.companies.filter(company =>
+        company.name.toLowerCase().includes(q) ||
+        company.building.toLowerCase().includes(q) ||
+        company.suite.toLowerCase().includes(q)
     );
     displayCompanies(filtered);
     resetInactivityTimer();
 }
 
 function searchIndividuals(query) {
-    const filtered = state.individuals.filter(person => 
-        person.first_name.toLowerCase().includes(query.toLowerCase()) ||
-        person.last_name.toLowerCase().includes(query.toLowerCase()) ||
-        person.building.toLowerCase().includes(query.toLowerCase()) ||
-        person.suite.toLowerCase().includes(query.toLowerCase())
+    const q = query.trim().toLowerCase();
+    const filtered = state.individuals.filter(person =>
+        person.first_name.toLowerCase().includes(q) ||
+        person.last_name.toLowerCase().includes(q) ||
+        person.building.toLowerCase().includes(q) ||
+        person.suite.toLowerCase().includes(q)
     );
     displayIndividuals(filtered);
     resetInactivityTimer();
@@ -128,109 +167,90 @@ function searchIndividuals(query) {
 
 function displayCompanies(companies) {
     const container = document.getElementById('companies-list');
-    
+    if (!container) return;
+
     if (companies.length === 0) {
-        container.innerHTML = '<div class="no-results">No companies found</div>';
+        container.innerHTML = '<div class="result-row"><div class="result-name">No companies found</div><div></div><div></div></div>';
         return;
     }
-    
-    container.innerHTML = companies
+
+    const rows = companies
+        .slice()
         .sort((a, b) => a.name.localeCompare(b.name))
-        .map(company => `
-            <div class="result-item">
+        .map(company => {
+            const isThisBuilding = String(company.building) === '4301' || String(company.building) === '4305' || String(company.building) === '4309';
+            return `<div class="result-row">
                 <div class="result-name">${escapeHtml(company.name)}</div>
-                <div class="result-details">
-                    <span class="result-building">Building ${escapeHtml(company.building)}</span>
-                    <span class="result-suite">Suite ${escapeHtml(company.suite)}</span>
-                    ${company.phone ? `<div style="margin-top: 10px;">📞 ${escapeHtml(company.phone)}</div>` : ''}
-                </div>
-            </div>
-        `).join('');
+                <div class="result-suite">${escapeHtml(company.suite)}</div>
+                <div class="result-building">${isThisBuilding ? 'This Bldg' : escapeHtml(company.building)}</div>
+            </div>`;
+        });
+
+    container.innerHTML = rows.join('');
 }
 
 function displayIndividuals(individuals) {
     const container = document.getElementById('individuals-list');
-    
+    if (!container) return;
+
     if (individuals.length === 0) {
-        container.innerHTML = '<div class="no-results">No individuals found</div>';
+        container.innerHTML = '<div class="result-row"><div class="result-name">No individuals found</div><div></div><div></div></div>';
         return;
     }
-    
-    container.innerHTML = individuals
+
+    const rows = individuals
+        .slice()
         .sort((a, b) => {
-            const lastNameCompare = a.last_name.localeCompare(b.last_name);
-            return lastNameCompare !== 0 ? lastNameCompare : a.first_name.localeCompare(b.first_name);
+            const byLast = a.last_name.localeCompare(b.last_name);
+            return byLast !== 0 ? byLast : a.first_name.localeCompare(b.first_name);
         })
-        .map(person => `
-            <div class="result-item">
+        .map(person => {
+            const isThisBuilding = String(person.building) === '4301' || String(person.building) === '4305' || String(person.building) === '4309';
+            return `<div class="result-row">
                 <div class="result-name">${escapeHtml(person.last_name)}, ${escapeHtml(person.first_name)}</div>
-                <div class="result-details">
-                    ${person.title ? `<div>${escapeHtml(person.title)}</div>` : ''}
-                    <span class="result-building">Building ${escapeHtml(person.building)}</span>
-                    <span class="result-suite">Suite ${escapeHtml(person.suite)}</span>
-                    ${person.phone ? `<div style="margin-top: 10px;">📞 ${escapeHtml(person.phone)}</div>` : ''}
-                </div>
-            </div>
-        `).join('');
-}
+                <div class="result-suite">${escapeHtml(person.suite)}</div>
+                <div class="result-building">${isThisBuilding ? 'This Bldg' : escapeHtml(person.building)}</div>
+            </div>`;
+        });
 
-function displayBuildingInfo() {
-    const container = document.getElementById('building-info-content');
-    container.innerHTML = state.buildingInfo || '<div>No building information available</div>';
-}
-
-function createKeyboard(containerId, inputId) {
-    const keys = [
-        'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J',
-        'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T',
-        'U', 'V', 'W', 'X', 'Y', 'Z', '0', '1', '2', '3',
-        '4', '5', '6', '7', '8', '9', 'SPACE', 'CLEAR'
-    ];
-    
-    const container = document.getElementById(containerId);
-    
-    container.innerHTML = keys.map(key => {
-        const isWide = key === 'SPACE' || key === 'CLEAR';
-        return `<button class="key ${isWide ? 'wide' : ''}" 
-                        onclick="handleKey('${inputId}', '${key}')">${key}</button>`;
-    }).join('');
-}
-
-function handleKey(inputId, key) {
-    const input = document.getElementById(inputId);
-    
-    if (key === 'CLEAR') {
-        input.value = '';
-    } else if (key === 'SPACE') {
-        input.value += ' ';
-    } else {
-        input.value += key;
-    }
-    
-    input.dispatchEvent(new Event('input'));
-    resetInactivityTimer();
+    container.innerHTML = rows.join('');
 }
 
 function setupInactivityDetection() {
-    const events = ['mousedown', 'touchstart', 'keydown'];
-    events.forEach(event => {
+    ['mousedown', 'touchstart', 'keydown'].forEach(event => {
         document.addEventListener(event, resetInactivityTimer);
     });
+
     resetInactivityTimer();
 }
 
 function resetInactivityTimer() {
-    if (state.inactivityTimer) {
-        clearTimeout(state.inactivityTimer);
-    }
-    
+    if (state.inactivityTimer) clearTimeout(state.inactivityTimer);
+
     state.inactivityTimer = setTimeout(() => {
         if (state.currentScreen !== 'main-menu') {
             showScreen('main-menu');
-            document.getElementById('company-search').value = '';
-            document.getElementById('individual-search').value = '';
+            const c = document.getElementById('company-search');
+            const i = document.getElementById('individual-search');
+            if (c) c.value = '';
+            if (i) i.value = '';
         }
     }, CONFIG.INACTIVITY_TIMEOUT);
+}
+
+async function loadKioskLocationLine() {
+    const line = document.getElementById('welcome-building-line');
+    if (!line) return;
+
+    try {
+        const response = await fetch(`${CONFIG.API_URL}/kiosk-location`);
+        if (!response.ok) throw new Error(response.status);
+
+        const data = await response.json();
+        line.textContent = data && data.buildingCode ? `Building ${data.buildingCode}` : 'Building 430x';
+    } catch {
+        line.textContent = 'Building 430x';
+    }
 }
 
 function escapeHtml(text) {
@@ -238,5 +258,11 @@ function escapeHtml(text) {
     div.textContent = text;
     return div.innerHTML;
 }
+
+window.openSearch = openSearch;
+window.listAll = listAll;
+window.showScreen = showScreen;
+window.searchCompanies = searchCompanies;
+window.searchIndividuals = searchIndividuals;
 
 window.addEventListener('DOMContentLoaded', init);

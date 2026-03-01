@@ -5,6 +5,7 @@
 set -e
 
 VM="${1:-merrill@192.168.1.127}"
+KIOSK_USER="${KIOSK_USER:-kiosk}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SERVER_DIR="$SCRIPT_DIR/server"
 
@@ -45,7 +46,7 @@ sudo cp /tmp/deploy-staging/99-kiosk-keyboard.rules  "$STAGE/99-kiosk-keyboard.r
 sudo cp /tmp/deploy-staging/bash_profile_template    "$STAGE/bash_profile_template"
 
 # Write sudoers content to staging
-echo 'merrill ALL=(root) NOPASSWD: /usr/local/bin/persist-upload.sh' \
+echo "${KIOSK_USER} ALL=(root) NOPASSWD: /usr/local/bin/persist-upload.sh" \
     | sudo tee "$STAGE/directory-server-sudoers" > /dev/null
 
 # Write .bash_profile to staging
@@ -79,6 +80,8 @@ if [[ "$(tty 2>/dev/null)" == "/dev/tty1" ]]; then
     done
 fi
 BPEOF
+# Patch kiosk user home in .bash_profile
+sudo sed -i "s|/home/merrill|/home/${KIOSK_USER}|g" "$STAGE/bash_profile"
 
 # --- lower layer writes via overlayroot-chroot ---
 
@@ -99,25 +102,25 @@ sudo overlayroot-chroot cp    "$STAGE/directory-server-sudoers" /etc/sudoers.d/d
 sudo overlayroot-chroot chmod 440                               /etc/sudoers.d/directory-server
 
 # Uploads directory
-sudo overlayroot-chroot mkdir -p /home/merrill/building-directory/server/uploads
+sudo overlayroot-chroot mkdir -p /home/${KIOSK_USER}/building-directory/server/uploads
 
 # Server application files
-sudo overlayroot-chroot cp "$STAGE/server.js"      /home/merrill/building-directory/server/server.js
-sudo overlayroot-chroot cp "$STAGE/index.html"     /home/merrill/building-directory/server/admin/index.html
-sudo overlayroot-chroot cp "$STAGE/admin.js"       /home/merrill/building-directory/server/admin/admin.js
-sudo overlayroot-chroot cp "$STAGE/admin.css"      /home/merrill/building-directory/server/admin/admin.css
-sudo overlayroot-chroot cp "$STAGE/kiosk-deploy.sh" /home/merrill/building-directory/server/kiosk-deploy.sh
-sudo overlayroot-chroot chmod 755                   /home/merrill/building-directory/server/kiosk-deploy.sh
+sudo overlayroot-chroot cp "$STAGE/server.js"      /home/${KIOSK_USER}/building-directory/server/server.js
+sudo overlayroot-chroot cp "$STAGE/index.html"     /home/${KIOSK_USER}/building-directory/server/admin/index.html
+sudo overlayroot-chroot cp "$STAGE/admin.js"       /home/${KIOSK_USER}/building-directory/server/admin/admin.js
+sudo overlayroot-chroot cp "$STAGE/admin.css"      /home/${KIOSK_USER}/building-directory/server/admin/admin.css
+sudo overlayroot-chroot cp "$STAGE/kiosk-deploy.sh" /home/${KIOSK_USER}/building-directory/server/kiosk-deploy.sh
+sudo overlayroot-chroot chmod 755                   /home/${KIOSK_USER}/building-directory/server/kiosk-deploy.sh
 
 # kiosk-deploy.sh references ../scripts/bash_profile — install the template
-sudo overlayroot-chroot cp "$STAGE/bash_profile_template" /home/merrill/building-directory/scripts/bash_profile
+sudo overlayroot-chroot cp "$STAGE/bash_profile_template" /home/${KIOSK_USER}/building-directory/scripts/bash_profile
 
 # Kiosk scripts
-sudo overlayroot-chroot cp    "$STAGE/start-kiosk.sh" /home/merrill/building-directory/scripts/start-kiosk.sh
-sudo overlayroot-chroot chmod 755                     /home/merrill/building-directory/scripts/start-kiosk.sh
+sudo overlayroot-chroot cp    "$STAGE/start-kiosk.sh" /home/${KIOSK_USER}/building-directory/scripts/start-kiosk.sh
+sudo overlayroot-chroot chmod 755                     /home/${KIOSK_USER}/building-directory/scripts/start-kiosk.sh
 
 # .bash_profile
-sudo overlayroot-chroot cp "$STAGE/bash_profile" /home/merrill/.bash_profile
+sudo overlayroot-chroot cp "$STAGE/bash_profile" /home/${KIOSK_USER}/.bash_profile
 
 # Nginx site config
 sudo tee "$STAGE/nginx-directory.conf" > /dev/null << 'NGINXEOF'
@@ -128,13 +131,13 @@ server {
     client_max_body_size 20m;
 
     location / {
-        root /home/merrill/building-directory/kiosk;
+        root /home/${KIOSK_USER}/building-directory/kiosk;
         index index.html;
         try_files $uri $uri/ =404;
     }
 
     location /admin {
-        alias /home/merrill/building-directory/server/admin;
+        alias /home/${KIOSK_USER}/building-directory/server/admin;
         index index.html;
         try_files $uri $uri/ /admin/index.html;
     }

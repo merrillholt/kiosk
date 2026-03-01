@@ -17,6 +17,7 @@ When you run ./install.sh, you'll be asked to choose:
 [1] Server Installation
     - Installs on your central server machine
     - Sets up database, API, and admin interface
+    - Optional hardening prompts for Basic Auth and IP allowlist
     - Choose this for your main server
 
 [2] Kiosk Client Installation  
@@ -45,6 +46,11 @@ Server URLs:
 Manage the server:
 sudo systemctl status directory-server
 sudo systemctl restart directory-server
+
+Verify server APIs:
+curl -i http://127.0.0.1:3000/api/data-version
+curl -i http://127.0.0.1:3000/api/kiosks
+curl -I http://127.0.0.1:3000/api/backup
 
 Restart a kiosk:
 ~/building-directory/scripts/restart-kiosk.sh

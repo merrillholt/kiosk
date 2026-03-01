@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+HOSTS_FILE="${HOSTS_FILE:-$(dirname "$0")/hosts}"
+USER_NAME="${USER_NAME:-kiosk}"
+
+usage() {
+  cat <<'EOF'
+Usage: kioskctl {status|uptime|reboot-normal|reboot-maint|restart-kiosk|cmd <command...>}
+
+Commands:
+  status            Show kiosk health: overlayroot, ssh, getty@tty1, kiosk-guard, cage, chromium
+  uptime            Show uptime
+  reboot-normal     Reboot (boots default GRUB entry)
+  reboot-maint      Reboot (then select MAINTENANCE at GRUB)
+  restart-kiosk     Kill cage; tty1 login loop should restart kiosk automatically
+  cmd <command...>  Run an arbitrary remote command on all hosts
+
+Environment:
+  HOSTS_FILE   Path to hosts file (default: ./hosts)
+  USER_NAME    SSH username (default: kiosk)
+EOF
+  exit 2
+}
+
+hosts() { grep -vE '^\s*($|#)' "$HOSTS_FILE"; }
+
+run_all() {
+  local cmd="$1"
+  while read -r h; do
+    echo "=== $h ==="
+    ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new \
+      "${USER_NAME}@${h}" "$cmd" || echo "ERROR on $h"
+  done < <(hosts)
+}
+
+case "${1:-}" in
+  status)
+    run_all '
+hostname;
+if mount | grep -q "^overlayroot on / type overlay"; then echo "overlayroot=1"; else echo "overlayroot=0"; fi;
+
+echo -n "ssh="; systemctl is-active ssh 2>/dev/null || systemctl is-active sshd 2>/dev/null || echo "unknown";
+
+echo -n "getty@tty1="; systemctl is-active getty@tty1 2>/dev/null || echo "unknown";
+echo "kiosk-guard=$(systemctl show -p ActiveState --value kiosk-guard 2>/dev/null || echo not-found)";
+
+if pgrep -x cage >/dev/null 2>&1; then echo "cage=running"; else echo "cage=stopped"; fi;
+if pgrep -a chromium >/dev/null 2>&1; then echo "chromium=running"; else echo "chromium=stopped"; fi;
+'
+    ;;
+  uptime)
+    run_all 'hostname; uptime'
+    ;;
+  reboot-normal)
+    run_all 'sudo /sbin/reboot'
+    ;;
+  reboot-maint)
+    echo "NOTE: Select GRUB entry: Debian Kiosk — MAINTENANCE (writable root)"
+    run_all 'sudo /sbin/reboot'
+    ;;
+  restart-kiosk)
+    run_all 'sudo pkill -x cage || true'
+    ;;
+  cmd)
+    shift
+    [ "$#" -ge 1 ] || usage
+    run_all "$*"
+    ;;
+  ""|-h|--help|help)
+    usage
+    ;;
+  *)
+    echo "Unknown command: $1" >&2
+    usage
+    ;;
+esac

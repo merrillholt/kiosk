@@ -120,6 +120,10 @@ Usage:
 - Normal boot: Goes directly to Chromium kiosk
 - Debug mode: SSH in, stop kiosk service, run `startxfce4`
 
+## Admin Breakout (USB Keyboard)
+
+When a USB keyboard is plugged in, the kiosk session exits and XFCE starts for admin access. Logging out of XFCE restarts the kiosk automatically. This is handled by a udev rule and the `.bash_profile` autostart loop installed by `install.sh`.
+
 ```bash
 # To temporarily use Xfce for debugging:
 sudo systemctl stop kiosk
