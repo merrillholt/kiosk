@@ -9,6 +9,7 @@ const { spawnSync } = require('child_process');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const HOST = process.env.HOST || '127.0.0.1';
 
 // Temp dir for multer uploads (lost on reboot — persist script copies to lower layer)
 const TEMP_DIR = process.env.KIOSK_TEMP_DIR || '/tmp/kiosk-uploads';
@@ -1279,10 +1280,11 @@ app.post('/api/kiosks/:id/deploy', (req, res) => {
 });
 
 // Start server
-app.listen(PORT, () => {
+app.listen(PORT, HOST, () => {
     console.log(`Directory server running on port ${PORT}`);
-    console.log(`Kiosk interface: http://localhost:${PORT}/`);
-    console.log(`Admin interface: http://localhost:${PORT}/admin`);
+    console.log(`Listening on ${HOST}:${PORT}`);
+    console.log(`Kiosk interface: http://localhost/`);
+    console.log(`Admin interface: http://localhost/admin`);
 });
 
 // Handle shutdown gracefully
