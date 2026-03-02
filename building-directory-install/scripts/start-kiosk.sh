@@ -1,5 +1,25 @@
 #!/bin/bash
+set -euo pipefail
+
 SERVER_URL="http://localhost"
+READY_ENDPOINT="${SERVER_URL%/}/api/data-version"
+WAIT_ATTEMPTS="${KIOSK_WAIT_ATTEMPTS:-90}"
+WAIT_INTERVAL_SEC="${KIOSK_WAIT_INTERVAL_SEC:-1}"
+
+wait_for_server() {
+    local i
+    for ((i = 1; i <= WAIT_ATTEMPTS; i++)); do
+        if curl -fsS --max-time 2 "$READY_ENDPOINT" >/dev/null 2>&1; then
+            echo "Server ready at $READY_ENDPOINT after ${i}s" >> /tmp/kiosk-start.log
+            return 0
+        fi
+        sleep "$WAIT_INTERVAL_SEC"
+    done
+    echo "Server not ready after ${WAIT_ATTEMPTS}s; launching kiosk anyway" >> /tmp/kiosk-start.log
+    return 0
+}
+
+wait_for_server
 
 # ── cage: hides cursor (-d), manages Chromium lifecycle ──────────────────────
 # wlr-randr auto-detects the first connected output and sets 1920x1080.
