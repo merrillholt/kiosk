@@ -265,7 +265,7 @@ ${ADMIN_ALLOWLIST_DIRECTIVES}        auth_basic "Directory Admin";
     location ~ ^/api/(kiosks|backup|restore)$ {
 ${ADMIN_ALLOWLIST_DIRECTIVES}        auth_basic "Directory Admin";
         auth_basic_user_file $ADMIN_AUTH_FILE;
-        proxy_pass http://localhost:3000;
+        proxy_pass http://127.0.0.1:3000;
         proxy_http_version 1.1;
         proxy_request_buffering off;
         proxy_set_header Upgrade \$http_upgrade;
@@ -275,7 +275,7 @@ ${ADMIN_ALLOWLIST_DIRECTIVES}        auth_basic "Directory Admin";
     }
 
     location /api {
-        proxy_pass http://localhost:3000;
+        proxy_pass http://127.0.0.1:3000;
         proxy_http_version 1.1;
         proxy_request_buffering off;
         proxy_set_header Upgrade \$http_upgrade;
@@ -289,7 +289,9 @@ ${ADMIN_ALLOWLIST_DIRECTIVES}            auth_basic "Directory Admin";
     }
 
     location /uploads {
-        proxy_pass http://localhost:3000;
+        proxy_pass http://127.0.0.1:3000;
+        proxy_buffering off;
+        proxy_max_temp_file_size 0;
     }
 }
 EOF
@@ -313,7 +315,7 @@ server {
 ${ADMIN_ALLOWLIST_DIRECTIVES}    }
 
     location ~ ^/api/(kiosks|backup|restore)$ {
-${ADMIN_ALLOWLIST_DIRECTIVES}        proxy_pass http://localhost:3000;
+${ADMIN_ALLOWLIST_DIRECTIVES}        proxy_pass http://127.0.0.1:3000;
         proxy_http_version 1.1;
         proxy_request_buffering off;
         proxy_set_header Upgrade \$http_upgrade;
@@ -323,7 +325,7 @@ ${ADMIN_ALLOWLIST_DIRECTIVES}        proxy_pass http://localhost:3000;
     }
 
     location /api {
-        proxy_pass http://localhost:3000;
+        proxy_pass http://127.0.0.1:3000;
         proxy_http_version 1.1;
         proxy_request_buffering off;
         proxy_set_header Upgrade \$http_upgrade;
@@ -333,7 +335,9 @@ ${ADMIN_ALLOWLIST_DIRECTIVES}        proxy_pass http://localhost:3000;
     }
 
     location /uploads {
-        proxy_pass http://localhost:3000;
+        proxy_pass http://127.0.0.1:3000;
+        proxy_buffering off;
+        proxy_max_temp_file_size 0;
     }
 }
 EOF
