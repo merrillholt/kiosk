@@ -127,6 +127,10 @@ sudo tr '\0' ' ' < /proc/$PID/cmdline; echo
 curl -i http://127.0.0.1:3000/api/data-version
 curl -i http://127.0.0.1:3000/api/kiosks
 curl -I http://127.0.0.1:3000/api/backup
+
+# Public URL checks via nginx
+curl -i http://127.0.0.1/api/data-version
+curl -i http://127.0.0.1/admin
 ```
 
 ### Kiosk Client Management
@@ -187,8 +191,8 @@ If Basic Auth is enabled during install, your browser will prompt for credential
 ### Server won't start
 
 ```bash
-# Check if port 3000 is available
-sudo lsof -i :3000
+# Check listener (expected: 127.0.0.1:3000)
+sudo ss -ltnp | grep ':3000'
 
 # Check Node.js installation
 node --version
@@ -232,8 +236,9 @@ ip addr show | grep inet
 If using UFW:
 ```bash
 sudo ufw allow 80/tcp
-sudo ufw allow 3000/tcp
 ```
+
+Note: in production, port `3000` is local-only and should not be opened on LAN.
 
 ## Customization
 

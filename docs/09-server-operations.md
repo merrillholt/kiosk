@@ -15,8 +15,9 @@ Related docs:
 
 ## Runtime Architecture
 
-- Node.js Express backend serves API on port `3000`.
-- Nginx serves `kiosk/` and `admin/`, proxies `/api` to `localhost:3000`.
+- Node.js Express backend serves API on port `3000` bound to `127.0.0.1` (local only).
+- Nginx serves `kiosk/` and `admin/`, proxies `/api` to `127.0.0.1:3000`.
+- Nginx proxies `/uploads` to `127.0.0.1:3000` with buffering disabled for large image reliability in protected mode.
 - SQLite DB: `server/directory.db`.
 - Service name: `directory-server`.
 
@@ -158,6 +159,13 @@ sudo nginx -t
 sudo systemctl reload nginx
 ```
 
+Production nginx proxy requirements:
+- Use `proxy_pass http://127.0.0.1:3000;` (avoid `localhost` to prevent IPv6 `::1` mismatches).
+- In `location /uploads`, set:
+  - `proxy_buffering off;`
+  - `proxy_max_temp_file_size 0;`
+This avoids writes to `/var/lib/nginx/proxy` in read-only overlay mode.
+
 Check site config paths:
 - Should reference `/home/security/building-directory/...`
 - Not `/root/building-directory/...`
@@ -223,6 +231,8 @@ Common server vars:
 
 ### Server not reachable on port 3000
 
+Port `3000` is intentionally local-only in production.
+
 1. Check service:
 ```bash
 systemctl is-active directory-server
@@ -239,8 +249,9 @@ ss -ltnp | rg ':3000\b'
 ### Admin URL fails but nginx is up
 
 1. Validate nginx config path roots/aliases
-2. Confirm `/api` proxy to `http://localhost:3000`
-3. Reload nginx after changes
+2. Confirm `/api` proxy to `http://127.0.0.1:3000`
+3. Confirm `/uploads` has `proxy_buffering off` and `proxy_max_temp_file_size 0`
+4. Reload nginx after changes
 
 ### IP allowlist blocks expected kiosk reads
 

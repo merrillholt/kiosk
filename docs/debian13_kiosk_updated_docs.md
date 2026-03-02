@@ -280,8 +280,11 @@ esac
 - Ensure UFW rule allows port 3000 from kiosks.
 
 ### Phase 2 (later): move server to display node `192.168.1.80`
-- Keep the same URL shape, just change host:
-  - `http://192.168.1.80:3000`
+- Production URL is via nginx on port 80:
+  - `http://192.168.1.80/`
+  - `http://192.168.1.80/admin`
+- Keep Node API local-only on the server host:
+  - `127.0.0.1:3000` (no LAN exposure)
 - Use a systemd service on the server kiosk for auto-restart.
 - Put DB + uploads on persistent storage (lower layer) so overlayroot doesn’t erase them.
 
@@ -293,14 +296,39 @@ esac
    - `overlayroot=1`  
 2. Confirm `getty@tty1` running
 3. Confirm `cage` and `chromium` running
-4. Confirm `curl http://SERVER:3000/api/data-version` returns quickly
+4. Confirm `curl http://SERVER/api/data-version` returns quickly
 5. Kill cage:
    - `sudo pkill -x cage`
    - verify it restarts automatically (your tty1 loop)
 
+## 10) Startup race protection
+
+`start-kiosk.sh` waits for local API readiness before launching Chromium:
+- Checks `http://localhost/api/data-version`
+- Defaults: `KIOSK_WAIT_ATTEMPTS=90`, `KIOSK_WAIT_INTERVAL_SEC=1`
+- Logs outcome to `/tmp/kiosk-start.log`
+
+This prevents blank/partial UI on boot when the browser starts before backend readiness.
+
 ---
 
-## 10) Notes on LightDM/Xorg tmpfs mounts (legacy)
+## 11) Audio policy for kiosks without sound
+
+If kiosk audio is not used, disable audio daemons persistently to avoid read-only
+filesystem crash loops and log noise:
+
+```bash
+sudo overlayroot-chroot ln -sfn /dev/null /etc/systemd/user/pulseaudio.service
+sudo overlayroot-chroot ln -sfn /dev/null /etc/systemd/user/pulseaudio.socket
+sudo overlayroot-chroot ln -sfn /dev/null /etc/systemd/user/pipewire.service
+sudo overlayroot-chroot ln -sfn /dev/null /etc/systemd/user/pipewire.socket
+sudo overlayroot-chroot ln -sfn /dev/null /etc/systemd/user/pipewire-pulse.service
+sudo overlayroot-chroot ln -sfn /dev/null /etc/systemd/user/wireplumber.service
+```
+
+---
+
+## 12) Notes on LightDM/Xorg tmpfs mounts (legacy)
 Earlier the design used LightDM/Xorg and required tmpfs mounts for `/var/log` and `/var/lib/lightdm`.  
 With the updated tty1 + Wayland cage design and LightDM disabled, these are no longer required for kiosk operation.
 
