@@ -563,6 +563,60 @@ async function runTests(serverProc) {
         const r = await uploadFile('/api/restore', 'database', 'bad-backup.txt', Buffer.from('definitely not SQL'), 'text/plain');
         assert('POST /api/restore rejects invalid .txt SQL content', r.status === 400, JSON.stringify(r.body));
     }
+
+    console.log('\n── Required settings recovery ───────────────────────────────────');
+
+    const missingSettingsSql = `
+PRAGMA foreign_keys=OFF;
+BEGIN TRANSACTION;
+CREATE TABLE companies (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    building TEXT NOT NULL,
+    suite TEXT NOT NULL,
+    phone TEXT,
+    floor TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE individuals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    first_name TEXT NOT NULL,
+    last_name TEXT NOT NULL,
+    company_id INTEGER,
+    building TEXT NOT NULL,
+    suite TEXT NOT NULL,
+    title TEXT,
+    phone TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (company_id) REFERENCES companies(id)
+);
+CREATE TABLE settings (
+    key TEXT PRIMARY KEY,
+    value TEXT,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+COMMIT;
+`.trim();
+
+    {
+        const r = await uploadFile('/api/restore', 'database', 'missing-settings.sql', Buffer.from(missingSettingsSql, 'utf8'), 'text/plain');
+        assert('POST /api/restore with empty settings table returns 200', r.status === 200, JSON.stringify(r.body));
+    }
+    await sleep(300); // allow db reconnect
+    {
+        const r = await req('GET', '/api/background-image');
+        assert('background_image setting is auto-restored after restore',
+            r.status === 200 && r.body && r.body.filename === '18.jpg',
+            JSON.stringify(r.body));
+    }
+    {
+        const r = await req('GET', '/api/data-version');
+        assert('data_version setting is auto-restored after restore',
+            r.status === 200 && r.body && Number.isInteger(r.body.version) && r.body.version >= 1,
+            JSON.stringify(r.body));
+    }
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
