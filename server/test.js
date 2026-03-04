@@ -58,10 +58,15 @@ function assert(label, condition, detail = '') {
     }
 }
 
-function buildAuthHeaders() {
+function buildRequestHeaders(options = {}) {
     const headers = {};
-    if (authToken) headers.Authorization = `Bearer ${authToken}`;
-    if (authCookie) headers.Cookie = authCookie;
+    if (!options.omitAuth) {
+        if (authToken) headers.Authorization = `Bearer ${authToken}`;
+        if (authCookie) headers.Cookie = authCookie;
+    }
+    if (options.extraHeaders && typeof options.extraHeaders === 'object') {
+        Object.assign(headers, options.extraHeaders);
+    }
     return headers;
 }
 
@@ -80,10 +85,10 @@ function stashAuthState(response) {
     }
 }
 
-async function req(method, urlPath, body, contentType) {
+async function req(method, urlPath, body, contentType, options = {}) {
     return new Promise((resolve, reject) => {
         const isForm = contentType === 'multipart';
-        const headers = buildAuthHeaders();
+        const headers = buildRequestHeaders(options);
         const opts = { hostname: 'localhost', port: PORT, path: urlPath, method };
         if (body && !isForm) {
             const json = JSON.stringify(body);
@@ -106,7 +111,7 @@ async function req(method, urlPath, body, contentType) {
 }
 
 // Multipart form-data helper (for image upload)
-async function uploadFile(urlPath, fieldName, filename, fileContent, mimeType) {
+async function uploadFile(urlPath, fieldName, filename, fileContent, mimeType, options = {}) {
     return new Promise((resolve, reject) => {
         const boundary = '----TestBoundary' + Date.now();
         const head = Buffer.from(
@@ -117,7 +122,7 @@ async function uploadFile(urlPath, fieldName, filename, fileContent, mimeType) {
         const opts = {
             hostname: 'localhost', port: PORT, path: urlPath, method: 'POST',
             headers: {
-                ...buildAuthHeaders(),
+                ...buildRequestHeaders(options),
                 'Content-Type': `multipart/form-data; boundary=${boundary}`,
                 'Content-Length': body.length
             }
@@ -139,9 +144,9 @@ async function uploadFile(urlPath, fieldName, filename, fileContent, mimeType) {
 async function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 // Binary response helper (for backup download)
-async function reqBinary(method, urlPath) {
+async function reqBinary(method, urlPath, options = {}) {
     return new Promise((resolve, reject) => {
-        const opts = { hostname: 'localhost', port: PORT, path: urlPath, method, headers: buildAuthHeaders() };
+        const opts = { hostname: 'localhost', port: PORT, path: urlPath, method, headers: buildRequestHeaders(options) };
         const r = http.request(opts, res => {
             const chunks = [];
             res.on('data', c => chunks.push(c));
@@ -212,6 +217,34 @@ async function runTests(serverProc) {
         assert('GET /api/auth/me authenticated after login',
             after.status === 200 && after.body && after.body.authenticated === true,
             JSON.stringify(after.body));
+    }
+
+    console.log('\n── Network/Authz ────────────────────────────────────────────────');
+    {
+        const r = await req('GET', '/api/companies', null, null, {
+            omitAuth: true,
+            extraHeaders: { 'X-Forwarded-For': '192.168.1.80' }
+        });
+        assert('GET /api/companies allows kiosk allowlisted IP via X-Forwarded-For',
+            r.status === 200 && Array.isArray(r.body),
+            JSON.stringify(r.body));
+    }
+    {
+        const r = await req('GET', '/api/companies', null, null, {
+            omitAuth: true,
+            extraHeaders: { 'X-Forwarded-For': '203.0.113.10' }
+        });
+        assert('GET /api/companies rejects non-allowlisted IP via X-Forwarded-For', r.status === 403, JSON.stringify(r.body));
+    }
+    {
+        const r = await req('POST', '/api/companies', {
+            name: 'Unauthed Co',
+            building: 'U',
+            suite: '001',
+            phone: '',
+            floor: ''
+        }, null, { omitAuth: true });
+        assert('POST /api/companies requires authentication', r.status === 401, JSON.stringify(r.body));
     }
 
     console.log('\n── Background image API ─────────────────────────────────────────');
