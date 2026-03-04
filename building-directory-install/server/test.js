@@ -58,10 +58,15 @@ function assert(label, condition, detail = '') {
     }
 }
 
-function buildAuthHeaders() {
+function buildRequestHeaders(options = {}) {
     const headers = {};
-    if (authToken) headers.Authorization = `Bearer ${authToken}`;
-    if (authCookie) headers.Cookie = authCookie;
+    if (!options.omitAuth) {
+        if (authToken) headers.Authorization = `Bearer ${authToken}`;
+        if (authCookie) headers.Cookie = authCookie;
+    }
+    if (options.extraHeaders && typeof options.extraHeaders === 'object') {
+        Object.assign(headers, options.extraHeaders);
+    }
     return headers;
 }
 
@@ -80,10 +85,10 @@ function stashAuthState(response) {
     }
 }
 
-async function req(method, urlPath, body, contentType) {
+async function req(method, urlPath, body, contentType, options = {}) {
     return new Promise((resolve, reject) => {
         const isForm = contentType === 'multipart';
-        const headers = buildAuthHeaders();
+        const headers = buildRequestHeaders(options);
         const opts = { hostname: 'localhost', port: PORT, path: urlPath, method };
         if (body && !isForm) {
             const json = JSON.stringify(body);
@@ -106,7 +111,7 @@ async function req(method, urlPath, body, contentType) {
 }
 
 // Multipart form-data helper (for image upload)
-async function uploadFile(urlPath, fieldName, filename, fileContent, mimeType) {
+async function uploadFile(urlPath, fieldName, filename, fileContent, mimeType, options = {}) {
     return new Promise((resolve, reject) => {
         const boundary = '----TestBoundary' + Date.now();
         const head = Buffer.from(
@@ -117,7 +122,7 @@ async function uploadFile(urlPath, fieldName, filename, fileContent, mimeType) {
         const opts = {
             hostname: 'localhost', port: PORT, path: urlPath, method: 'POST',
             headers: {
-                ...buildAuthHeaders(),
+                ...buildRequestHeaders(options),
                 'Content-Type': `multipart/form-data; boundary=${boundary}`,
                 'Content-Length': body.length
             }
@@ -139,9 +144,9 @@ async function uploadFile(urlPath, fieldName, filename, fileContent, mimeType) {
 async function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 // Binary response helper (for backup download)
-async function reqBinary(method, urlPath) {
+async function reqBinary(method, urlPath, options = {}) {
     return new Promise((resolve, reject) => {
-        const opts = { hostname: 'localhost', port: PORT, path: urlPath, method, headers: buildAuthHeaders() };
+        const opts = { hostname: 'localhost', port: PORT, path: urlPath, method, headers: buildRequestHeaders(options) };
         const r = http.request(opts, res => {
             const chunks = [];
             res.on('data', c => chunks.push(c));
@@ -212,6 +217,34 @@ async function runTests(serverProc) {
         assert('GET /api/auth/me authenticated after login',
             after.status === 200 && after.body && after.body.authenticated === true,
             JSON.stringify(after.body));
+    }
+
+    console.log('\n── Network/Authz ────────────────────────────────────────────────');
+    {
+        const r = await req('GET', '/api/companies', null, null, {
+            omitAuth: true,
+            extraHeaders: { 'X-Forwarded-For': '192.168.1.80' }
+        });
+        assert('GET /api/companies allows kiosk allowlisted IP via X-Forwarded-For',
+            r.status === 200 && Array.isArray(r.body),
+            JSON.stringify(r.body));
+    }
+    {
+        const r = await req('GET', '/api/companies', null, null, {
+            omitAuth: true,
+            extraHeaders: { 'X-Forwarded-For': '203.0.113.10' }
+        });
+        assert('GET /api/companies rejects non-allowlisted IP via X-Forwarded-For', r.status === 403, JSON.stringify(r.body));
+    }
+    {
+        const r = await req('POST', '/api/companies', {
+            name: 'Unauthed Co',
+            building: 'U',
+            suite: '001',
+            phone: '',
+            floor: ''
+        }, null, { omitAuth: true });
+        assert('POST /api/companies requires authentication', r.status === 401, JSON.stringify(r.body));
     }
 
     console.log('\n── Background image API ─────────────────────────────────────────');
@@ -344,6 +377,10 @@ async function runTests(serverProc) {
     {
         const r = await req('PUT', '/api/background-image', {});
         assert('PUT without filename returns 400', r.status === 400, JSON.stringify(r.body));
+    }
+    {
+        const r = await req('PUT', '/api/background-image', { filename: 'uploads/not-present.jpg' });
+        assert('PUT rejects unknown uploaded background image', r.status === 400, JSON.stringify(r.body));
     }
 
     // Upload non-image file
@@ -562,6 +599,60 @@ async function runTests(serverProc) {
     {
         const r = await uploadFile('/api/restore', 'database', 'bad-backup.txt', Buffer.from('definitely not SQL'), 'text/plain');
         assert('POST /api/restore rejects invalid .txt SQL content', r.status === 400, JSON.stringify(r.body));
+    }
+
+    console.log('\n── Required settings recovery ───────────────────────────────────');
+
+    const missingSettingsSql = `
+PRAGMA foreign_keys=OFF;
+BEGIN TRANSACTION;
+CREATE TABLE companies (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    building TEXT NOT NULL,
+    suite TEXT NOT NULL,
+    phone TEXT,
+    floor TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE individuals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    first_name TEXT NOT NULL,
+    last_name TEXT NOT NULL,
+    company_id INTEGER,
+    building TEXT NOT NULL,
+    suite TEXT NOT NULL,
+    title TEXT,
+    phone TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (company_id) REFERENCES companies(id)
+);
+CREATE TABLE settings (
+    key TEXT PRIMARY KEY,
+    value TEXT,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+COMMIT;
+`.trim();
+
+    {
+        const r = await uploadFile('/api/restore', 'database', 'missing-settings.sql', Buffer.from(missingSettingsSql, 'utf8'), 'text/plain');
+        assert('POST /api/restore with empty settings table returns 200', r.status === 200, JSON.stringify(r.body));
+    }
+    await sleep(300); // allow db reconnect
+    {
+        const r = await req('GET', '/api/background-image');
+        assert('background_image setting is auto-restored after restore',
+            r.status === 200 && r.body && r.body.filename === '18.jpg',
+            JSON.stringify(r.body));
+    }
+    {
+        const r = await req('GET', '/api/data-version');
+        assert('data_version setting is auto-restored after restore',
+            r.status === 200 && r.body && Number.isInteger(r.body.version) && r.body.version >= 1,
+            JSON.stringify(r.body));
     }
 }
 

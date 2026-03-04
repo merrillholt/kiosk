@@ -460,13 +460,24 @@ function initializeDatabase() {
             value TEXT,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )`);
+        ensureRequiredSettings((settingsErr) => {
+            if (settingsErr) {
+                console.error('Failed to ensure required settings:', settingsErr.message);
+            }
+            console.log('Database initialized');
+        });
+    });
+}
 
-        // Set initial data version
-        db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('data_version', '1')`);
-        // Set initial background image
-        db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('background_image', '18.jpg')`);
-
-        console.log('Database initialized');
+function ensureRequiredSettings(callback) {
+    db.serialize(() => {
+        db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('data_version', '1')`, (vErr) => {
+            if (vErr) return callback(vErr);
+            db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('background_image', '18.jpg')`, (bgErr) => {
+                if (bgErr) return callback(bgErr);
+                return callback(null);
+            });
+        });
     });
 }
 
@@ -990,21 +1001,24 @@ app.get('/api/backup.txt', (req, res) => {
 function reopenDbAndRespond(res) {
     db = new sqlite3.Database(DB_FILE, (openErr) => {
         if (openErr) return res.status(500).json({ error: 'Failed to reopen database: ' + openErr.message });
-        db.get(
-            'SELECT (SELECT COUNT(*) FROM companies) AS companies, (SELECT COUNT(*) FROM individuals) AS individuals',
-            [],
-            (countErr, row) => {
-                if (countErr) return res.status(500).json({ error: 'Restore succeeded but count query failed: ' + countErr.message });
-                incrementDataVersion();
-                res.json({
-                    success: true,
-                    db_counts: {
-                        companies: row ? row.companies : 0,
-                        individuals: row ? row.individuals : 0
-                    }
-                });
-            }
-        );
+        ensureRequiredSettings((settingsErr) => {
+            if (settingsErr) return res.status(500).json({ error: 'Restore succeeded but required settings setup failed: ' + settingsErr.message });
+            db.get(
+                'SELECT (SELECT COUNT(*) FROM companies) AS companies, (SELECT COUNT(*) FROM individuals) AS individuals',
+                [],
+                (countErr, row) => {
+                    if (countErr) return res.status(500).json({ error: 'Restore succeeded but count query failed: ' + countErr.message });
+                    incrementDataVersion();
+                    res.json({
+                        success: true,
+                        db_counts: {
+                            companies: row ? row.companies : 0,
+                            individuals: row ? row.individuals : 0
+                        }
+                    });
+                }
+            );
+        });
     });
 }
 
@@ -1141,15 +1155,42 @@ app.post('/api/background-image', bgUpload.single('image'), (req, res) => {
 app.put('/api/background-image', (req, res) => {
     const { filename } = req.body;
     if (!filename) return res.status(400).json({ error: 'filename required' });
-    db.run(
-        `INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('background_image', ?, CURRENT_TIMESTAMP)`,
-        [filename],
-        (err) => {
-            if (err) return res.status(500).json({ error: err.message });
-            incrementDataVersion();
-            res.json({ success: true });
-        }
-    );
+
+    if (filename === '18.jpg') {
+        db.run(
+            `INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('background_image', ?, CURRENT_TIMESTAMP)`,
+            [filename],
+            (err) => {
+                if (err) return res.status(500).json({ error: err.message });
+                incrementDataVersion();
+                return res.json({ success: true });
+            }
+        );
+        return;
+    }
+
+    const m = String(filename).match(/^uploads\/([a-zA-Z0-9._-]+)$/);
+    if (!m) return res.status(400).json({ error: 'Invalid filename' });
+
+    const uploadedName = m[1];
+    const imageExts = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp']);
+    if (!imageExts.has(path.extname(uploadedName).toLowerCase())) {
+        return res.status(400).json({ error: 'Invalid filename' });
+    }
+
+    const absPath = path.join(UPLOADS_LOWER, uploadedName);
+    fs.access(absPath, fs.constants.R_OK, (accessErr) => {
+        if (accessErr) return res.status(400).json({ error: 'Unknown background image' });
+        db.run(
+            `INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('background_image', ?, CURRENT_TIMESTAMP)`,
+            [filename],
+            (err) => {
+                if (err) return res.status(500).json({ error: err.message });
+                incrementDataVersion();
+                return res.json({ success: true });
+            }
+        );
+    });
 });
 
 // Background images — list gallery (built-in + uploaded)
@@ -1194,7 +1235,8 @@ app.get('/api/data-version', (req, res) => {
         if (err) {
             res.status(500).json({ error: err.message });
         } else {
-            res.json({ version: parseInt(row.value) });
+            const version = Number.parseInt(row && row.value ? row.value : '1', 10);
+            res.json({ version: Number.isNaN(version) ? 1 : version });
         }
     });
 });
@@ -1225,7 +1267,15 @@ app.get('/api/kiosk-location', (req, res) => {
 });
 
 function incrementDataVersion() {
-    db.run('UPDATE settings SET value = value + 1, updated_at = CURRENT_TIMESTAMP WHERE key = "data_version"');
+    db.serialize(() => {
+        db.run(`INSERT OR IGNORE INTO settings (key, value) VALUES ('data_version', '1')`);
+        db.run(
+            `UPDATE settings
+             SET value = CAST(COALESCE(value, '0') AS INTEGER) + 1,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE key = 'data_version'`
+        );
+    });
 }
 
 // Kiosk client management
