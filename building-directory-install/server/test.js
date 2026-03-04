@@ -165,6 +165,7 @@ async function startServer() {
             ...process.env,
             PORT: String(PORT),
             KIOSK_ADMIN_PASSWORD: TEST_ADMIN_PASSWORD,
+            KIOSK_SERVER_URL: 'http://192.168.1.80',
             KIOSK_TEMP_DIR: TEMP_DIR,
             KIOSK_UPLOADS_LOWER: UPLOADS_LOWER,
             KIOSK_PERSIST_CMD: PERSIST_SCRIPT,
@@ -505,6 +506,12 @@ async function runTests(serverProc) {
     {
         const r = await req('GET', '/api/kiosks/server-url');
         assert('GET /api/kiosks/server-url returns url string', r.status === 200 && typeof r.body.url === 'string', JSON.stringify(r.body));
+    }
+    {
+        const r = await req('GET', '/api/kiosk-location');
+        assert('GET /api/kiosk-location maps local kiosk to building 4309',
+            r.status === 200 && r.body && r.body.buildingCode === '4309',
+            JSON.stringify(r.body));
     }
     {
         const r = await req('GET', '/api/kiosks/deploy-pubkey');

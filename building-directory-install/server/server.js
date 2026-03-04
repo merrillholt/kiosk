@@ -1254,10 +1254,42 @@ function mapKioskBuildingSuffix(ip) {
     }
 }
 
+function resolveServerLanIpFromUrl() {
+    try {
+        const u = new URL(KIOSK_SERVER_URL);
+        const host = u.hostname || '';
+        if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) return host;
+    } catch (e) {
+        // Ignore malformed URL; fall back to interface scan.
+    }
+    return '';
+}
+
+function resolveFirstLanIp() {
+    try {
+        const interfaces = os.networkInterfaces() || {};
+        for (const iface of Object.values(interfaces)) {
+            if (!Array.isArray(iface)) continue;
+            for (const addr of iface) {
+                if (addr && addr.family === 'IPv4' && !addr.internal) return addr.address;
+            }
+        }
+    } catch (e) {
+        // Ignore and fall back to unknown.
+    }
+    return '';
+}
+
+function resolveKioskLocationIp(req) {
+    const clientIp = getClientIp(req);
+    if (clientIp !== '127.0.0.1' && clientIp !== '::1') return clientIp;
+    // Combined server+kiosk machine often appears as loopback through nginx.
+    return resolveServerLanIpFromUrl() || resolveFirstLanIp() || clientIp;
+}
+
 // Kiosk location metadata for welcome screen line 3
 app.get('/api/kiosk-location', (req, res) => {
-    const rawIp = req.ip || req.socket.remoteAddress || '';
-    const clientIp = rawIp.startsWith('::ffff:') ? rawIp.slice(7) : rawIp;
+    const clientIp = resolveKioskLocationIp(req);
     const buildingSuffix = mapKioskBuildingSuffix(clientIp);
     res.json({
         ip: clientIp,

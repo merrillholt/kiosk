@@ -19,6 +19,7 @@ async function init() {
     loadCachedData();
     await Promise.all([refreshData(), loadKioskLocationLine()]);
     setInterval(checkForUpdates, CONFIG.REFRESH_INTERVAL);
+    startDateTimeUpdates();
     setupInactivityDetection();
 }
 
@@ -321,6 +322,36 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+function formatDateTime(now) {
+    const dateText = now.toLocaleDateString(undefined, {
+        weekday: 'short',
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+    });
+    const timeText = now.toLocaleTimeString(undefined, {
+        hour: 'numeric',
+        minute: '2-digit'
+    });
+    return `${dateText} ${timeText}`;
+}
+
+function updateDateTimeDisplay() {
+    const box = document.getElementById('welcome-datetime-box');
+    if (!box) return;
+    box.textContent = formatDateTime(new Date());
+}
+
+function startDateTimeUpdates() {
+    updateDateTimeDisplay();
+    const now = new Date();
+    const delayMs = (60 - now.getSeconds()) * 1000 - now.getMilliseconds();
+    setTimeout(() => {
+        updateDateTimeDisplay();
+        setInterval(updateDateTimeDisplay, 60000);
+    }, Math.max(0, delayMs));
 }
 
 window.openSearch = openSearch;
