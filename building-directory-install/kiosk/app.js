@@ -231,8 +231,12 @@ function displayIndividuals(individuals) {
             return byLast !== 0 ? byLast : a.first_name.localeCompare(b.first_name);
         })
         .map(person => {
+            const title = (person.title || '').trim();
             return `<div class="result-row">
-                <div class="result-name">${escapeHtml(person.last_name)}, ${escapeHtml(person.first_name)}</div>
+                <div class="result-name">
+                    <div class="person-name">${escapeHtml(person.last_name)}, ${escapeHtml(person.first_name)}</div>
+                    ${title ? `<div class="person-title">${escapeHtml(title)}</div>` : ''}
+                </div>
                 <div class="result-suite">${escapeHtml(person.suite)}</div>
                 <div class="result-building">${escapeHtml(person.building)}</div>
             </div>`;

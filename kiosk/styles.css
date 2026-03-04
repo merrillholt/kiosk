@@ -252,6 +252,22 @@ body {
     white-space: nowrap;
 }
 
+.person-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.person-title {
+    margin-top: 2px;
+    font-size: 18px;
+    line-height: 1.1;
+    color: #4a5260;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .result-suite,
 .result-building {
     text-align: right;
