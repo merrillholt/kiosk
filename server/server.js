@@ -1306,6 +1306,91 @@ function resolveServerLanIpFromUrl() {
     return '';
 }
 
+function extractHostFromUrl(rawUrl) {
+    try {
+        return new URL(rawUrl).hostname || '';
+    } catch (e) {
+        return '';
+    }
+}
+
+function getKioskServerRole(ip) {
+    const primaryHost = extractHostFromUrl(KIOSK_SERVER_URL);
+    const standbyHost = extractHostFromUrl(KIOSK_SERVER_URL_STANDBY);
+    if (primaryHost && ip === primaryHost) return 'active';
+    if (standbyHost && ip === standbyHost) return 'standby';
+    return 'client';
+}
+
+function getLocalIpv4Set() {
+    const out = new Set(['127.0.0.1']);
+    try {
+        const interfaces = os.networkInterfaces() || {};
+        for (const iface of Object.values(interfaces)) {
+            if (!Array.isArray(iface)) continue;
+            for (const addr of iface) {
+                if (addr && addr.family === 'IPv4' && addr.address) out.add(addr.address);
+            }
+        }
+    } catch (e) {
+        // Ignore and return best-effort set.
+    }
+    return out;
+}
+
+function probeKioskOverlayStatus(kiosk) {
+    const localIps = getLocalIpv4Set();
+    if (localIps.has(kiosk.ip)) {
+        const local = spawnSync('bash', [
+            '-lc',
+            "if mount | grep -q '^overlayroot on / type overlay'; then echo on; else echo off; fi"
+        ], { encoding: 'utf8', timeout: 3000 });
+        if (local.status === 0) {
+            return {
+                id: kiosk.id,
+                overlay: ((local.stdout || '').trim() === 'on') ? 'on' : 'off',
+                reachable: true,
+                error: null
+            };
+        }
+    }
+
+    if (!fs.existsSync(KIOSK_SSH_KEY)) {
+        return {
+            id: kiosk.id,
+            overlay: 'unknown',
+            reachable: false,
+            error: 'SSH key not found'
+        };
+    }
+    const result = spawnSync('ssh', [
+        '-i', KIOSK_SSH_KEY,
+        '-o', 'BatchMode=yes',
+        '-o', 'ConnectTimeout=4',
+        '-o', 'StrictHostKeyChecking=accept-new',
+        `${kiosk.user}@${kiosk.ip}`,
+        "if mount | grep -q '^overlayroot on / type overlay'; then echo on; else echo off; fi"
+    ], { encoding: 'utf8', timeout: 7000 });
+
+    if (result.status !== 0) {
+        const err = ((result.stderr || '').trim() || (result.error && result.error.message) || 'unreachable');
+        return {
+            id: kiosk.id,
+            overlay: 'unknown',
+            reachable: false,
+            error: err
+        };
+    }
+
+    const overlay = ((result.stdout || '').trim() === 'on') ? 'on' : 'off';
+    return {
+        id: kiosk.id,
+        overlay,
+        reachable: true,
+        error: null
+    };
+}
+
 function resolveFirstLanIp() {
     try {
         const interfaces = os.networkInterfaces() || {};
@@ -1355,7 +1440,30 @@ function incrementDataVersion() {
 
 // List kiosk display clients
 app.get('/api/kiosks', (req, res) => {
-    res.json(KIOSK_CLIENTS.map(k => ({ id: k.id, name: k.name, ip: k.ip, user: k.user })));
+    res.json(KIOSK_CLIENTS.map(k => ({
+        id: k.id,
+        name: k.name,
+        ip: k.ip,
+        user: k.user,
+        serverRole: getKioskServerRole(k.ip)
+    })));
+});
+
+// Live per-kiosk node status (overlay + reachability)
+app.get('/api/kiosks/status', (req, res) => {
+    const statuses = KIOSK_CLIENTS.map(k => {
+        const live = probeKioskOverlayStatus(k);
+        return {
+            id: k.id,
+            name: k.name,
+            ip: k.ip,
+            serverRole: getKioskServerRole(k.ip),
+            overlay: live.overlay,
+            reachable: live.reachable,
+            error: live.error
+        };
+    });
+    res.json(statuses);
 });
 
 // Server URL that kiosk machines should use to reach this server

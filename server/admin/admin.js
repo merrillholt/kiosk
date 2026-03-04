@@ -474,16 +474,19 @@ document.getElementById('background-form').addEventListener('submit', async (e) 
 
 async function loadDeployTab() {
     try {
-        const [kioskRes, urlRes, keyRes, revRes] = await Promise.all([
+        const [kioskRes, statusRes, urlRes, keyRes, revRes] = await Promise.all([
             apiFetch(`${API_URL}/kiosks`),
+            apiFetch(`${API_URL}/kiosks/status`),
             apiFetch(`${API_URL}/kiosks/server-url`),
             apiFetch(`${API_URL}/kiosks/deploy-pubkey`),
             apiFetch(`${API_URL}/revision`)
         ]);
         const kiosks = await kioskRes.json();
+        const statuses = await statusRes.json();
         const { url, standbyUrl } = await urlRes.json();
         const keyData = await keyRes.json();
         const revisionData = await revRes.json();
+        const statusById = new Map((Array.isArray(statuses) ? statuses : []).map(s => [s.id, s]));
 
         document.getElementById('deploy-server-url').textContent = url;
         document.getElementById('deploy-server-url-standby').textContent = standbyUrl || 'not configured';
@@ -497,11 +500,30 @@ async function loadDeployTab() {
                 <div class="kiosk-deploy-info">
                     <strong>${escapeHtml(k.name)}</strong>
                     <span class="kiosk-deploy-ip">${escapeHtml(k.user)}@${escapeHtml(k.ip)}</span>
+                    ${renderKioskStatus(statusById.get(k.id) || { serverRole: k.serverRole || 'client', overlay: 'unknown', reachable: false })}
                 </div>
                 <button class="btn btn-success" onclick="deployOne(${k.id}, '${escapeHtml(k.name)}')">Deploy</button>
             </div>
         `).join('');
     } catch (error) { showMessage('Failed to load deploy info', 'error'); }
+}
+
+function renderKioskStatus(status) {
+    const role = (status && status.serverRole) || 'client';
+    const overlay = (status && status.overlay) || 'unknown';
+    const reachable = !!(status && status.reachable);
+    const roleLabel = role === 'active'
+        ? 'active server'
+        : (role === 'standby' ? 'standby server' : 'client');
+    const reachLabel = reachable ? 'reachable' : 'unreachable';
+    const error = status && status.error ? ` title="${escapeHtml(status.error)}"` : '';
+    return `
+        <div class="kiosk-status-row">
+            <span class="status-chip role-${role}">${escapeHtml(roleLabel)}</span>
+            <span class="status-chip overlay-${overlay}">overlay ${escapeHtml(overlay)}</span>
+            <span class="status-chip reach-${reachable ? 'up' : 'down'}"${error}>${escapeHtml(reachLabel)}</span>
+        </div>
+    `;
 }
 
 function copyDeployKey() {
