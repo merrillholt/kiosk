@@ -480,10 +480,11 @@ async function loadDeployTab() {
             apiFetch(`${API_URL}/kiosks/deploy-pubkey`)
         ]);
         const kiosks = await kioskRes.json();
-        const { url } = await urlRes.json();
+        const { url, standbyUrl } = await urlRes.json();
         const keyData = await keyRes.json();
 
         document.getElementById('deploy-server-url').textContent = url;
+        document.getElementById('deploy-server-url-standby').textContent = standbyUrl || 'not configured';
         document.getElementById('deploy-pubkey').textContent =
             keyData.pubkey || ('Error: ' + keyData.error);
 

@@ -192,8 +192,12 @@
                 <p style="margin-bottom:16px;color:#666;">Deploy system script updates to the kiosk display machines. The kiosk browser app (HTML/JS/CSS) is served from this server and updates automatically — only system-level scripts require a deploy.</p>
 
                 <div class="deploy-info-bar">
-                    <span class="deploy-info-label">Server URL configured on kiosks:</span>
+                    <span class="deploy-info-label">Primary server URL configured on kiosks:</span>
                     <code id="deploy-server-url">loading...</code>
+                </div>
+                <div class="deploy-info-bar" style="margin-top:8px;">
+                    <span class="deploy-info-label">Standby server URL:</span>
+                    <code id="deploy-server-url-standby">loading...</code>
                 </div>
 
                 <h3 style="margin:24px 0 8px;color:#34495e;">SSH Deploy Key</h3>

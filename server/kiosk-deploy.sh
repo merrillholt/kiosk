@@ -2,7 +2,7 @@
 # Deploy kiosk system scripts to an overlayroot kiosk display machine.
 # Called by server.js via POST /api/kiosks/:id/deploy.
 #
-# Usage: kiosk-deploy.sh <kiosk_ip> <kiosk_user> <ssh_key_path> <server_url>
+# Usage: kiosk-deploy.sh <kiosk_ip> <kiosk_user> <ssh_key_path> <primary_server_url> [standby_server_url]
 #
 # The kiosk machine must have the server's SSH public key in
 # ~/.ssh/authorized_keys for <kiosk_user>, and that user must have
@@ -14,9 +14,10 @@ KIOSK_IP="$1"
 KIOSK_USER="$2"
 SSH_KEY="$3"
 SERVER_URL="${4:-http://localhost}"
+SERVER_URL_STANDBY="${5:-http://192.168.1.81}"
 
 if [[ -z "$KIOSK_IP" || -z "$KIOSK_USER" || -z "$SSH_KEY" ]]; then
-    echo "Usage: kiosk-deploy.sh <ip> <user> <ssh_key> [server_url]" >&2
+    echo "Usage: kiosk-deploy.sh <ip> <user> <ssh_key> <primary_server_url> [standby_server_url]" >&2
     exit 1
 fi
 
@@ -24,7 +25,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SCRIPTS_SRC="$(realpath "$SCRIPT_DIR/../scripts")"
 SSH_OPTS="-i $SSH_KEY -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 -o BatchMode=yes"
 
-echo "==> Deploying to ${KIOSK_USER}@${KIOSK_IP} (SERVER_URL=${SERVER_URL})"
+echo "==> Deploying to ${KIOSK_USER}@${KIOSK_IP} (PRIMARY=${SERVER_URL}, STANDBY=${SERVER_URL_STANDBY})"
 
 # Test SSH connectivity
 if ! ssh $SSH_OPTS "${KIOSK_USER}@${KIOSK_IP}" true 2>&1; then
@@ -46,9 +47,9 @@ scp $SSH_OPTS \
     "$SCRIPTS_SRC/bash_profile" \
     "${KIOSK_USER}@${KIOSK_IP}:/tmp/kiosk-deploy-staging/"
 
-# Patch SERVER_URL into start-kiosk.sh before deploying
+# Patch primary + standby server URLs into start-kiosk.sh before deploying
 ssh $SSH_OPTS "${KIOSK_USER}@${KIOSK_IP}" \
-    "sed -i 's|SERVER_URL=.*|SERVER_URL=\"${SERVER_URL}\"|' /tmp/kiosk-deploy-staging/start-kiosk.sh"
+    "sed -i 's|^SERVER_URL=.*|SERVER_URL=\"${SERVER_URL}\"|; s|^SERVER_URL_STANDBY=.*|SERVER_URL_STANDBY=\"${SERVER_URL_STANDBY}\"|' /tmp/kiosk-deploy-staging/start-kiosk.sh"
 
 # Move to /run (bind-mounted inside overlayroot-chroot), then write lower layer
 echo "==> Writing to overlayroot lower layer..."

@@ -80,6 +80,8 @@ const KIOSK_SERVER_URL = process.env.KIOSK_SERVER_URL || (() => {
     }
     return 'http://localhost';
 })();
+// Warm-standby URL kiosk machines will switch to if primary is unavailable.
+const KIOSK_SERVER_URL_STANDBY = process.env.KIOSK_SERVER_URL_STANDBY || 'http://192.168.1.81';
 const KIOSK_DEPLOY_SCRIPT = path.join(__dirname, 'kiosk-deploy.sh');
 const DEFAULT_BUILDING_INFO_HTML = `
 <div class="building-info-panel">
@@ -1319,7 +1321,7 @@ app.get('/api/kiosks', (req, res) => {
 
 // Server URL that kiosk machines should use to reach this server
 app.get('/api/kiosks/server-url', (req, res) => {
-    res.json({ url: KIOSK_SERVER_URL });
+    res.json({ url: KIOSK_SERVER_URL, standbyUrl: KIOSK_SERVER_URL_STANDBY });
 });
 
 // SSH public key for kiosk deploy access — generates key pair on first call
@@ -1354,7 +1356,7 @@ app.post('/api/kiosks/:id/deploy', (req, res) => {
         });
     }
     const result = spawnSync('bash', [
-        KIOSK_DEPLOY_SCRIPT, kiosk.ip, kiosk.user, KIOSK_SSH_KEY, KIOSK_SERVER_URL
+        KIOSK_DEPLOY_SCRIPT, kiosk.ip, kiosk.user, KIOSK_SSH_KEY, KIOSK_SERVER_URL, KIOSK_SERVER_URL_STANDBY
     ], { encoding: 'utf8', timeout: 90000 });
     const output = ((result.stdout || '') + (result.stderr || '')).trim();
     if (result.status !== 0) {
