@@ -474,17 +474,21 @@ document.getElementById('background-form').addEventListener('submit', async (e) 
 
 async function loadDeployTab() {
     try {
-        const [kioskRes, urlRes, keyRes] = await Promise.all([
+        const [kioskRes, urlRes, keyRes, revRes] = await Promise.all([
             apiFetch(`${API_URL}/kiosks`),
             apiFetch(`${API_URL}/kiosks/server-url`),
-            apiFetch(`${API_URL}/kiosks/deploy-pubkey`)
+            apiFetch(`${API_URL}/kiosks/deploy-pubkey`),
+            apiFetch(`${API_URL}/revision`)
         ]);
         const kiosks = await kioskRes.json();
         const { url, standbyUrl } = await urlRes.json();
         const keyData = await keyRes.json();
+        const revisionData = await revRes.json();
 
         document.getElementById('deploy-server-url').textContent = url;
         document.getElementById('deploy-server-url-standby').textContent = standbyUrl || 'not configured';
+        document.getElementById('deploy-revision').textContent = revisionData.revision || 'unknown';
+        document.getElementById('deploy-server-version').textContent = revisionData.serverVersion || 'unknown';
         document.getElementById('deploy-pubkey').textContent =
             keyData.pubkey || ('Error: ' + keyData.error);
 

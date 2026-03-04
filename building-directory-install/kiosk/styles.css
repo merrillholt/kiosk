@@ -96,6 +96,19 @@ body {
     z-index: 2;
 }
 
+.welcome-revision {
+    position: absolute;
+    left: 18px;
+    bottom: 58px;
+    padding: 4px 8px;
+    background: rgba(10, 26, 52, .55);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .3px;
+    z-index: 2;
+}
+
 .menu-btn {
     width: 168px;
     height: 168px;

@@ -15,6 +15,7 @@ NO_RESTART=0
 WITH_DB=0
 DB_SOURCE="${DB_SOURCE:-}"
 OVERLAY_MODE="${OVERLAY_MODE:-auto}"
+OVERLAY_INSTALL_DEPS="${OVERLAY_INSTALL_DEPS:-0}"
 
 usage() {
   cat <<USAGE
@@ -40,6 +41,7 @@ Environment:
   MANIFEST               Override manifest path (default: deploy-server-files.txt)
   DB_SOURCE              Same as --db-source
   OVERLAY_MODE           auto|on|off (default: auto)
+  OVERLAY_INSTALL_DEPS   1 to run npm install in overlay mode (default: 0)
 USAGE
 }
 
@@ -169,6 +171,7 @@ esac
 if [[ "$EFFECTIVE_OVERLAY" -eq 1 ]]; then
   echo "Overlay deploy mode: enabled"
   STAGE_DIR="/tmp/building-directory-deploy-$RANDOM-$(date +%s)"
+  CHROOT_STAGE="/run/deploy-stage"
   REMOTE_MANIFEST="/tmp/building-directory-deploy-manifest-$RANDOM-$(date +%s).txt"
   echo "==> Staging manifest files on remote..."
   ssh "$HOST" "mkdir -p '$STAGE_DIR'"
@@ -178,20 +181,23 @@ if [[ "$EFFECTIVE_OVERLAY" -eq 1 ]]; then
     echo "==> Writing files to overlay lower layer..."
     ssh "$HOST" "bash -lc '
       set -euo pipefail
+      sudo -n mkdir -p \"$CHROOT_STAGE\"
+      sudo -n cp -a \"$STAGE_DIR\"/. \"$CHROOT_STAGE\"/
       while IFS= read -r rel; do
         [[ -z \"\$rel\" ]] && continue
-        src=\"$STAGE_DIR/\$rel\"
+        src=\"$CHROOT_STAGE/\$rel\"
         dst=\"$DEPLOY_ROOT/\$rel\"
         [[ -f \"\$src\" ]] || { echo \"Missing staged file: \$src\" >&2; exit 1; }
         mode=\$(stat -c %a \"\$src\")
         sudo -n overlayroot-chroot install -D -m \"\$mode\" \"\$src\" \"\$dst\"
       done < \"$REMOTE_MANIFEST\"
       echo 3 | sudo -n tee /proc/sys/vm/drop_caches >/dev/null
+      sudo -n rm -rf \"$CHROOT_STAGE\"
       rm -rf \"$STAGE_DIR\" \"$REMOTE_MANIFEST\"
     '"
   else
     echo "==> [dry-run] Overlay lower-layer write step skipped."
-    ssh "$HOST" "rm -rf '$STAGE_DIR' '$REMOTE_MANIFEST'" || true
+    ssh "$HOST" "sudo -n rm -rf '$CHROOT_STAGE'; rm -rf '$STAGE_DIR' '$REMOTE_MANIFEST'" || true
   fi
 else
   echo "Overlay deploy mode: disabled"
@@ -221,7 +227,11 @@ fi
 
 echo "==> Installing production dependencies on remote..."
 if [[ "$EFFECTIVE_OVERLAY" -eq 1 ]]; then
-  ssh "$HOST" "sudo -n overlayroot-chroot bash -lc \"if [[ -f '$DEPLOY_ROOT/server/package-lock.json' ]]; then npm ci --omit=dev --no-audit --no-fund --loglevel=error --prefix '$DEPLOY_ROOT/server'; else npm install --omit=dev --no-audit --no-fund --loglevel=error --prefix '$DEPLOY_ROOT/server'; fi\""
+  if [[ "$OVERLAY_INSTALL_DEPS" -eq 1 ]]; then
+    ssh "$HOST" "sudo -n overlayroot-chroot bash -lc \"if [[ -f '$DEPLOY_ROOT/server/package-lock.json' ]]; then npm ci --omit=dev --no-audit --no-fund --loglevel=error --prefix '$DEPLOY_ROOT/server'; else npm install --omit=dev --no-audit --no-fund --loglevel=error --prefix '$DEPLOY_ROOT/server'; fi\""
+  else
+    echo "==> Skipping npm install in overlay mode (OVERLAY_INSTALL_DEPS=0)."
+  fi
 else
   ssh "$HOST" "if [[ -f '$DEPLOY_ROOT/server/package-lock.json' ]]; then npm ci --omit=dev --no-audit --no-fund --loglevel=error --prefix '$DEPLOY_ROOT/server'; else npm install --omit=dev --no-audit --no-fund --loglevel=error --prefix '$DEPLOY_ROOT/server'; fi"
 fi

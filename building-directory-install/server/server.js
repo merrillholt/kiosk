@@ -10,6 +10,9 @@ const { spawnSync } = require('child_process');
 const app = express();
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || '127.0.0.1';
+const PROJECT_ROOT = path.join(__dirname, '..');
+const REVISION_FILE = process.env.KIOSK_REVISION_FILE || path.join(PROJECT_ROOT, 'REVISION');
+const PACKAGE_JSON_FILE = path.join(__dirname, 'package.json');
 // Trust loopback reverse proxy (nginx on same host) for accurate req.ip.
 app.set('trust proxy', 'loopback');
 
@@ -51,7 +54,8 @@ const KIOSK_READ_PATHS = new Set([
     '/building-info',
     '/background-image',
     '/data-version',
-    '/kiosk-location'
+    '/kiosk-location',
+    '/revision'
 ]);
 const ADMIN_PASSWORD = process.env.KIOSK_ADMIN_PASSWORD || 'kiosk';
 const SESSION_COOKIE = 'kiosk_admin_session';
@@ -83,6 +87,33 @@ const KIOSK_SERVER_URL = process.env.KIOSK_SERVER_URL || (() => {
 // Warm-standby URL kiosk machines will switch to if primary is unavailable.
 const KIOSK_SERVER_URL_STANDBY = process.env.KIOSK_SERVER_URL_STANDBY || 'http://192.168.1.81';
 const KIOSK_DEPLOY_SCRIPT = path.join(__dirname, 'kiosk-deploy.sh');
+let SERVER_PACKAGE_VERSION = 'unknown';
+try {
+    const pkg = JSON.parse(fs.readFileSync(PACKAGE_JSON_FILE, 'utf8'));
+    if (pkg && typeof pkg.version === 'string' && pkg.version.trim()) {
+        SERVER_PACKAGE_VERSION = pkg.version.trim();
+    }
+} catch (err) {
+    console.warn('Could not read server package version:', err.message);
+}
+let REVISION_SOURCE = 'fallback';
+const DEPLOY_REVISION = (() => {
+    const envRevision = (process.env.KIOSK_REVISION || '').trim();
+    if (envRevision) {
+        REVISION_SOURCE = 'env';
+        return envRevision;
+    }
+    try {
+        const fileRevision = fs.readFileSync(REVISION_FILE, 'utf8').trim();
+        if (fileRevision) {
+            REVISION_SOURCE = 'file';
+            return fileRevision;
+        }
+    } catch (err) {
+        console.warn('Could not read revision file:', err.message);
+    }
+    return `v${SERVER_PACKAGE_VERSION}`;
+})();
 const DEFAULT_BUILDING_INFO_HTML = `
 <div class="building-info-panel">
     <div class="building-info-column">
@@ -1243,6 +1274,14 @@ app.get('/api/data-version', (req, res) => {
     });
 });
 
+app.get('/api/revision', (req, res) => {
+    res.json({
+        revision: DEPLOY_REVISION,
+        serverVersion: SERVER_PACKAGE_VERSION,
+        source: REVISION_SOURCE
+    });
+});
+
 function mapKioskBuildingSuffix(ip) {
     switch (ip) {
         case '192.168.1.80':
@@ -1371,6 +1410,7 @@ app.listen(PORT, HOST, () => {
     console.log(`Listening on ${HOST}:${PORT}`);
     console.log(`Kiosk interface: http://localhost/`);
     console.log(`Admin interface: http://localhost/admin`);
+    console.log(`Revision: ${DEPLOY_REVISION} (${REVISION_SOURCE})`);
 });
 
 // Handle shutdown gracefully

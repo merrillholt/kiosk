@@ -11,13 +11,14 @@ const state = {
     buildingInfoContent: '',
     backgroundImage: '',
     dataVersion: 0,
+    revision: '--',
     currentScreen: 'main-menu',
     inactivityTimer: null
 };
 
 async function init() {
     loadCachedData();
-    await Promise.all([refreshData(), loadKioskLocationLine()]);
+    await Promise.all([refreshData(), loadKioskLocationLine(), loadRevision()]);
     setInterval(checkForUpdates, CONFIG.REFRESH_INTERVAL);
     startDateTimeUpdates();
     setupInactivityDetection();
@@ -320,6 +321,24 @@ async function loadKioskLocationLine() {
     } catch {
         line.textContent = 'Building 430x';
     }
+}
+
+async function loadRevision() {
+    try {
+        const response = await fetch(`${CONFIG.API_URL}/revision`);
+        if (!response.ok) throw new Error(response.status);
+        const data = await response.json();
+        state.revision = (data && data.revision) ? String(data.revision) : '--';
+    } catch {
+        state.revision = '--';
+    }
+    renderRevision();
+}
+
+function renderRevision() {
+    const el = document.getElementById('welcome-revision');
+    if (!el) return;
+    el.textContent = `Rev ${state.revision}`;
 }
 
 function escapeHtml(text) {

@@ -514,6 +514,15 @@ async function runTests(serverProc) {
             JSON.stringify(r.body));
     }
     {
+        const r = await req('GET', '/api/revision', null, null, { omitAuth: true });
+        assert('GET /api/revision is available without admin auth',
+            r.status === 200 && r.body && typeof r.body.revision === 'string',
+            JSON.stringify(r.body));
+        assert('GET /api/revision includes server version',
+            r.status === 200 && r.body && typeof r.body.serverVersion === 'string',
+            JSON.stringify(r.body));
+    }
+    {
         const r = await req('GET', '/api/kiosks/deploy-pubkey');
         assert('GET /api/kiosks/deploy-pubkey returns pubkey', r.status === 200 && typeof r.body.pubkey === 'string', JSON.stringify(r.body));
         assert('deploy-pubkey is an ed25519 key', r.body.pubkey.startsWith('ssh-ed25519'), r.body.pubkey ? r.body.pubkey.substring(0, 30) : 'empty');

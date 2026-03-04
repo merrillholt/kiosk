@@ -1,6 +1,7 @@
 # Server-only local deploy manifest (default for deploy-local.sh)
 # Paths are relative to project root.
 
+REVISION
 server/server.js
 server/package.json
 server/package-lock.json
@@ -11,6 +12,9 @@ server/test.js
 server/admin/index.html
 server/admin/admin.js
 server/admin/admin.css
+kiosk/index.html
+kiosk/app.js
+kiosk/styles.css
 scripts/start-server.sh
 scripts/restart-server.sh
 scripts/kioskctl
