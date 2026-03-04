@@ -16,6 +16,7 @@ WITH_DB=0
 DB_SOURCE="${DB_SOURCE:-}"
 OVERLAY_MODE="${OVERLAY_MODE:-auto}"
 OVERLAY_INSTALL_DEPS="${OVERLAY_INSTALL_DEPS:-0}"
+REQUIRE_MAINTENANCE=0
 
 usage() {
   cat <<USAGE
@@ -30,6 +31,7 @@ Options:
   -f, --full             Deploy full manifest (server + kiosk + scripts)
       --overlay          Force overlayroot-chroot write mode
       --no-overlay       Force direct write mode
+      --maintenance      Require maintenance/writable mode and use direct writes
       --no-restart       Skip remote service restart and health checks
       --with-db          Also copy a SQLite DB file to remote server/directory.db
       --db-source <path> SQLite DB source path for --with-db
@@ -65,6 +67,11 @@ while [[ $# -gt 0 ]]; do
       ;;
     --no-overlay)
       OVERLAY_MODE="off"
+      shift
+      ;;
+    --maintenance)
+      OVERLAY_MODE="off"
+      REQUIRE_MAINTENANCE=1
       shift
       ;;
     --no-restart)
@@ -128,6 +135,7 @@ echo "Deploy source: $SRC_ROOT"
 echo "Deploy target: $HOST:$DEPLOY_ROOT"
 [[ "$DRY_RUN" -eq 1 ]] && echo "Mode: dry-run"
 [[ "$FULL" -eq 1 ]] && echo "Profile: full" || echo "Profile: server-only"
+[[ "$REQUIRE_MAINTENANCE" -eq 1 ]] && echo "Mode: maintenance (overlay disabled required)"
 if [[ "$WITH_DB" -eq 1 ]]; then
   echo "Database source: $DB_SOURCE"
 fi
@@ -168,6 +176,14 @@ case "$OVERLAY_MODE" in
     ;;
 esac
 
+if [[ "$REQUIRE_MAINTENANCE" -eq 1 ]]; then
+  if detect_overlay; then
+    echo "Maintenance mode required, but overlayroot is active on $HOST." >&2
+    echo "Reboot host into maintenance/writable mode and retry with --maintenance." >&2
+    exit 1
+  fi
+fi
+
 if [[ "$EFFECTIVE_OVERLAY" -eq 1 ]]; then
   echo "Overlay deploy mode: enabled"
   STAGE_DIR="/tmp/building-directory-deploy-$RANDOM-$(date +%s)"
@@ -179,22 +195,47 @@ if [[ "$EFFECTIVE_OVERLAY" -eq 1 ]]; then
   scp "$TMP_MANIFEST" "$HOST:$REMOTE_MANIFEST"
   if [[ "$DRY_RUN" -eq 0 ]]; then
     echo "==> Writing files to overlay lower layer..."
-    ssh "$HOST" "bash -lc '
-      set -euo pipefail
-      sudo -n mkdir -p \"$CHROOT_STAGE\"
-      sudo -n cp -a \"$STAGE_DIR\"/. \"$CHROOT_STAGE\"/
-      while IFS= read -r rel; do
-        [[ -z \"\$rel\" ]] && continue
-        src=\"$CHROOT_STAGE/\$rel\"
-        dst=\"$DEPLOY_ROOT/\$rel\"
-        [[ -f \"\$src\" ]] || { echo \"Missing staged file: \$src\" >&2; exit 1; }
-        mode=\$(stat -c %a \"\$src\")
-        sudo -n overlayroot-chroot install -D -m \"\$mode\" \"\$src\" \"\$dst\"
-      done < \"$REMOTE_MANIFEST\"
-      echo 3 | sudo -n tee /proc/sys/vm/drop_caches >/dev/null
-      sudo -n rm -rf \"$CHROOT_STAGE\"
-      rm -rf \"$STAGE_DIR\" \"$REMOTE_MANIFEST\"
-    '"
+    ssh "$HOST" CHROOT_STAGE="$CHROOT_STAGE" DEPLOY_ROOT="$DEPLOY_ROOT" REMOTE_MANIFEST="$REMOTE_MANIFEST" STAGE_DIR="$STAGE_DIR" 'bash -s' <<'REMOTE_SCRIPT'
+set -euo pipefail
+cleanup() {
+  sudo -n rm -rf "$CHROOT_STAGE"
+  rm -rf "$STAGE_DIR" "$REMOTE_MANIFEST"
+}
+trap cleanup EXIT
+sudo -n mkdir -p "$CHROOT_STAGE"
+sudo -n cp -a "$STAGE_DIR"/. "$CHROOT_STAGE"/
+CHROOT_MANIFEST="$CHROOT_STAGE/.deploy-manifest.txt"
+sudo -n cp -f "$REMOTE_MANIFEST" "$CHROOT_MANIFEST"
+# Run a single chroot session to avoid repeated mount/unmount churn.
+CHROOT_ERR="$(mktemp /tmp/overlayroot-chroot.XXXXXX)"
+sudo -n overlayroot-chroot bash -s -- "$CHROOT_STAGE" "$DEPLOY_ROOT" "$CHROOT_MANIFEST" 2>"$CHROOT_ERR" <<'CHROOT_SCRIPT'
+set -euo pipefail
+CHROOT_STAGE="$1"
+DEPLOY_ROOT="$2"
+CHROOT_MANIFEST="$3"
+while IFS= read -r rel; do
+  [[ -z "$rel" ]] && continue
+  src="$CHROOT_STAGE/$rel"
+  dst="$DEPLOY_ROOT/$rel"
+  [[ -f "$src" ]] || { echo "Missing staged file: $src" >&2; exit 1; }
+  mode=$(stat -c %a "$src")
+  install -D -m "$mode" "$src" "$dst"
+done < "$CHROOT_MANIFEST"
+CHROOT_SCRIPT
+if grep -q "mount point is busy" "$CHROOT_ERR"; then
+  if mount | grep -Eq '^/dev/.+ on /media/root-ro type .+ \(ro,'; then
+    echo "INFO: overlayroot remount warning observed; /media/root-ro is read-only after file write."
+  else
+    cat "$CHROOT_ERR" >&2
+    echo "ERROR: /media/root-ro is not read-only after overlay write." >&2
+    exit 1
+  fi
+elif [[ -s "$CHROOT_ERR" ]]; then
+  cat "$CHROOT_ERR" >&2
+fi
+rm -f "$CHROOT_ERR"
+echo 3 | sudo -n tee /proc/sys/vm/drop_caches >/dev/null
+REMOTE_SCRIPT
   else
     echo "==> [dry-run] Overlay lower-layer write step skipped."
     ssh "$HOST" "sudo -n rm -rf '$CHROOT_STAGE'; rm -rf '$STAGE_DIR' '$REMOTE_MANIFEST'" || true
@@ -233,6 +274,8 @@ if [[ "$EFFECTIVE_OVERLAY" -eq 1 ]]; then
     echo "==> Skipping npm install in overlay mode (OVERLAY_INSTALL_DEPS=0)."
   fi
 else
+  echo "==> Normalizing server directory ownership for dependency install..."
+  ssh "$HOST" "set -e; if [[ -d '$DEPLOY_ROOT/server/node_modules' ]]; then sudo -n chown -R \$(id -un):\$(id -gn) '$DEPLOY_ROOT/server/node_modules'; fi; sudo -n chown \$(id -un):\$(id -gn) '$DEPLOY_ROOT/server' '$DEPLOY_ROOT/server/package.json' '$DEPLOY_ROOT/server/package-lock.json' 2>/dev/null || true"
   ssh "$HOST" "if [[ -f '$DEPLOY_ROOT/server/package-lock.json' ]]; then npm ci --omit=dev --no-audit --no-fund --loglevel=error --prefix '$DEPLOY_ROOT/server'; else npm install --omit=dev --no-audit --no-fund --loglevel=error --prefix '$DEPLOY_ROOT/server'; fi"
 fi
 
