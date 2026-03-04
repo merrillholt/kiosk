@@ -44,6 +44,9 @@ fs.chmodSync(PERSIST_SCRIPT, 0o755);
 
 let passed = 0;
 let failed = 0;
+const TEST_ADMIN_PASSWORD = 'test-admin-password';
+let authToken = '';
+let authCookie = '';
 
 function assert(label, condition, detail = '') {
     if (condition) {
@@ -55,20 +58,45 @@ function assert(label, condition, detail = '') {
     }
 }
 
+function buildAuthHeaders() {
+    const headers = {};
+    if (authToken) headers.Authorization = `Bearer ${authToken}`;
+    if (authCookie) headers.Cookie = authCookie;
+    return headers;
+}
+
+function stashAuthState(response) {
+    if (response && response.body && typeof response.body.token === 'string') {
+        authToken = response.body.token;
+    }
+    const rawSetCookie = response && response.headers ? response.headers['set-cookie'] : null;
+    const cookies = Array.isArray(rawSetCookie) ? rawSetCookie : (rawSetCookie ? [rawSetCookie] : []);
+    for (const cookie of cookies) {
+        const match = String(cookie).match(/kiosk_admin_session=([^;]+)/);
+        if (match) {
+            authCookie = `kiosk_admin_session=${match[1]}`;
+            break;
+        }
+    }
+}
+
 async function req(method, urlPath, body, contentType) {
     return new Promise((resolve, reject) => {
         const isForm = contentType === 'multipart';
+        const headers = buildAuthHeaders();
         const opts = { hostname: 'localhost', port: PORT, path: urlPath, method };
         if (body && !isForm) {
             const json = JSON.stringify(body);
-            opts.headers = { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(json) };
+            headers['Content-Type'] = 'application/json';
+            headers['Content-Length'] = Buffer.byteLength(json);
         }
+        if (Object.keys(headers).length > 0) opts.headers = headers;
         const r = http.request(opts, res => {
             let data = '';
             res.on('data', c => data += c);
             res.on('end', () => {
-                try { resolve({ status: res.statusCode, body: JSON.parse(data) }); }
-                catch { resolve({ status: res.statusCode, body: data }); }
+                try { resolve({ status: res.statusCode, body: JSON.parse(data), headers: res.headers }); }
+                catch { resolve({ status: res.statusCode, body: data, headers: res.headers }); }
             });
         });
         r.on('error', reject);
@@ -88,14 +116,18 @@ async function uploadFile(urlPath, fieldName, filename, fileContent, mimeType) {
         const body = Buffer.concat([head, fileContent, tail]);
         const opts = {
             hostname: 'localhost', port: PORT, path: urlPath, method: 'POST',
-            headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}`, 'Content-Length': body.length }
+            headers: {
+                ...buildAuthHeaders(),
+                'Content-Type': `multipart/form-data; boundary=${boundary}`,
+                'Content-Length': body.length
+            }
         };
         const r = http.request(opts, res => {
             let data = '';
             res.on('data', c => data += c);
             res.on('end', () => {
-                try { resolve({ status: res.statusCode, body: JSON.parse(data) }); }
-                catch { resolve({ status: res.statusCode, body: data }); }
+                try { resolve({ status: res.statusCode, body: JSON.parse(data), headers: res.headers }); }
+                catch { resolve({ status: res.statusCode, body: data, headers: res.headers }); }
             });
         });
         r.on('error', reject);
@@ -109,7 +141,7 @@ async function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 // Binary response helper (for backup download)
 async function reqBinary(method, urlPath) {
     return new Promise((resolve, reject) => {
-        const opts = { hostname: 'localhost', port: PORT, path: urlPath, method };
+        const opts = { hostname: 'localhost', port: PORT, path: urlPath, method, headers: buildAuthHeaders() };
         const r = http.request(opts, res => {
             const chunks = [];
             res.on('data', c => chunks.push(c));
@@ -127,6 +159,7 @@ async function startServer() {
         const env = {
             ...process.env,
             PORT: String(PORT),
+            KIOSK_ADMIN_PASSWORD: TEST_ADMIN_PASSWORD,
             KIOSK_TEMP_DIR: TEMP_DIR,
             KIOSK_UPLOADS_LOWER: UPLOADS_LOWER,
             KIOSK_PERSIST_CMD: PERSIST_SCRIPT,
@@ -158,6 +191,28 @@ async function startServer() {
 
 async function runTests(serverProc) {
     await sleep(500); // let DB initialize
+
+    console.log('\n── Auth ─────────────────────────────────────────────────────────');
+    {
+        const before = await req('GET', '/api/auth/me');
+        assert('GET /api/auth/me initially unauthenticated',
+            before.status === 200 && before.body && before.body.authenticated === false,
+            JSON.stringify(before.body));
+    }
+    {
+        const login = await req('POST', '/api/auth/login', { password: TEST_ADMIN_PASSWORD });
+        stashAuthState(login);
+        assert('POST /api/auth/login returns 200', login.status === 200, JSON.stringify(login.body));
+        assert('POST /api/auth/login returns token',
+            login.body && typeof login.body.token === 'string' && login.body.token.length > 0,
+            JSON.stringify(login.body));
+    }
+    {
+        const after = await req('GET', '/api/auth/me');
+        assert('GET /api/auth/me authenticated after login',
+            after.status === 200 && after.body && after.body.authenticated === true,
+            JSON.stringify(after.body));
+    }
 
     console.log('\n── Background image API ─────────────────────────────────────────');
 
@@ -427,6 +482,8 @@ async function runTests(serverProc) {
     console.log('\n── Backup / restore ─────────────────────────────────────────────');
 
     let backupBytes;
+    let backupSqlText;
+    let backupTxtText;
     {
         const r = await reqBinary('GET', '/api/backup');
         assert('GET /api/backup returns 200', r.status === 200, `status=${r.status}`);
@@ -434,6 +491,24 @@ async function runTests(serverProc) {
             r.body.length > 0 && r.body.slice(0, 15).toString() === 'SQLite format 3',
             `magic="${r.body.slice(0, 15).toString()}"`);
         backupBytes = r.body;
+    }
+    {
+        const r = await reqBinary('GET', '/api/backup.sql');
+        const sql = r.body.toString('utf8');
+        assert('GET /api/backup.sql returns 200', r.status === 200, `status=${r.status}`);
+        assert('GET /api/backup.sql returns SQL text',
+            sql.includes('CREATE TABLE companies') && sql.includes('CREATE TABLE individuals'),
+            sql.slice(0, 120));
+        backupSqlText = sql;
+    }
+    {
+        const r = await reqBinary('GET', '/api/backup.txt');
+        const txt = r.body.toString('utf8');
+        assert('GET /api/backup.txt returns 200', r.status === 200, `status=${r.status}`);
+        assert('GET /api/backup.txt returns SQL text',
+            txt.includes('CREATE TABLE companies') && txt.includes('CREATE TABLE individuals'),
+            txt.slice(0, 120));
+        backupTxtText = txt;
     }
 
     // Add a company after backup, restore, verify it's gone
@@ -455,15 +530,38 @@ async function runTests(serverProc) {
             r.status === 200 && !r.body.some(c => c.id === tempCompanyId),
             JSON.stringify(r.body));
     }
+    // Add another company and restore via .txt SQL backup
+    let tempCompanyId2;
+    {
+        const r = await req('POST', '/api/companies', { name: 'ToBeRestoredTxt', building: 'Y', suite: '998', phone: '', floor: '' });
+        tempCompanyId2 = r.body.id;
+        const r2 = await req('GET', '/api/companies');
+        assert('Company exists before .txt restore', r2.body.some(c => c.id === tempCompanyId2), JSON.stringify(r2.body));
+    }
+    {
+        const r = await uploadFile('/api/restore', 'database', 'backup.txt', Buffer.from(backupTxtText, 'utf8'), 'text/plain');
+        assert('POST /api/restore accepts .txt SQL backup', r.status === 200, JSON.stringify(r.body));
+    }
+    await sleep(300); // allow db reconnect
+    {
+        const r = await req('GET', '/api/companies');
+        assert('After .txt restore, company added post-backup is gone',
+            r.status === 200 && !r.body.some(c => c.id === tempCompanyId2),
+            JSON.stringify(r.body));
+    }
+    {
+        const r = await uploadFile('/api/restore', 'database', 'backup.sql', Buffer.from(backupSqlText, 'utf8'), 'text/plain');
+        assert('POST /api/restore accepts .sql backup', r.status === 200, JSON.stringify(r.body));
+    }
     // Reject a non-SQLite file
     {
         const r = await uploadFile('/api/restore', 'database', 'notdb.db', Buffer.from('not a sqlite file at all'), 'application/octet-stream');
         assert('POST /api/restore rejects non-SQLite content', r.status === 400, JSON.stringify(r.body));
     }
-    // Reject a non-.db extension
+    // Reject an invalid .txt SQL file
     {
-        const r = await uploadFile('/api/restore', 'database', 'backup.txt', backupBytes, 'text/plain');
-        assert('POST /api/restore rejects non-.db filename', r.status === 400, JSON.stringify(r.body));
+        const r = await uploadFile('/api/restore', 'database', 'bad-backup.txt', Buffer.from('definitely not SQL'), 'text/plain');
+        assert('POST /api/restore rejects invalid .txt SQL content', r.status === 400, JSON.stringify(r.body));
     }
 }
 

@@ -1,5 +1,13 @@
 const API_URL = '/api';
 let isAuthenticated = false;
+let authToken = '';
+let messageTimer = null;
+
+function apiFetch(url, options = {}) {
+    const headers = new Headers(options.headers || {});
+    if (authToken) headers.set('Authorization', `Bearer ${authToken}`);
+    return fetch(url, { credentials: 'include', ...options, headers });
+}
 
 function escapeHtml(text) {
     const div = document.createElement('div');
@@ -21,11 +29,89 @@ function showTab(btn, tabName) {
     else if (tabName === 'deploy') loadDeployTab();
 }
 
-function showMessage(text, type = 'success') {
+function showMessage(text, type = 'success', options = {}) {
+    const persistent = !!options.persistent;
     const msg = document.getElementById('message');
-    msg.textContent = text;
+    if (messageTimer) {
+        clearTimeout(messageTimer);
+        messageTimer = null;
+    }
+    msg.innerHTML = '';
+    const textEl = document.createElement('span');
+    textEl.className = 'message-text';
+    textEl.textContent = text;
+    msg.appendChild(textEl);
+    if (persistent) {
+        const okBtn = document.createElement('button');
+        okBtn.type = 'button';
+        okBtn.className = 'message-ok-btn';
+        okBtn.textContent = 'OK';
+        okBtn.addEventListener('click', () => msg.classList.remove('active'));
+        msg.appendChild(okBtn);
+    }
     msg.className = `message ${type} active`;
-    setTimeout(() => msg.classList.remove('active'), 5000);
+    if (!persistent) {
+        messageTimer = setTimeout(() => {
+            msg.classList.remove('active');
+            messageTimer = null;
+        }, 5000);
+    }
+}
+
+async function downloadCsv(kind) {
+    try {
+        const res = await apiFetch(`${API_URL}/${kind}/csv`);
+        if (!res.ok) {
+            let message = `HTTP ${res.status}`;
+            try {
+                const data = await res.json();
+                if (data && data.error) message = data.error;
+            } catch (e) {}
+            throw new Error(message);
+        }
+
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${kind}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+        const exportedRows = res.headers.get('X-CSV-Exported-Rows') || '0';
+        const status = res.headers.get('X-CSV-Status') || 'ok';
+        showMessage(`Downloaded ${kind}.csv (status: ${status}, rows: ${exportedRows})`);
+    } catch (error) {
+        showMessage(`Download failed: ${error.message}`, 'error');
+    }
+}
+
+async function downloadBackup() {
+    try {
+        const res = await apiFetch(`${API_URL}/backup.txt`);
+        if (!res.ok) {
+            let message = `HTTP ${res.status}`;
+            try {
+                const data = await res.json();
+                if (data && data.error) message = data.error;
+            } catch (e) {}
+            throw new Error(message);
+        }
+
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'directory-backup.txt';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+        showMessage('Text backup downloaded');
+    } catch (error) {
+        showMessage(`Text backup download failed: ${error.message}`, 'error', { persistent: true });
+    }
 }
 
 function renderCompanies(companies) {
@@ -43,7 +129,7 @@ function renderCompanies(companies) {
 
 async function loadCompanies() {
     try {
-        renderCompanies(await fetch(`${API_URL}/companies`).then(r => r.json()));
+        renderCompanies(await apiFetch(`${API_URL}/companies`).then(r => r.json()));
     } catch (error) { showMessage('Failed to load companies', 'error'); }
 }
 
@@ -55,13 +141,13 @@ function searchCompanies(q) {
             const url = q.trim()
                 ? `${API_URL}/companies/search?q=${encodeURIComponent(q)}`
                 : `${API_URL}/companies`;
-            renderCompanies(await fetch(url).then(r => r.json()));
+            renderCompanies(await apiFetch(url).then(r => r.json()));
         } catch (e) { showMessage('Search failed', 'error'); }
     }, 300);
 }
 
 function editCompany(id) {
-    fetch(`${API_URL}/companies`).then(r => r.json()).then(companies => {
+    apiFetch(`${API_URL}/companies`).then(r => r.json()).then(companies => {
         const company = companies.find(c => c.id === id);
         if (company) {
             document.getElementById('company-id').value = company.id;
@@ -77,13 +163,13 @@ function editCompany(id) {
 
 async function deleteCompany(id) {
     try {
-        const individuals = await fetch(`${API_URL}/individuals`).then(r => r.json());
+        const individuals = await apiFetch(`${API_URL}/individuals`).then(r => r.json());
         const linked = individuals.filter(p => p.company_id === id);
         const warning = linked.length > 0
             ? `\n\nWarning: ${linked.length} individual(s) are assigned to this company and will be left without a company.`
             : '';
         if (!confirm(`Delete this company?${warning}`)) return;
-        const res = await fetch(`${API_URL}/companies/${id}`, { method: 'DELETE' });
+        const res = await apiFetch(`${API_URL}/companies/${id}`, { method: 'DELETE' });
         if (!res.ok) throw new Error(res.status);
         showMessage('Company deleted'); loadCompanies();
     } catch (error) { showMessage('Failed to delete', 'error'); }
@@ -105,7 +191,7 @@ document.getElementById('company-form').addEventListener('submit', async (e) => 
         phone: document.getElementById('company-phone').value
     };
     try {
-        const res = await fetch(id ? `${API_URL}/companies/${id}` : `${API_URL}/companies`, {
+        const res = await apiFetch(id ? `${API_URL}/companies/${id}` : `${API_URL}/companies`, {
             method: id ? 'PUT' : 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data)
@@ -114,6 +200,30 @@ document.getElementById('company-form').addEventListener('submit', async (e) => 
         showMessage(`Company ${id ? 'updated' : 'created'}`);
         resetCompanyForm(); loadCompanies();
     } catch (error) { showMessage('Failed to save', 'error'); }
+});
+
+document.getElementById('company-csv-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const file = document.getElementById('company-csv-file').files[0];
+    if (!file) return;
+    if (!confirm('Upload companies CSV and replace all current companies?')) return;
+
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+        const res = await apiFetch(`${API_URL}/companies/csv`, { method: 'POST', body: formData, credentials: 'include' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+        document.getElementById('company-csv-file').value = '';
+        const dbCount = data.db_counts && typeof data.db_counts.companies === 'number'
+            ? data.db_counts.companies
+            : 'unknown';
+        showMessage(`Companies CSV imported (${data.imported || 0} rows). DB companies count: ${dbCount}`, 'success', { persistent: true });
+        loadCompanies();
+        loadCompaniesForDropdown();
+    } catch (error) {
+        showMessage(`Companies CSV import failed: ${error.message}`, 'error', { persistent: true });
+    }
 });
 
 function renderIndividuals(individuals) {
@@ -131,7 +241,7 @@ function renderIndividuals(individuals) {
 
 async function loadIndividuals() {
     try {
-        renderIndividuals(await fetch(`${API_URL}/individuals`).then(r => r.json()));
+        renderIndividuals(await apiFetch(`${API_URL}/individuals`).then(r => r.json()));
     } catch (error) { showMessage('Failed to load individuals', 'error'); }
 }
 
@@ -143,14 +253,14 @@ function searchIndividuals(q) {
             const url = q.trim()
                 ? `${API_URL}/individuals/search?q=${encodeURIComponent(q)}`
                 : `${API_URL}/individuals`;
-            renderIndividuals(await fetch(url).then(r => r.json()));
+            renderIndividuals(await apiFetch(url).then(r => r.json()));
         } catch (e) { showMessage('Search failed', 'error'); }
     }, 300);
 }
 
 async function loadCompaniesForDropdown() {
     try {
-        const response = await fetch(`${API_URL}/companies`);
+        const response = await apiFetch(`${API_URL}/companies`);
         const companies = await response.json();
         document.getElementById('individual-company').innerHTML =
             '<option value="">-- None --</option>' +
@@ -159,7 +269,7 @@ async function loadCompaniesForDropdown() {
 }
 
 function editIndividual(id) {
-    fetch(`${API_URL}/individuals`).then(r => r.json()).then(individuals => {
+    apiFetch(`${API_URL}/individuals`).then(r => r.json()).then(individuals => {
         const person = individuals.find(p => p.id === id);
         if (person) {
             document.getElementById('individual-id').value = person.id;
@@ -178,7 +288,7 @@ function editIndividual(id) {
 async function deleteIndividual(id) {
     if (!confirm('Delete this individual?')) return;
     try {
-        await fetch(`${API_URL}/individuals/${id}`, { method: 'DELETE' });
+        await apiFetch(`${API_URL}/individuals/${id}`, { method: 'DELETE' });
         showMessage('Individual deleted'); loadIndividuals();
     } catch (error) { showMessage('Failed to delete', 'error'); }
 }
@@ -201,7 +311,7 @@ document.getElementById('individual-form').addEventListener('submit', async (e) 
         phone: document.getElementById('individual-phone').value
     };
     try {
-        const res = await fetch(id ? `${API_URL}/individuals/${id}` : `${API_URL}/individuals`, {
+        const res = await apiFetch(id ? `${API_URL}/individuals/${id}` : `${API_URL}/individuals`, {
             method: id ? 'PUT' : 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(data)
@@ -212,10 +322,53 @@ document.getElementById('individual-form').addEventListener('submit', async (e) 
     } catch (error) { showMessage('Failed to save', 'error'); }
 });
 
+document.getElementById('individual-csv-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const file = document.getElementById('individual-csv-file').files[0];
+    if (!file) return;
+    if (!confirm('Upload individuals CSV and replace all current individuals?')) return;
+
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+        const res = await apiFetch(`${API_URL}/individuals/csv`, { method: 'POST', body: formData, credentials: 'include' });
+        const data = await res.json();
+        if (!res.ok) {
+            const st = data.status
+                ? ` [upload:${data.status.upload}, parse:${data.status.parse}, db:${data.status.db}]`
+                : '';
+            const cnt = data.db_counts && typeof data.db_counts.individuals === 'number'
+                ? ` [db individuals:${data.db_counts.individuals}]`
+                : '';
+            throw new Error((data.error || `HTTP ${res.status}`) + st + cnt);
+        }
+        document.getElementById('individual-csv-file').value = '';
+        const dbCount = data.db_counts && typeof data.db_counts.individuals === 'number'
+            ? data.db_counts.individuals
+            : 'unknown';
+        const statusText = data.status
+            ? ` upload:${data.status.upload}, parse:${data.status.parse}, db:${data.status.db}`
+            : ' upload:ok, parse:ok, db:ok';
+        showMessage(
+            `Individuals CSV imported (${data.imported || 0} rows; uploaded:${data.uploaded_rows ?? 'n/a'}; parsed:${data.parsed_rows ?? 'n/a'}). ` +
+            `DB individuals count: ${dbCount}. Status:${statusText}`,
+            'success',
+            { persistent: true }
+        );
+        loadIndividuals();
+    } catch (error) {
+        showMessage(`Individuals CSV import failed: ${error.message}`, 'error', { persistent: true });
+    }
+});
+
 async function loadBuildingInfo() {
     try {
-        const response = await fetch(`${API_URL}/building-info`);
-        const content = await response.json();
+        const response = await apiFetch(`${API_URL}/building-info`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const payload = await response.json();
+        const content = typeof payload === 'string'
+            ? payload
+            : (payload && typeof payload.content === 'string' ? payload.content : '');
         document.getElementById('building-info-content').value = content;
     } catch (error) { showMessage('Failed to load', 'error'); }
 }
@@ -223,7 +376,7 @@ async function loadBuildingInfo() {
 document.getElementById('building-info-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     try {
-        await fetch(`${API_URL}/building-info`, {
+        await apiFetch(`${API_URL}/building-info`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ content: document.getElementById('building-info-content').value })
@@ -235,8 +388,8 @@ document.getElementById('building-info-form').addEventListener('submit', async (
 async function loadBackgroundImage() {
     try {
         const [activeRes, galleryRes] = await Promise.all([
-            fetch(`${API_URL}/background-image`),
-            fetch(`${API_URL}/background-images`)
+            apiFetch(`${API_URL}/background-image`),
+            apiFetch(`${API_URL}/background-images`)
         ]);
         const { filename: activeFilename } = await activeRes.json();
         const images = await galleryRes.json();
@@ -276,7 +429,7 @@ function renderBgGallery(images, activeFilename) {
 
 async function selectBgImage(dbKey) {
     try {
-        const res = await fetch(`${API_URL}/background-image`, {
+        const res = await apiFetch(`${API_URL}/background-image`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ filename: dbKey })
@@ -290,7 +443,7 @@ async function selectBgImage(dbKey) {
 async function deleteBgImage(filename) {
     if (!confirm(`Delete image "${filename}"? This cannot be undone.`)) return;
     try {
-        const res = await fetch(`${API_URL}/background-images/${encodeURIComponent(filename)}`, { method: 'DELETE' });
+        const res = await apiFetch(`${API_URL}/background-images/${encodeURIComponent(filename)}`, { method: 'DELETE' });
         if (!res.ok) throw new Error(res.status);
         showMessage('Image deleted');
         loadBackgroundImage();
@@ -304,20 +457,27 @@ document.getElementById('background-form').addEventListener('submit', async (e) 
     const formData = new FormData();
     formData.append('image', file);
     try {
-        const res = await fetch(`${API_URL}/background-image`, { method: 'POST', body: formData });
-        if (!res.ok) throw new Error(res.status);
+        const res = await apiFetch(`${API_URL}/background-image`, { method: 'POST', body: formData });
+        if (!res.ok) {
+            let message = `HTTP ${res.status}`;
+            try {
+                const data = await res.json();
+                if (data && data.error) message = data.error;
+            } catch (e) {}
+            throw new Error(message);
+        }
         showMessage('Image uploaded and set as background');
         document.getElementById('bg-file').value = '';
         loadBackgroundImage();
-    } catch (error) { showMessage('Failed to upload image', 'error'); }
+    } catch (error) { showMessage(`Failed to upload image: ${error.message}`, 'error', { persistent: true }); }
 });
 
 async function loadDeployTab() {
     try {
         const [kioskRes, urlRes, keyRes] = await Promise.all([
-            fetch(`${API_URL}/kiosks`),
-            fetch(`${API_URL}/kiosks/server-url`),
-            fetch(`${API_URL}/kiosks/deploy-pubkey`)
+            apiFetch(`${API_URL}/kiosks`),
+            apiFetch(`${API_URL}/kiosks/server-url`),
+            apiFetch(`${API_URL}/kiosks/deploy-pubkey`)
         ]);
         const kiosks = await kioskRes.json();
         const { url } = await urlRes.json();
@@ -350,7 +510,7 @@ async function deployOne(id, name) {
     appendDeployOutput(`\n--- Deploying to ${name} ---`);
     const btn = document.querySelector(`#kiosk-deploy-list .kiosk-deploy-card:nth-child(${id}) button`);
     try {
-        const res = await fetch(`${API_URL}/kiosks/${id}/deploy`, { method: 'POST' });
+        const res = await apiFetch(`${API_URL}/kiosks/${id}/deploy`, { method: 'POST' });
         const data = await res.json();
         if (!res.ok) {
             appendDeployOutput(`ERROR: ${data.error}\n${data.output || ''}`);
@@ -370,7 +530,7 @@ async function deployAll() {
     allBtn.disabled = true;
     appendDeployOutput('\n=== Deploy All ===');
     try {
-        const res = await fetch(`${API_URL}/kiosks`);
+        const res = await apiFetch(`${API_URL}/kiosks`);
         const kiosks = await res.json();
         for (const k of kiosks) {
             await deployOne(k.id, k.name);
@@ -395,10 +555,12 @@ document.getElementById('restore-form').addEventListener('submit', async (e) => 
     const formData = new FormData();
     formData.append('database', file);
     try {
-        const res = await fetch(`${API_URL}/restore`, { method: 'POST', body: formData });
+        const res = await apiFetch(`${API_URL}/restore`, { method: 'POST', body: formData });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || res.status);
-        showMessage('Database restored successfully');
+        const c = data.db_counts && typeof data.db_counts.companies === 'number' ? data.db_counts.companies : 'unknown';
+        const i = data.db_counts && typeof data.db_counts.individuals === 'number' ? data.db_counts.individuals : 'unknown';
+        showMessage(`Database restored. Companies: ${c}, Individuals: ${i}`);
         document.getElementById('restore-file').value = '';
     } catch (error) { showMessage('Restore failed: ' + error.message, 'error'); }
 });
@@ -414,6 +576,9 @@ window.addEventListener('DOMContentLoaded', () => {
     });
 });
 
+window.downloadCsv = downloadCsv;
+window.downloadSqlBackup = downloadBackup;
+
 function setupAuthUi() {
     const loginForm = document.getElementById('auth-form');
     const logoutBtn = document.getElementById('logout-btn');
@@ -421,13 +586,14 @@ function setupAuthUi() {
         e.preventDefault();
         const password = document.getElementById('auth-password').value;
         try {
-            const res = await fetch(`${API_URL}/auth/login`, {
+            const res = await apiFetch(`${API_URL}/auth/login`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ password })
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+            authToken = data.token || '';
             isAuthenticated = true;
             document.getElementById('auth-password').value = '';
             setAuthState(true);
@@ -438,10 +604,11 @@ function setupAuthUi() {
         }
     });
     logoutBtn.addEventListener('click', async () => {
-        try { await fetch(`${API_URL}/auth/logout`, { method: 'POST' }); } catch (e) {}
+        try { await apiFetch(`${API_URL}/auth/logout`, { method: 'POST' }); } catch (e) {}
+        authToken = '';
         isAuthenticated = false;
         setAuthState(false);
-        showMessage('Logged out');
+        window.location.href = '/';
     });
     setAuthState(false);
 }
@@ -454,10 +621,12 @@ function setAuthState(authenticated) {
 
 async function ensureAuthenticated() {
     try {
-        const res = await fetch(`${API_URL}/auth/me`);
+        const res = await apiFetch(`${API_URL}/auth/me`);
         if (!res.ok) return false;
         const data = await res.json();
-        return !!data.authenticated;
+        const ok = !!data.authenticated;
+        if (!ok) authToken = '';
+        return ok;
     } catch (e) {
         return false;
     }

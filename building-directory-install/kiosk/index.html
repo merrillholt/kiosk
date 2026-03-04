@@ -1,19 +1,119 @@
 <!DOCTYPE html>
-<html><head><meta charset="UTF-8"><title>Building Directory</title><link rel="stylesheet" href="styles.css"></head>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Building Directory</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
 <body>
-<div id="main-menu" class="screen active"><div class="header"><h1>Building Directory</h1></div>
-<div class="menu-buttons">
-<button class="menu-btn" onclick="showScreen('companies')"><span class="icon">🏢</span><span class="label">Companies</span></button>
-<button class="menu-btn" onclick="showScreen('individuals')"><span class="icon">👤</span><span class="label">Individuals</span></button>
-<button class="menu-btn" onclick="showScreen('building-info')"><span class="icon">ℹ️</span><span class="label">Building Information</span></button>
-</div></div>
-<div id="companies" class="screen"><div class="header"><button class="back-btn" onclick="showScreen('main-menu')">← Back</button><h1>Companies</h1></div>
-<div class="search-container"><input type="text" id="company-search" class="search-input" placeholder="Search companies..." oninput="searchCompanies(this.value)">
-<div id="keyboard-company" class="keyboard"></div></div><div id="companies-list" class="results-list"></div></div>
-<div id="individuals" class="screen"><div class="header"><button class="back-btn" onclick="showScreen('main-menu')">← Back</button><h1>Individuals</h1></div>
-<div class="search-container"><input type="text" id="individual-search" class="search-input" placeholder="Search individuals..." oninput="searchIndividuals(this.value)">
-<div id="keyboard-individual" class="keyboard"></div></div><div id="individuals-list" class="results-list"></div></div>
-<div id="building-info" class="screen"><div class="header"><button class="back-btn" onclick="showScreen('main-menu')">← Back</button><h1>Building Information</h1></div>
-<div id="building-info-content" class="info-content"></div></div>
-<script src="app.js"></script>
-</body></html>
+    <div id="main-menu" class="screen active">
+        <div class="header main-header">
+            <div class="welcome-title">
+                <div class="welcome-line1">Welcome To</div>
+                <div class="welcome-line2">Hacienda Terrace</div>
+                <div class="welcome-line3" id="welcome-building-line">Building 430x</div>
+            </div>
+        </div>
+
+        <div class="menu-buttons">
+            <button class="menu-btn" onclick="showScreen('companies')">
+                <span class="icon">⌕</span>
+                <span class="label">LIST OF COMPANIES</span>
+            </button>
+            <button class="menu-btn" onclick="showScreen('individuals')">
+                <span class="icon">◉</span>
+                <span class="label">LIST OF INDIVIDUALS</span>
+            </button>
+            <button class="menu-btn" onclick="showScreen('building-info')">
+                <span class="icon">▤</span>
+                <span class="label">BUILDING INFO</span>
+            </button>
+        </div>
+    </div>
+
+    <div id="companies" class="screen">
+        <div class="header sub-header"><h1>DIRECTORY</h1></div>
+        <div class="content-panel">
+            <div class="search-actions">
+                <button class="action-btn" onclick="openSearch('company')">TOUCH TO SEARCH</button>
+                <button class="action-btn action-btn-primary" onclick="listAll('company')">LIST ALL</button>
+            </div>
+            <div id="company-search-wrap" class="search-wrap hidden">
+                <input type="text" id="company-search" class="search-input" placeholder="Search companies..." oninput="searchCompanies(this.value)">
+            </div>
+            <div class="results-wrap">
+                <div id="companies-list" class="results-list"></div>
+                <div class="scroll-controls" aria-label="Companies list scroll controls">
+                    <button class="scroll-btn" onclick="scrollResults('companies-list', -1)" aria-label="Scroll up">▲</button>
+                    <button class="scroll-btn" onclick="scrollResults('companies-list', 1)" aria-label="Scroll down">▼</button>
+                </div>
+            </div>
+        </div>
+        <div class="dock">
+            <button class="dock-btn" onclick="showScreen('companies')">LIST OF COMPANIES</button>
+            <button class="dock-btn" onclick="showScreen('individuals')">LIST OF INDIVIDUALS</button>
+            <button class="dock-btn" onclick="showScreen('building-info')">BUILDING<br>INFO</button>
+            <button class="dock-btn home" onclick="showScreen('main-menu')">HOME</button>
+        </div>
+    </div>
+
+    <div id="individuals" class="screen">
+        <div class="header sub-header"><h1>DIRECTORY</h1></div>
+        <div class="content-panel">
+            <div class="search-actions">
+                <button class="action-btn" onclick="openSearch('individual')">TOUCH TO SEARCH</button>
+                <button class="action-btn action-btn-primary" onclick="listAll('individual')">LIST ALL</button>
+            </div>
+            <div id="individual-search-wrap" class="search-wrap hidden">
+                <input type="text" id="individual-search" class="search-input" placeholder="Search individuals..." oninput="searchIndividuals(this.value)">
+            </div>
+            <div class="results-wrap">
+                <div id="individuals-list" class="results-list"></div>
+                <div class="scroll-controls" aria-label="Individuals list scroll controls">
+                    <button class="scroll-btn" onclick="scrollResults('individuals-list', -1)" aria-label="Scroll up">▲</button>
+                    <button class="scroll-btn" onclick="scrollResults('individuals-list', 1)" aria-label="Scroll down">▼</button>
+                </div>
+            </div>
+        </div>
+        <div class="dock">
+            <button class="dock-btn" onclick="showScreen('companies')">LIST OF COMPANIES</button>
+            <button class="dock-btn" onclick="showScreen('individuals')">LIST OF INDIVIDUALS</button>
+            <button class="dock-btn" onclick="showScreen('building-info')">BUILDING<br>INFO</button>
+            <button class="dock-btn home" onclick="showScreen('main-menu')">HOME</button>
+        </div>
+    </div>
+
+    <div id="building-info" class="screen">
+        <div class="header sub-header"><h1>BUILDING INFO</h1></div>
+        <div id="building-info-content" class="info-content static-building-info">
+            <div class="building-info-panel">
+                <div class="building-info-column">
+                    <h2>Managed by:</h2>
+                    <p>Mike Lam - Property Manager</p>
+                    <p>Embarcadero Realty Services LP</p>
+                    <p>925-227-8655</p>
+                    <p>Owned by Spieker Keech Hacienda, LLC</p>
+                </div>
+                <div class="building-info-column">
+                    <h2>Leased by:</h2>
+                    <div class="leasing-logo-wrap">
+                        <img class="leasing-logo" src="cushman-wakefield-logo.png" alt="Cushman & Wakefield">
+                    </div>
+                    <p>Brian Lagomarsino</p>
+                    <p>Chad Arnold</p>
+                    <p>Cushman &amp; Wakefield</p>
+                    <p>925-621-3858</p>
+                </div>
+            </div>
+        </div>
+        <div class="dock">
+            <button class="dock-btn" onclick="showScreen('companies')">LIST OF COMPANIES</button>
+            <button class="dock-btn" onclick="showScreen('individuals')">LIST OF INDIVIDUALS</button>
+            <button class="dock-btn" onclick="showScreen('building-info')">BUILDING<br>INFO</button>
+            <button class="dock-btn home" onclick="showScreen('main-menu')">HOME</button>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

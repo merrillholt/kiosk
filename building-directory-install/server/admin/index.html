@@ -65,6 +65,13 @@
 
                 <div class="table-container">
                     <h2>Companies List</h2>
+                    <div class="form-group" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 12px 0;">
+                        <button type="button" class="btn btn-primary" onclick="downloadCsv('companies')">Download CSV</button>
+                        <form id="company-csv-form" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                            <input type="file" id="company-csv-file" accept=".csv" required>
+                            <button type="submit" class="btn btn-success">Upload CSV</button>
+                        </form>
+                    </div>
                     <div class="form-group" style="margin:0 0 12px 0;">
                         <input type="text" id="company-search" placeholder="Search by name, building, or suite…" oninput="searchCompanies(this.value)">
                     </div>
@@ -125,6 +132,13 @@
 
                 <div class="table-container">
                     <h2>Individuals List</h2>
+                    <div class="form-group" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 12px 0;">
+                        <button type="button" class="btn btn-primary" onclick="downloadCsv('individuals')">Download CSV</button>
+                        <form id="individual-csv-form" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                            <input type="file" id="individual-csv-file" accept=".csv" required>
+                            <button type="submit" class="btn btn-success">Upload CSV</button>
+                        </form>
+                    </div>
                     <div class="form-group" style="margin:0 0 12px 0;">
                         <input type="text" id="individual-search" placeholder="Search by name, building, or suite…" oninput="searchIndividuals(this.value)">
                     </div>
@@ -202,8 +216,8 @@
             <!-- Maintenance Tab -->
             <div id="maintenance-tab" class="tab-content">
                 <h2>Database Backup</h2>
-                <p style="margin-bottom:16px;color:#666;">Download a complete, consistent snapshot of the directory database.</p>
-                <a class="btn btn-primary" href="/api/backup" download="directory.db">Download Backup</a>
+                <p style="margin-bottom:16px;color:#666;">Download a complete text backup of the directory database.</p>
+                <button type="button" class="btn btn-primary" onclick="downloadSqlBackup()">Download Text Backup</button>
 
                 <h2>Restore Database</h2>
                 <div class="warn-box">
@@ -211,8 +225,8 @@
                 </div>
                 <form id="restore-form">
                     <div class="form-group">
-                        <label for="restore-file">Database backup file (.db)</label>
-                        <input type="file" id="restore-file" accept=".db" required>
+                        <label for="restore-file">Database backup file (.txt, .sql, .sqlite, or .db)</label>
+                        <input type="file" id="restore-file" accept=".txt,.sql,.sqlite,.db" required>
                     </div>
                     <button type="submit" class="btn btn-danger">Restore Database</button>
                 </form>

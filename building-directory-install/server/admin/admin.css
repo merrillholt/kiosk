@@ -164,6 +164,9 @@ tr:hover {
     margin-bottom: 20px;
     border-radius: 5px;
     display: none;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
 }
 
 .message.success {
@@ -179,7 +182,22 @@ tr:hover {
 }
 
 .message.active {
-    display: block;
+    display: flex;
+}
+
+.message-text {
+    flex: 1;
+    white-space: pre-wrap;
+}
+
+.message-ok-btn {
+    padding: 6px 14px;
+    border: 1px solid rgba(0,0,0,0.2);
+    border-radius: 4px;
+    background: #ffffff;
+    color: #333;
+    cursor: pointer;
+    font-weight: 600;
 }
 
 .bg-gallery { display: flex; flex-wrap: wrap; gap: 16px; margin: 20px 0; }

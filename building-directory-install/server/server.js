@@ -9,11 +9,19 @@ const { spawnSync } = require('child_process');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const HOST = process.env.HOST || '127.0.0.1';
+// Trust loopback reverse proxy (nginx on same host) for accurate req.ip.
+app.set('trust proxy', 'loopback');
 
 // Temp dir for multer uploads (lost on reboot — persist script copies to lower layer)
 const TEMP_DIR = process.env.KIOSK_TEMP_DIR || '/tmp/kiosk-uploads';
-// Persistent uploads dir on ext4 lower layer (survives reboots via overlayroot)
-const UPLOADS_LOWER = process.env.KIOSK_UPLOADS_LOWER || `/media/root-ro/home/${os.userInfo().username}/building-directory/server/uploads`;
+// Persistent uploads dir. Prefer explicit env override; otherwise use the
+// overlayroot lower path when present, and fall back to local server/uploads
+// for maintenance mode (overlayroot=disabled).
+const OVERLAY_UPLOADS_LOWER = `/media/root-ro/home/${os.userInfo().username}/building-directory/server/uploads`;
+const LOCAL_UPLOADS_DIR = path.join(__dirname, 'uploads');
+const UPLOADS_LOWER = process.env.KIOSK_UPLOADS_LOWER ||
+    (fs.existsSync(OVERLAY_UPLOADS_LOWER) ? OVERLAY_UPLOADS_LOWER : LOCAL_UPLOADS_DIR);
 // Persist command: space-separated argv[0..n], e.g. "/tmp/mock-persist.sh" for tests
 const PERSIST_ARGV = process.env.KIOSK_PERSIST_CMD
     ? process.env.KIOSK_PERSIST_CMD.split(' ')
@@ -42,26 +50,60 @@ const KIOSK_READ_PATHS = new Set([
     '/individuals',
     '/building-info',
     '/background-image',
-    '/data-version'
+    '/data-version',
+    '/kiosk-location'
 ]);
 const ADMIN_PASSWORD = process.env.KIOSK_ADMIN_PASSWORD || 'kiosk';
 const SESSION_COOKIE = 'kiosk_admin_session';
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000; // 8 hours
 const adminSessions = new Map();
+const ALLOW_DEFAULT_PASSWORD = process.env.KIOSK_ALLOW_DEFAULT_PASSWORD === 'true';
+const LOGIN_WINDOW_MS = Number.parseInt(process.env.KIOSK_LOGIN_WINDOW_MS || '', 10) || (15 * 60 * 1000);
+const LOGIN_MAX_ATTEMPTS = Number.parseInt(process.env.KIOSK_LOGIN_MAX_ATTEMPTS || '', 10) || 10;
+const LOGIN_BLOCK_MS = Number.parseInt(process.env.KIOSK_LOGIN_BLOCK_MS || '', 10) || (15 * 60 * 1000);
+const loginAttempts = new Map();
 // SSH private key used to connect to kiosk machines for deployment
 const KIOSK_SSH_KEY = process.env.KIOSK_SSH_KEY ||
     path.join(os.homedir(), '.ssh', 'kiosk_deploy_key');
 // URL kiosk machines use to reach this server (auto-detected if not set)
 const KIOSK_SERVER_URL = process.env.KIOSK_SERVER_URL || (() => {
-    for (const iface of Object.values(os.networkInterfaces())) {
-        for (const addr of iface) {
-            if (addr.family === 'IPv4' && !addr.internal) return `http://${addr.address}`;
+    try {
+        const interfaces = os.networkInterfaces() || {};
+        for (const iface of Object.values(interfaces)) {
+            if (!Array.isArray(iface)) continue;
+            for (const addr of iface) {
+                if (addr && addr.family === 'IPv4' && !addr.internal) return `http://${addr.address}`;
+            }
         }
+    } catch (err) {
+        console.warn('Could not auto-detect network interface for KIOSK_SERVER_URL:', err.message);
     }
     return 'http://localhost';
 })();
 const KIOSK_DEPLOY_SCRIPT = path.join(__dirname, 'kiosk-deploy.sh');
+const DEFAULT_BUILDING_INFO_HTML = `
+<div class="building-info-panel">
+    <div class="building-info-column">
+        <h2>Managed by:</h2>
+        <p>Mike Lam - Property Manager</p>
+        <p>Embarcadero Realty Services LP</p>
+        <p>925-227-8655</p>
+        <p>Owned by Spieker Keech Hacienda, LLC</p>
+    </div>
+    <div class="building-info-column">
+        <h2>Leased by:</h2>
+        <div class="leasing-logo-wrap">
+            <img class="leasing-logo" src="cushman-wakefield-logo.png" alt="Cushman & Wakefield">
+        </div>
+        <p>Brian Lagomarsino</p>
+        <p>Chad Arnold</p>
+        <p>Cushman &amp; Wakefield</p>
+        <p>925-621-3858</p>
+    </div>
+</div>
+`.trim();
 fs.mkdirSync(TEMP_DIR, { recursive: true });
+fs.mkdirSync(UPLOADS_LOWER, { recursive: true });
 
 // Middleware
 app.use(express.json());
@@ -70,8 +112,7 @@ app.use('/uploads', express.static(UPLOADS_LOWER));
 app.use('/admin', express.static(path.join(__dirname, 'admin')));
 app.use('/api', (req, res, next) => {
     if (req.method !== 'GET' || !KIOSK_READ_PATHS.has(req.path)) return next();
-    const rawIp = req.ip || req.socket.remoteAddress || '';
-    const clientIp = rawIp.startsWith('::ffff:') ? rawIp.slice(7) : rawIp;
+    const clientIp = getClientIp(req);
     if (clientIp === '127.0.0.1' || clientIp === '::1' || KIOSK_ALLOWED_IPS.has(clientIp)) return next();
     return res.status(403).json({ error: 'Forbidden' });
 });
@@ -80,13 +121,42 @@ app.use('/api', (req, res, next) => {
     if (req.path === '/auth/login' || req.path === '/auth/logout' || req.path === '/auth/me') return next();
     // Kiosk read APIs stay unauthenticated but are IP-restricted by middleware above.
     if (req.method === 'GET' && KIOSK_READ_PATHS.has(req.path)) return next();
-    const sessionId = parseCookies(req)[SESSION_COOKIE];
+    const sessionId = getSessionId(req);
     if (isValidAdminSession(sessionId)) return next();
     return res.status(401).json({ error: 'Unauthorized' });
 });
 
+// Basic CSRF guard: for mutating API calls, enforce same-origin when browser sends Origin/Referer.
+app.use('/api', (req, res, next) => {
+    if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return next();
+    if (req.path === '/auth/login' || req.path === '/auth/logout') return next();
+
+    const host = req.headers.host || '';
+    const origin = req.headers.origin;
+    const referer = req.headers.referer;
+
+    if (!origin && !referer) return next();
+
+    try {
+        if (origin && new URL(origin).host !== host) {
+            return res.status(403).json({ error: 'Cross-origin request blocked' });
+        }
+        if (!origin && referer && new URL(referer).host !== host) {
+            return res.status(403).json({ error: 'Cross-origin request blocked' });
+        }
+    } catch (e) {
+        return res.status(403).json({ error: 'Invalid Origin/Referer header' });
+    }
+    return next();
+});
+
 if (ADMIN_PASSWORD === 'kiosk') {
-    console.warn('WARNING: KIOSK_ADMIN_PASSWORD is not set. Default password "kiosk" is active.');
+    if (!ALLOW_DEFAULT_PASSWORD) {
+        console.error('FATAL: Default admin password "kiosk" is active.');
+        console.error('Set KIOSK_ADMIN_PASSWORD to a strong value, or set KIOSK_ALLOW_DEFAULT_PASSWORD=true for dev only.');
+        process.exit(1);
+    }
+    console.warn('WARNING: Default password "kiosk" is active (KIOSK_ALLOW_DEFAULT_PASSWORD=true).');
 }
 
 function parseCookies(req) {
@@ -102,11 +172,64 @@ function parseCookies(req) {
     return out;
 }
 
+function getClientIp(req) {
+    const rawIp = req.ip || req.socket.remoteAddress || '';
+    return rawIp.startsWith('::ffff:') ? rawIp.slice(7) : rawIp;
+}
+
+function getBearerToken(req) {
+    const auth = req.headers.authorization || '';
+    if (!auth.startsWith('Bearer ')) return '';
+    return auth.slice('Bearer '.length).trim();
+}
+
+function getSessionId(req) {
+    return parseCookies(req)[SESSION_COOKIE] || getBearerToken(req);
+}
+
 function timingSafeEqualStr(a, b) {
     const ab = Buffer.from(String(a));
     const bb = Buffer.from(String(b));
     if (ab.length !== bb.length) return false;
     return crypto.timingSafeEqual(ab, bb);
+}
+
+function getLoginState(clientIp) {
+    const now = Date.now();
+    const state = loginAttempts.get(clientIp) || { windowStart: now, count: 0, blockedUntil: 0 };
+    if (state.blockedUntil && now < state.blockedUntil) return state;
+    if (now - state.windowStart > LOGIN_WINDOW_MS) {
+        state.windowStart = now;
+        state.count = 0;
+    }
+    if (state.blockedUntil && now >= state.blockedUntil) state.blockedUntil = 0;
+    return state;
+}
+
+function canAttemptLogin(clientIp) {
+    const now = Date.now();
+    const state = getLoginState(clientIp);
+    loginAttempts.set(clientIp, state);
+    if (state.blockedUntil && now < state.blockedUntil) {
+        return { allowed: false, retryAfterSec: Math.ceil((state.blockedUntil - now) / 1000) };
+    }
+    return { allowed: true, retryAfterSec: 0 };
+}
+
+function recordLoginFailure(clientIp) {
+    const now = Date.now();
+    const state = getLoginState(clientIp);
+    state.count += 1;
+    if (state.count >= LOGIN_MAX_ATTEMPTS) {
+        state.blockedUntil = now + LOGIN_BLOCK_MS;
+        state.count = 0;
+        state.windowStart = now;
+    }
+    loginAttempts.set(clientIp, state);
+}
+
+function clearLoginFailures(clientIp) {
+    loginAttempts.delete(clientIp);
 }
 
 function createAdminSession() {
@@ -139,24 +262,33 @@ function sessionCookieHeader(value, maxAgeSeconds) {
 
 // Auth endpoints for admin UI.
 app.post('/api/auth/login', (req, res) => {
+    const clientIp = getClientIp(req);
+    const gate = canAttemptLogin(clientIp);
+    if (!gate.allowed) {
+        res.setHeader('Retry-After', String(gate.retryAfterSec));
+        return res.status(429).json({ error: 'Too many login attempts. Try again later.' });
+    }
+
     const { password } = req.body || {};
     if (!timingSafeEqualStr(password || '', ADMIN_PASSWORD)) {
+        recordLoginFailure(clientIp);
         return res.status(401).json({ error: 'Invalid credentials' });
     }
+    clearLoginFailures(clientIp);
     const sessionId = createAdminSession();
     res.setHeader('Set-Cookie', sessionCookieHeader(sessionId, Math.floor(SESSION_TTL_MS / 1000)));
-    return res.json({ success: true });
+    return res.json({ success: true, token: sessionId });
 });
 
 app.post('/api/auth/logout', (req, res) => {
-    const sessionId = parseCookies(req)[SESSION_COOKIE];
+    const sessionId = getSessionId(req);
     clearAdminSession(sessionId);
     res.setHeader('Set-Cookie', sessionCookieHeader('', 0));
     return res.json({ success: true });
 });
 
 app.get('/api/auth/me', (req, res) => {
-    const sessionId = parseCookies(req)[SESSION_COOKIE];
+    const sessionId = getSessionId(req);
     return res.json({ authenticated: isValidAdminSession(sessionId) });
 });
 
@@ -181,18 +313,101 @@ const bgUpload = multer({
     }
 });
 
-// Multer storage — accepts .db files for database restore
+// Multer storage — accepts SQLite backup files for database restore
 const dbUpload = multer({
     storage: multer.diskStorage({
         destination: os.tmpdir(),
-        filename: (req, file, cb) => cb(null, `restore-${Date.now()}.db`)
+        filename: (req, file, cb) => cb(null, `restore-${Date.now()}.sqlite`)
     }),
     limits: { fileSize: 100 * 1024 * 1024 },
     fileFilter: (req, file, cb) => {
-        if (path.extname(file.originalname).toLowerCase() === '.db') cb(null, true);
-        else cb(new Error('Only .db files allowed'));
+        const ext = path.extname(file.originalname).toLowerCase();
+        if (ext === '.db' || ext === '.sqlite' || ext === '.sql' || ext === '.txt') cb(null, true);
+        else cb(new Error('Only .txt, .sql, .sqlite, or .db files allowed'));
     }
 });
+
+// Multer storage — accepts .csv files for companies/individuals import
+const csvUpload = multer({
+    storage: multer.diskStorage({
+        destination: os.tmpdir(),
+        filename: (req, file, cb) => cb(null, `import-${Date.now()}.csv`)
+    }),
+    limits: { fileSize: 10 * 1024 * 1024 },
+    fileFilter: (req, file, cb) => {
+        if (path.extname(file.originalname).toLowerCase() === '.csv') cb(null, true);
+        else cb(new Error('Only .csv files allowed'));
+    }
+});
+
+function csvEscape(value) {
+    const text = value == null ? '' : String(value);
+    if (/[",\r\n]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
+    return text;
+}
+
+function parseCsvText(rawText) {
+    const text = String(rawText || '').replace(/^\uFEFF/, '');
+    const rows = [];
+    let row = [];
+    let field = '';
+    let inQuotes = false;
+
+    for (let i = 0; i < text.length; i++) {
+        const ch = text[i];
+        const next = text[i + 1];
+
+        if (inQuotes) {
+            if (ch === '"' && next === '"') {
+                field += '"';
+                i++;
+            } else if (ch === '"') {
+                inQuotes = false;
+            } else {
+                field += ch;
+            }
+            continue;
+        }
+
+        if (ch === '"') {
+            inQuotes = true;
+        } else if (ch === ',') {
+            row.push(field);
+            field = '';
+        } else if (ch === '\n') {
+            row.push(field);
+            rows.push(row);
+            row = [];
+            field = '';
+        } else if (ch === '\r') {
+            // ignore CR
+        } else {
+            field += ch;
+        }
+    }
+
+    row.push(field);
+    rows.push(row);
+
+    const nonBlank = rows.filter(r => r.some(c => String(c).trim() !== ''));
+    if (nonBlank.length === 0) return { headers: [], records: [] };
+
+    const headers = nonBlank[0].map(h => String(h || '').trim());
+    const records = nonBlank.slice(1);
+    return { headers, records };
+}
+
+function headerIndexMap(headers) {
+    const map = new Map();
+    headers.forEach((h, i) => map.set(String(h || '').trim().toLowerCase(), i));
+    return map;
+}
+
+function cell(row, indexMap, name) {
+    const idx = indexMap.get(name.toLowerCase());
+    if (idx == null || idx < 0 || idx >= row.length) return '';
+    return String(row[idx] || '').trim();
+}
 
 // Database setup
 let db = new sqlite3.Database(DB_FILE, (err) => {
@@ -285,6 +500,104 @@ app.get('/api/companies/search', (req, res) => {
     );
 });
 
+// Companies CSV export
+app.get('/api/companies/csv', (req, res) => {
+    db.all('SELECT name, building, suite, phone, floor FROM companies ORDER BY name', [], (err, rows) => {
+        const safeRows = Array.isArray(rows) ? rows : [];
+        const lines = ['name,building,suite,phone,floor'];
+        for (const r of safeRows) {
+            lines.push([
+                csvEscape(r.name),
+                csvEscape(r.building),
+                csvEscape(r.suite),
+                csvEscape(r.phone),
+                csvEscape(r.floor)
+            ].join(','));
+        }
+
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', 'attachment; filename="companies.csv"');
+        res.setHeader('X-CSV-Status', err ? 'warning' : 'ok');
+        res.setHeader('X-CSV-Exported-Rows', String(safeRows.length));
+        res.setHeader('X-DB-Companies-Count', String(safeRows.length));
+        if (err) res.setHeader('X-CSV-Warning', 'export-generated-with-empty-data');
+        return res.send(lines.join('\n'));
+    });
+});
+
+// Companies CSV import (replaces all companies)
+app.post('/api/companies/csv', (req, res) => {
+    csvUpload.single('file')(req, res, (uploadErr) => {
+        if (uploadErr) return res.status(400).json({ error: uploadErr.message });
+        if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+
+        fs.readFile(req.file.path, 'utf8', (readErr, data) => {
+            fs.unlink(req.file.path, () => {});
+            if (readErr) return res.status(400).json({ error: 'Could not read uploaded CSV file' });
+
+            const { headers, records } = parseCsvText(data);
+            const map = headerIndexMap(headers);
+            const required = ['name', 'building', 'suite'];
+            const missing = required.filter(h => !map.has(h));
+            if (missing.length) {
+                return res.status(400).json({ error: `Missing required CSV column(s): ${missing.join(', ')}` });
+            }
+
+            const parsed = [];
+            for (let i = 0; i < records.length; i++) {
+                const row = records[i];
+                const rec = {
+                    name: cell(row, map, 'name'),
+                    building: cell(row, map, 'building'),
+                    suite: cell(row, map, 'suite'),
+                    phone: cell(row, map, 'phone'),
+                    floor: cell(row, map, 'floor')
+                };
+                if (!rec.name || !rec.building || !rec.suite) {
+                    return res.status(400).json({ error: `Row ${i + 2}: name, building, and suite are required` });
+                }
+                parsed.push(rec);
+            }
+
+            db.serialize(() => {
+                db.run('BEGIN TRANSACTION');
+                db.run('DELETE FROM companies', (delErr) => {
+                    if (delErr) {
+                        db.run('ROLLBACK');
+                        return res.status(500).json({ error: delErr.message });
+                    }
+
+                    const stmt = db.prepare('INSERT INTO companies (name, building, suite, phone, floor) VALUES (?, ?, ?, ?, ?)');
+                    let rowErr = null;
+                    for (const rec of parsed) {
+                        stmt.run([rec.name, rec.building, rec.suite, rec.phone || null, rec.floor || null], (e) => {
+                            if (!rowErr && e) rowErr = e;
+                        });
+                    }
+                    stmt.finalize((finalizeErr) => {
+                        if (rowErr || finalizeErr) {
+                            db.run('ROLLBACK');
+                            return res.status(500).json({ error: (rowErr || finalizeErr).message });
+                        }
+                        db.run('COMMIT', (commitErr) => {
+                            if (commitErr) return res.status(500).json({ error: commitErr.message });
+                            incrementDataVersion();
+                            return db.get('SELECT COUNT(*) AS count FROM companies', [], (countErr, countRow) => {
+                                if (countErr) return res.status(500).json({ error: countErr.message });
+                                return res.json({
+                                    success: true,
+                                    imported: parsed.length,
+                                    db_counts: { companies: countRow ? countRow.count : 0 }
+                                });
+                            });
+                        });
+                    });
+                });
+            });
+        });
+    });
+});
+
 app.post('/api/companies', (req, res) => {
     const { name, building, suite, phone, floor } = req.body;
     db.run(
@@ -358,6 +671,211 @@ app.get('/api/individuals/search', (req, res) => {
     );
 });
 
+// Individuals CSV export
+app.get('/api/individuals/csv', (req, res) => {
+    db.all(
+        `SELECT i.first_name, i.last_name, i.company_id, c.name AS company_name,
+                i.building, i.suite, i.title, i.phone
+         FROM individuals i
+         LEFT JOIN companies c ON c.id = i.company_id
+        ORDER BY i.last_name, i.first_name`,
+        [],
+        (err, rows) => {
+            const safeRows = Array.isArray(rows) ? rows : [];
+            const lines = ['first_name,last_name,company_id,company_name,building,suite,title,phone'];
+            for (const r of safeRows) {
+                lines.push([
+                    csvEscape(r.first_name),
+                    csvEscape(r.last_name),
+                    csvEscape(r.company_id),
+                    csvEscape(r.company_name),
+                    csvEscape(r.building),
+                    csvEscape(r.suite),
+                    csvEscape(r.title),
+                    csvEscape(r.phone)
+                ].join(','));
+            }
+
+            res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+            res.setHeader('Content-Disposition', 'attachment; filename="individuals.csv"');
+            res.setHeader('X-CSV-Status', err ? 'warning' : 'ok');
+            res.setHeader('X-CSV-Exported-Rows', String(safeRows.length));
+            res.setHeader('X-DB-Individuals-Count', String(safeRows.length));
+            if (err) res.setHeader('X-CSV-Warning', 'export-generated-with-empty-data');
+            return res.send(lines.join('\n'));
+        }
+    );
+});
+
+// Individuals CSV import (replaces all individuals)
+app.post('/api/individuals/csv', (req, res) => {
+    const sendIndividualsImportError = (httpStatus, error, stage, meta = {}) => {
+        db.get('SELECT COUNT(*) AS count FROM individuals', [], (countErr, countRow) => {
+            return res.status(httpStatus).json({
+                success: false,
+                error,
+                status: {
+                    upload: stage === 'upload' ? 'failed' : 'ok',
+                    parse: stage === 'parse' ? 'failed' : (stage === 'upload' ? 'not_run' : 'ok'),
+                    db: stage === 'db' ? 'failed' : (stage === 'upload' || stage === 'parse' ? 'not_run' : 'ok')
+                },
+                uploaded_rows: typeof meta.uploaded_rows === 'number' ? meta.uploaded_rows : 0,
+                parsed_rows: typeof meta.parsed_rows === 'number' ? meta.parsed_rows : 0,
+                db_counts: { individuals: countErr ? null : (countRow ? countRow.count : 0) }
+            });
+        });
+    };
+
+    csvUpload.single('file')(req, res, (uploadErr) => {
+        if (uploadErr) return sendIndividualsImportError(400, uploadErr.message, 'upload');
+        if (!req.file) return sendIndividualsImportError(400, 'No file uploaded', 'upload');
+
+        fs.readFile(req.file.path, 'utf8', (readErr, data) => {
+            fs.unlink(req.file.path, () => {});
+            if (readErr) return sendIndividualsImportError(400, 'Could not read uploaded CSV file', 'upload');
+
+            const { headers, records } = parseCsvText(data);
+            const map = headerIndexMap(headers);
+            const required = ['first_name', 'last_name', 'building', 'suite'];
+            const missing = required.filter(h => !map.has(h));
+            if (missing.length) {
+                return sendIndividualsImportError(
+                    400,
+                    `Missing required CSV column(s): ${missing.join(', ')}`,
+                    'parse',
+                    { uploaded_rows: records.length, parsed_rows: 0 }
+                );
+            }
+
+            db.all('SELECT id, name FROM companies', [], (companiesErr, companyRows) => {
+                if (companiesErr) {
+                    return sendIndividualsImportError(
+                        500,
+                        companiesErr.message,
+                        'db',
+                        { uploaded_rows: records.length, parsed_rows: 0 }
+                    );
+                }
+                const companyByName = new Map(companyRows.map(c => [String(c.name || '').trim().toLowerCase(), c.id]));
+                const parsed = [];
+                for (let i = 0; i < records.length; i++) {
+                    const row = records[i];
+                    const first_name = cell(row, map, 'first_name');
+                    const last_name = cell(row, map, 'last_name');
+                    const building = cell(row, map, 'building');
+                    const suite = cell(row, map, 'suite');
+                    const title = cell(row, map, 'title');
+                    const phone = cell(row, map, 'phone');
+                    const companyIdText = cell(row, map, 'company_id');
+                    const companyNameText = cell(row, map, 'company_name').toLowerCase();
+
+                    if (!first_name || !last_name || !building || !suite) {
+                        return sendIndividualsImportError(
+                            400,
+                            `Row ${i + 2}: first_name, last_name, building, and suite are required`,
+                            'parse',
+                            { uploaded_rows: records.length, parsed_rows: parsed.length }
+                        );
+                    }
+
+                    let company_id = null;
+                    if (companyIdText) {
+                        const parsedId = Number.parseInt(companyIdText, 10);
+                        if (!Number.isInteger(parsedId) || parsedId <= 0) {
+                            return sendIndividualsImportError(
+                                400,
+                                `Row ${i + 2}: invalid company_id "${companyIdText}"`,
+                                'parse',
+                                { uploaded_rows: records.length, parsed_rows: parsed.length }
+                            );
+                        }
+                        company_id = parsedId;
+                    } else if (companyNameText) {
+                        const resolved = companyByName.get(companyNameText);
+                        if (!resolved) {
+                            return sendIndividualsImportError(
+                                400,
+                                `Row ${i + 2}: unknown company_name "${cell(row, map, 'company_name')}"`,
+                                'parse',
+                                { uploaded_rows: records.length, parsed_rows: parsed.length }
+                            );
+                        }
+                        company_id = resolved;
+                    }
+
+                    parsed.push({ first_name, last_name, company_id, building, suite, title, phone });
+                }
+
+                db.serialize(() => {
+                    db.run('BEGIN TRANSACTION');
+                    db.run('DELETE FROM individuals', (delErr) => {
+                        if (delErr) {
+                            db.run('ROLLBACK');
+                            return sendIndividualsImportError(
+                                500,
+                                delErr.message,
+                                'db',
+                                { uploaded_rows: records.length, parsed_rows: parsed.length }
+                            );
+                        }
+
+                        const stmt = db.prepare(
+                            'INSERT INTO individuals (first_name, last_name, company_id, building, suite, title, phone) VALUES (?, ?, ?, ?, ?, ?, ?)'
+                        );
+                        let rowErr = null;
+                        for (const rec of parsed) {
+                            stmt.run(
+                                [rec.first_name, rec.last_name, rec.company_id, rec.building, rec.suite, rec.title || null, rec.phone || null],
+                                (e) => { if (!rowErr && e) rowErr = e; }
+                            );
+                        }
+                        stmt.finalize((finalizeErr) => {
+                            if (rowErr || finalizeErr) {
+                                db.run('ROLLBACK');
+                                return sendIndividualsImportError(
+                                    500,
+                                    (rowErr || finalizeErr).message,
+                                    'db',
+                                    { uploaded_rows: records.length, parsed_rows: parsed.length }
+                                );
+                            }
+                            db.run('COMMIT', (commitErr) => {
+                                if (commitErr) {
+                                    return sendIndividualsImportError(
+                                        500,
+                                        commitErr.message,
+                                        'db',
+                                        { uploaded_rows: records.length, parsed_rows: parsed.length }
+                                    );
+                                }
+                                incrementDataVersion();
+                                return db.get('SELECT COUNT(*) AS count FROM individuals', [], (countErr, countRow) => {
+                                    if (countErr) {
+                                        return sendIndividualsImportError(
+                                            500,
+                                            countErr.message,
+                                            'db',
+                                            { uploaded_rows: records.length, parsed_rows: parsed.length }
+                                        );
+                                    }
+                                    return res.json({
+                                        success: true,
+                                        imported: parsed.length,
+                                        status: { upload: 'ok', parse: 'ok', db: 'ok' },
+                                        uploaded_rows: records.length,
+                                        parsed_rows: parsed.length,
+                                        db_counts: { individuals: countRow ? countRow.count : 0 }
+                                    });
+                                });
+                            });
+                        });
+                    });
+                });
+            });
+        });
+    });
+});
+
 app.post('/api/individuals', (req, res) => {
     const { first_name, last_name, company_id, building, suite, title, phone } = req.body;
     db.run(
@@ -410,7 +928,8 @@ app.get('/api/building-info', (req, res) => {
         if (err) {
             res.status(500).json({ error: err.message });
         } else {
-            res.json(row ? row.content : '');
+            const content = row && typeof row.content === 'string' ? row.content : '';
+            res.json(content || DEFAULT_BUILDING_INFO_HTML);
         }
     });
 });
@@ -434,21 +953,137 @@ app.put('/api/building-info', (req, res) => {
 
 // Database backup — VACUUM INTO a temp file then stream it to the client
 app.get('/api/backup', (req, res) => {
-    const backupPath = path.join(os.tmpdir(), `directory-backup-${Date.now()}.db`);
+    const backupPath = path.join(os.tmpdir(), `directory-backup-${Date.now()}.sqlite`);
     const escaped = backupPath.replace(/'/g, "''");
     db.run(`VACUUM INTO '${escaped}'`, (err) => {
         if (err) return res.status(500).json({ error: err.message });
-        res.download(backupPath, 'directory.db', () => {
+        res.download(backupPath, 'directory-backup.sqlite', () => {
             fs.unlink(backupPath, () => {});
         });
     });
 });
 
-// Database restore — validate SQLite magic, close db, replace file, reopen
+// SQL text backup — sqlite3 .dump
+app.get('/api/backup.sql', (req, res) => {
+    const dump = spawnSync('sqlite3', [DB_FILE, '.dump'], { encoding: 'utf8', maxBuffer: 100 * 1024 * 1024 });
+    if (dump.error) return res.status(500).json({ error: `sqlite3 failed: ${dump.error.message}` });
+    if (dump.status !== 0) {
+        return res.status(500).json({ error: `sqlite3 dump failed: ${(dump.stderr || '').trim() || 'unknown error'}` });
+    }
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="directory-backup.sql"');
+    res.send(dump.stdout || '');
+});
+
+// SQL text backup in .txt format (most permissive for browser download policies)
+app.get('/api/backup.txt', (req, res) => {
+    const dump = spawnSync('sqlite3', [DB_FILE, '.dump'], { encoding: 'utf8', maxBuffer: 100 * 1024 * 1024 });
+    if (dump.error) return res.status(500).json({ error: `sqlite3 failed: ${dump.error.message}` });
+    if (dump.status !== 0) {
+        return res.status(500).json({ error: `sqlite3 dump failed: ${(dump.stderr || '').trim() || 'unknown error'}` });
+    }
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="directory-backup.txt"');
+    res.send(dump.stdout || '');
+});
+
+function reopenDbAndRespond(res) {
+    db = new sqlite3.Database(DB_FILE, (openErr) => {
+        if (openErr) return res.status(500).json({ error: 'Failed to reopen database: ' + openErr.message });
+        db.get(
+            'SELECT (SELECT COUNT(*) FROM companies) AS companies, (SELECT COUNT(*) FROM individuals) AS individuals',
+            [],
+            (countErr, row) => {
+                if (countErr) return res.status(500).json({ error: 'Restore succeeded but count query failed: ' + countErr.message });
+                incrementDataVersion();
+                res.json({
+                    success: true,
+                    db_counts: {
+                        companies: row ? row.companies : 0,
+                        individuals: row ? row.individuals : 0
+                    }
+                });
+            }
+        );
+    });
+}
+
+function replaceDatabaseFile(uploadPath, res) {
+    db.close((closeErr) => {
+        if (closeErr) return res.status(500).json({ error: 'Failed to close database: ' + closeErr.message });
+        try {
+            fs.copyFileSync(uploadPath, DB_FILE);
+        } catch (e) {
+            return res.status(500).json({ error: 'Failed to replace database: ' + e.message });
+        } finally {
+            fs.unlink(uploadPath, () => {});
+        }
+        return reopenDbAndRespond(res);
+    });
+}
+
+function restoreFromSqlDump(uploadPath, res) {
+    let sqlText = '';
+    try {
+        sqlText = fs.readFileSync(uploadPath, 'utf8');
+    } catch (e) {
+        return res.status(400).json({ error: 'Could not read uploaded SQL file' });
+    } finally {
+        fs.unlink(uploadPath, () => {});
+    }
+    if (!sqlText.trim()) {
+        return res.status(400).json({ error: 'Uploaded SQL file is empty' });
+    }
+
+    const tempDbPath = path.join(os.tmpdir(), `restore-import-${Date.now()}.sqlite`);
+    const importResult = spawnSync('sqlite3', [tempDbPath], { input: sqlText, encoding: 'utf8', maxBuffer: 100 * 1024 * 1024 });
+    if (importResult.error) {
+        fs.unlink(tempDbPath, () => {});
+        return res.status(500).json({ error: `sqlite3 import failed: ${importResult.error.message}` });
+    }
+    if (importResult.status !== 0) {
+        const detail = (importResult.stderr || '').trim() || 'unknown error';
+        fs.unlink(tempDbPath, () => {});
+        return res.status(400).json({ error: `Invalid SQL backup: ${detail}` });
+    }
+
+    const verify = spawnSync(
+        'sqlite3',
+        [tempDbPath, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('companies','individuals','settings');"],
+        { encoding: 'utf8' }
+    );
+    const tableCount = Number.parseInt((verify.stdout || '').trim(), 10);
+    if (verify.status !== 0 || Number.isNaN(tableCount) || tableCount < 3) {
+        fs.unlink(tempDbPath, () => {});
+        return res.status(400).json({ error: 'Invalid SQL backup: missing required tables' });
+    }
+
+    db.close((closeErr) => {
+        if (closeErr) {
+            fs.unlink(tempDbPath, () => {});
+            return res.status(500).json({ error: 'Failed to close database: ' + closeErr.message });
+        }
+        try {
+            fs.copyFileSync(tempDbPath, DB_FILE);
+        } catch (e) {
+            fs.unlink(tempDbPath, () => {});
+            return res.status(500).json({ error: 'Failed to replace database: ' + e.message });
+        }
+        fs.unlink(tempDbPath, () => {});
+        return reopenDbAndRespond(res);
+    });
+}
+
+// Database restore — accepts SQL dumps and SQLite database files
 app.post('/api/restore', (req, res) => {
     dbUpload.single('database')(req, res, (uploadErr) => {
         if (uploadErr) return res.status(400).json({ error: uploadErr.message });
         if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+
+        const ext = path.extname(req.file.originalname).toLowerCase();
+        if (ext === '.sql' || ext === '.txt') {
+            return restoreFromSqlDump(req.file.path, res);
+        }
 
         // Validate SQLite magic bytes ("SQLite format 3\000")
         const magic = Buffer.alloc(15);
@@ -465,19 +1100,7 @@ app.post('/api/restore', (req, res) => {
             return res.status(400).json({ error: 'Not a valid SQLite database file' });
         }
 
-        db.close((closeErr) => {
-            if (closeErr) return res.status(500).json({ error: 'Failed to close database: ' + closeErr.message });
-            try {
-                fs.copyFileSync(req.file.path, DB_FILE);
-                fs.unlinkSync(req.file.path);
-            } catch (e) {
-                return res.status(500).json({ error: 'Failed to replace database: ' + e.message });
-            }
-            db = new sqlite3.Database(DB_FILE, (openErr) => {
-                if (openErr) return res.status(500).json({ error: 'Failed to reopen database: ' + openErr.message });
-                res.json({ success: true });
-            });
-        });
+        return replaceDatabaseFile(req.file.path, res);
     });
 });
 
@@ -576,6 +1199,31 @@ app.get('/api/data-version', (req, res) => {
     });
 });
 
+function mapKioskBuildingSuffix(ip) {
+    switch (ip) {
+        case '192.168.1.80':
+            return '9';
+        case '192.168.1.81':
+            return '5';
+        case '192.168.1.82':
+            return '1';
+        default:
+            return 'x';
+    }
+}
+
+// Kiosk location metadata for welcome screen line 3
+app.get('/api/kiosk-location', (req, res) => {
+    const rawIp = req.ip || req.socket.remoteAddress || '';
+    const clientIp = rawIp.startsWith('::ffff:') ? rawIp.slice(7) : rawIp;
+    const buildingSuffix = mapKioskBuildingSuffix(clientIp);
+    res.json({
+        ip: clientIp,
+        buildingSuffix,
+        buildingCode: `430${buildingSuffix}`
+    });
+});
+
 function incrementDataVersion() {
     db.run('UPDATE settings SET value = value + 1, updated_at = CURRENT_TIMESTAMP WHERE key = "data_version"');
 }
@@ -634,10 +1282,11 @@ app.post('/api/kiosks/:id/deploy', (req, res) => {
 });
 
 // Start server
-app.listen(PORT, () => {
+app.listen(PORT, HOST, () => {
     console.log(`Directory server running on port ${PORT}`);
-    console.log(`Kiosk interface: http://localhost:${PORT}/`);
-    console.log(`Admin interface: http://localhost:${PORT}/admin`);
+    console.log(`Listening on ${HOST}:${PORT}`);
+    console.log(`Kiosk interface: http://localhost/`);
+    console.log(`Admin interface: http://localhost/admin`);
 });
 
 // Handle shutdown gracefully

@@ -12,23 +12,38 @@ validate_filename() {
     [[ -z "$1" || "$1" =~ [/\\] || ! "$1" =~ ^[a-zA-Z0-9._-]+$ ]] && { echo "Invalid filename" >&2; exit 1; }
 }
 
+has_overlayroot() {
+    command -v overlayroot-chroot >/dev/null 2>&1 || return 1
+    # In maintenance mode (overlayroot=disabled), overlayroot-chroot fails.
+    overlayroot-chroot true >/dev/null 2>&1
+}
+
 case "$1" in
     copy)
         validate_filename "$3"
         [[ ! -f "$2" ]] && { echo "Source not found: $2" >&2; exit 1; }
-        # Stage to /run — overlayroot-chroot bind-mounts /run from the live system,
-        # so the chroot can see files placed there. /tmp is NOT bind-mounted.
-        STAGE="/run/persist-stage-$$-$3"
-        cp "$2" "$STAGE" || { echo "Stage copy failed" >&2; exit 1; }
-        overlayroot-chroot mkdir -p "$UPLOADS_DIR"
-        overlayroot-chroot cp "$STAGE" "$UPLOADS_DIR/$3"
-        COPY_STATUS=$?
-        rm -f "$STAGE"
-        exit $COPY_STATUS
+        if has_overlayroot; then
+            # Stage to /run — overlayroot-chroot bind-mounts /run from the live system,
+            # so the chroot can see files placed there. /tmp is NOT bind-mounted.
+            STAGE="/run/persist-stage-$$-$3"
+            cp "$2" "$STAGE" || { echo "Stage copy failed" >&2; exit 1; }
+            overlayroot-chroot mkdir -p "$UPLOADS_DIR"
+            overlayroot-chroot cp "$STAGE" "$UPLOADS_DIR/$3"
+            COPY_STATUS=$?
+            rm -f "$STAGE"
+            exit $COPY_STATUS
+        else
+            mkdir -p "$UPLOADS_DIR"
+            cp "$2" "$UPLOADS_DIR/$3"
+        fi
         ;;
     delete)
         validate_filename "$2"
-        overlayroot-chroot rm -f "$UPLOADS_DIR/$2"
+        if has_overlayroot; then
+            overlayroot-chroot rm -f "$UPLOADS_DIR/$2"
+        else
+            rm -f "$UPLOADS_DIR/$2"
+        fi
         ;;
     *) echo "Unknown action: $1" >&2; exit 1 ;;
 esac
