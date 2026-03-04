@@ -345,6 +345,10 @@ async function runTests(serverProc) {
         const r = await req('PUT', '/api/background-image', {});
         assert('PUT without filename returns 400', r.status === 400, JSON.stringify(r.body));
     }
+    {
+        const r = await req('PUT', '/api/background-image', { filename: 'uploads/not-present.jpg' });
+        assert('PUT rejects unknown uploaded background image', r.status === 400, JSON.stringify(r.body));
+    }
 
     // Upload non-image file
     {

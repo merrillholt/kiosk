@@ -1155,15 +1155,42 @@ app.post('/api/background-image', bgUpload.single('image'), (req, res) => {
 app.put('/api/background-image', (req, res) => {
     const { filename } = req.body;
     if (!filename) return res.status(400).json({ error: 'filename required' });
-    db.run(
-        `INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('background_image', ?, CURRENT_TIMESTAMP)`,
-        [filename],
-        (err) => {
-            if (err) return res.status(500).json({ error: err.message });
-            incrementDataVersion();
-            res.json({ success: true });
-        }
-    );
+
+    if (filename === '18.jpg') {
+        db.run(
+            `INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('background_image', ?, CURRENT_TIMESTAMP)`,
+            [filename],
+            (err) => {
+                if (err) return res.status(500).json({ error: err.message });
+                incrementDataVersion();
+                return res.json({ success: true });
+            }
+        );
+        return;
+    }
+
+    const m = String(filename).match(/^uploads\/([a-zA-Z0-9._-]+)$/);
+    if (!m) return res.status(400).json({ error: 'Invalid filename' });
+
+    const uploadedName = m[1];
+    const imageExts = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp']);
+    if (!imageExts.has(path.extname(uploadedName).toLowerCase())) {
+        return res.status(400).json({ error: 'Invalid filename' });
+    }
+
+    const absPath = path.join(UPLOADS_LOWER, uploadedName);
+    fs.access(absPath, fs.constants.R_OK, (accessErr) => {
+        if (accessErr) return res.status(400).json({ error: 'Unknown background image' });
+        db.run(
+            `INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('background_image', ?, CURRENT_TIMESTAMP)`,
+            [filename],
+            (err) => {
+                if (err) return res.status(500).json({ error: err.message });
+                incrementDataVersion();
+                return res.json({ success: true });
+            }
+        );
+    });
 });
 
 // Background images — list gallery (built-in + uploaded)
