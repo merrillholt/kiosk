@@ -10,6 +10,8 @@ const { spawnSync } = require('child_process');
 const app = express();
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || '127.0.0.1';
+// Trust loopback reverse proxy (nginx on same host) for accurate req.ip.
+app.set('trust proxy', 'loopback');
 
 // Temp dir for multer uploads (lost on reboot — persist script copies to lower layer)
 const TEMP_DIR = process.env.KIOSK_TEMP_DIR || '/tmp/kiosk-uploads';
