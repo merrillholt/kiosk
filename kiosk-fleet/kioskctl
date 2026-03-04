@@ -3,10 +3,13 @@ set -euo pipefail
 
 HOSTS_FILE="${HOSTS_FILE:-$(dirname "$0")/hosts}"
 USER_NAME="${USER_NAME:-kiosk}"
+RAW=0
+STRICT=0
+NO_COLOR_FLAG=0
 
 usage() {
   cat <<'EOF'
-Usage: kioskctl {status|uptime|reboot-normal|reboot-maint|restart-kiosk|cmd <command...>}
+Usage: kioskctl [--raw] [--strict] [--no-color] {status|uptime|reboot-normal|reboot-maint|restart-kiosk|cmd <command...>}
 
 Commands:
   status            Show kiosk + OS health (services, disk/swap/cpu/memory, failed units, recent errors)
@@ -19,6 +22,11 @@ Commands:
 Environment:
   HOSTS_FILE   Path to hosts file (default: ./hosts)
   USER_NAME    SSH username (default: kiosk)
+
+Options:
+  --raw       Show raw failed units/log errors (no expected/unexpected filtering)
+  --strict    Treat all failures/errors as unexpected (disables expected allowlist)
+  --no-color  Disable ANSI color output
 EOF
   exit 2
 }
@@ -27,54 +35,210 @@ hosts() { grep -vE '^\s*($|#)' "$HOSTS_FILE"; }
 
 run_all() {
   local cmd="$1"
+  local fail_count=0
   while read -r h; do
     echo "=== $h ==="
-    ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new \
-      "${USER_NAME}@${h}" "$cmd" || echo "ERROR on $h"
+    ssh -n -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new \
+      "${USER_NAME}@${h}" "$cmd" || { echo "ERROR on $h"; fail_count=$((fail_count + 1)); }
   done < <(hosts)
+  if [[ "$fail_count" -gt 0 ]]; then
+    echo "kioskctl: $fail_count host(s) failed" >&2
+    return 1
+  fi
+  return 0
 }
 
-case "${1:-}" in
-  status)
-    run_all '
-hostname;
-if mount | grep -q "^overlayroot on / type overlay"; then echo "overlayroot=1"; else echo "overlayroot=0"; fi;
+colorize_setup() {
+  if [[ "$NO_COLOR_FLAG" -eq 1 || ! -t 1 || -n "${NO_COLOR:-}" ]]; then
+    C_RESET=""; C_RED=""; C_YEL=""; C_GRN=""; C_DIM=""
+  else
+    C_RESET=$'\033[0m'; C_RED=$'\033[31m'; C_YEL=$'\033[93m'; C_GRN=$'\033[32m'; C_DIM=$'\033[2m'
+  fi
+}
 
-echo -n "ssh="; systemctl is-active ssh 2>/dev/null || systemctl is-active sshd 2>/dev/null || echo "unknown";
+is_expected_unit() {
+  local unit="$1"
+  case "$unit" in
+    anacron.service|grub-common.service|systemd-remount-fs.service) return 0 ;;
+    *) return 1 ;;
+  esac
+}
 
-echo -n "getty@tty1="; systemctl is-active getty@tty1 2>/dev/null || echo "unknown";
-echo "kiosk-guard=$(systemctl show -p ActiveState --value kiosk-guard 2>/dev/null || echo not-found)";
+is_expected_log_line() {
+  local line="$1"
+  [[ "$line" =~ Read-only\ file\ system ]] && return 0
+  [[ "$line" =~ Failed\ to\ start\ systemd-remount-fs\.service ]] && return 0
+  [[ "$line" =~ systemd-remount-fs.*exit\ status\ 32 ]] && return 0
+  [[ "$line" =~ grub-common\.service ]] && return 0
+  [[ "$line" =~ anacron.*Aborted ]] && return 0
+  [[ "$line" =~ anacron.*Read-only\ file\ system ]] && return 0
+  [[ "$line" =~ 90-alsa-restore\.rules.*no\ matching\ label ]] && return 0
+  [[ "$line" =~ xdg-desktop-portal.*pw\.conf:\ can\'t\ load\ config\ client\.conf ]] && return 0
+  return 1
+}
 
-if pgrep -x cage >/dev/null 2>&1; then echo "cage=running"; else echo "cage=stopped"; fi;
-if pgrep -a chromium >/dev/null 2>&1; then echo "chromium=running"; else echo "chromium=stopped"; fi;
+print_lines() {
+  local color="$1"; shift
+  local line
+  for line in "$@"; do
+    [[ -z "$line" ]] && continue
+    echo "  ${color}${line}${C_RESET}"
+  done
+}
 
-echo "disk_root=$(df -hP / | awk '\''NR==2 {print $3 "/" $2 " (" $5 ")"}'\'')";
-echo "disk_uploads=$(df -hP /home/kiosk/building-directory/server/uploads 2>/dev/null | awk '\''NR==2 {print $3 "/" $2 " (" $5 ")"}'\'' || echo n/a)";
-
-echo "memory=$(free -m | awk '\''/Mem:/ {printf "%s/%sMB (%.0f%%)", $3, $2, ($3*100)/$2}'\'')";
-echo "swap=$(free -m | awk '\''/Swap:/ {if ($2 == 0) print "disabled"; else printf "%s/%sMB (%.0f%%)", $3, $2, ($3*100)/$2}'\'')";
-
-cpu="$(awk '\''/cpu / {print $2,$3,$4,$5,$6,$7,$8,$9}'\'' /proc/stat)";
-sleep 1;
-cpu2="$(awk '\''/cpu / {print $2,$3,$4,$5,$6,$7,$8,$9}'\'' /proc/stat)";
-echo "cpu_usage_1s=$(awk -v a="$cpu" -v b="$cpu2" '\''BEGIN {
+status_all() {
+  local host_fail_count=0
+  local unexpected_count=0
+  local h out rc
+  while read -r h <&3; do
+    echo "=== $h ==="
+    set +e
+    out="$(ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new \
+      "${USER_NAME}@${h}" 'bash -s' <<'END_REMOTE'
+hostname
+if mount | grep -q "^overlayroot on / type overlay"; then echo "overlayroot=1"; else echo "overlayroot=0"; fi
+echo -n "ssh="; systemctl is-active ssh 2>/dev/null || systemctl is-active sshd 2>/dev/null || echo "unknown"
+echo -n "getty@tty1="; systemctl is-active getty@tty1 2>/dev/null || echo "unknown"
+echo "kiosk-guard=$(systemctl show -p ActiveState --value kiosk-guard 2>/dev/null || echo not-found)"
+if pgrep -x cage >/dev/null 2>&1; then echo "cage=running"; else echo "cage=stopped"; fi
+if pgrep -a chromium >/dev/null 2>&1; then echo "chromium=running"; else echo "chromium=stopped"; fi
+echo "disk_root=$(df -hP / | awk 'NR==2 {print $3 "/" $2 " (" $5 ")"}')"
+echo "disk_uploads=$(df -hP /home/kiosk/building-directory/server/uploads 2>/dev/null | awk 'NR==2 {print $3 "/" $2 " (" $5 ")"}' || echo n/a)"
+echo "memory=$(free -m | awk '/Mem:/ {printf "%s/%sMB (%.0f%%)", $3, $2, ($3*100)/$2}')"
+echo "swap=$(free -m | awk '/Swap:/ {if ($2 == 0) print "disabled"; else printf "%s/%sMB (%.0f%%)", $3, $2, ($3*100)/$2}')"
+cpu="$(awk '/cpu / {print $2,$3,$4,$5,$6,$7,$8,$9}' /proc/stat)"
+sleep 1
+cpu2="$(awk '/cpu / {print $2,$3,$4,$5,$6,$7,$8,$9}' /proc/stat)"
+echo "cpu_usage_1s=$(awk -v a="$cpu" -v b="$cpu2" 'BEGIN {
   split(a,A," "); split(b,B," ");
   t1=0; t2=0; for(i=1;i<=8;i++){t1+=A[i]; t2+=B[i]}
   id1=A[4]+A[5]; id2=B[4]+B[5];
   dt=t2-t1; did=id2-id1;
   if (dt<=0) print "n/a"; else printf("%.1f%%", (dt-did)*100/dt);
-}'\'')";
-
-echo "failed_units:";
-systemctl --failed --no-legend --plain 2>/dev/null | sed '\''s/^/  /'\'' || echo "  unavailable";
-
-echo "recent_log_errors:";
+}')"
+echo "__FAILED_UNITS_BEGIN__"
+systemctl --failed --no-legend --plain 2>/dev/null || true
+echo "__FAILED_UNITS_END__"
+echo "__RECENT_ERRORS_BEGIN__"
 if sudo -n true >/dev/null 2>&1; then
-  sudo -n journalctl -p err..alert -b -n 20 --no-pager 2>/dev/null | sed '\''s/^/  /'\'' || echo "  unavailable";
+  sudo -n journalctl -p err..alert -b -n 20 --no-pager 2>/dev/null || true
 else
-  journalctl -p err..alert -b -n 20 --no-pager 2>/dev/null | sed '\''s/^/  /'\'' || echo "  unavailable (sudo required)";
-fi;
-'
+  journalctl -p err..alert -b -n 20 --no-pager 2>/dev/null || true
+fi
+echo "__RECENT_ERRORS_END__"
+END_REMOTE
+)"
+    rc=$?
+    set -e
+    if [[ "$rc" -ne 0 ]]; then
+      echo "ERROR on $h"
+      host_fail_count=$((host_fail_count + 1))
+      continue
+    fi
+
+    local header overlay
+    header="$(printf '%s\n' "$out" | sed '/^__FAILED_UNITS_BEGIN__$/,$d')"
+    echo "$header"
+    overlay="$(printf '%s\n' "$header" | awk -F= '/^overlayroot=/{print $2; exit}')"
+    [[ -z "$overlay" ]] && overlay="0"
+
+    local failed_block logs_block line unit
+    local -a failed_expected failed_unexpected logs_expected logs_unexpected
+    failed_expected=()
+    failed_unexpected=()
+    logs_expected=()
+    logs_unexpected=()
+    failed_block="$(printf '%s\n' "$out" | sed -n '/^__FAILED_UNITS_BEGIN__$/,/^__FAILED_UNITS_END__$/p' | sed '1d;$d')"
+    logs_block="$(printf '%s\n' "$out" | sed -n '/^__RECENT_ERRORS_BEGIN__$/,/^__RECENT_ERRORS_END__$/p' | sed '1d;$d')"
+
+    while IFS= read -r line; do
+      [[ -z "${line// }" ]] && continue
+      unit="$(printf '%s\n' "$line" | awk '{print $1}')"
+      if [[ "$RAW" -eq 0 && "$STRICT" -eq 0 && "$overlay" == "1" ]] && is_expected_unit "$unit"; then
+        failed_expected+=("$line")
+      else
+        failed_unexpected+=("$line")
+      fi
+    done <<< "$failed_block"
+
+    while IFS= read -r line; do
+      [[ -z "${line// }" ]] && continue
+      if [[ "$RAW" -eq 0 && "$STRICT" -eq 0 && "$overlay" == "1" ]] && is_expected_log_line "$line"; then
+        logs_expected+=("$line")
+      else
+        logs_unexpected+=("$line")
+      fi
+    done <<< "$logs_block"
+
+    if [[ "$RAW" -eq 1 ]]; then
+      echo "failed_units:"
+      if [[ "${#failed_expected[@]}" -eq 0 && "${#failed_unexpected[@]}" -eq 0 ]]; then
+        echo "  none"
+      else
+        print_lines "$C_DIM" "${failed_expected[@]}" "${failed_unexpected[@]}"
+      fi
+      echo "recent_log_errors:"
+      if [[ "${#logs_expected[@]}" -eq 0 && "${#logs_unexpected[@]}" -eq 0 ]]; then
+        echo "  none"
+      else
+        print_lines "$C_DIM" "${logs_expected[@]}" "${logs_unexpected[@]}"
+      fi
+    else
+      echo "failed_units_expected:"
+      if [[ "${#failed_expected[@]}" -eq 0 ]]; then
+        echo "  none"
+      else
+        print_lines "$C_YEL" "${failed_expected[@]}"
+      fi
+      echo "failed_units_unexpected:"
+      if [[ "${#failed_unexpected[@]}" -eq 0 ]]; then
+        echo "  ${C_GRN}none${C_RESET}"
+      else
+        print_lines "$C_RED" "${failed_unexpected[@]}"
+      fi
+      echo "recent_log_errors_expected:"
+      if [[ "${#logs_expected[@]}" -eq 0 ]]; then
+        echo "  none"
+      else
+        print_lines "$C_YEL" "${logs_expected[@]}"
+      fi
+      echo "recent_log_errors_unexpected:"
+      if [[ "${#logs_unexpected[@]}" -eq 0 ]]; then
+        echo "  ${C_GRN}none${C_RESET}"
+      else
+        print_lines "$C_RED" "${logs_unexpected[@]}"
+      fi
+    fi
+
+    unexpected_count=$((unexpected_count + ${#failed_unexpected[@]} + ${#logs_unexpected[@]}))
+  done 3< <(hosts)
+
+  if [[ "$host_fail_count" -gt 0 ]]; then
+    echo "kioskctl: $host_fail_count host(s) failed" >&2
+    return 1
+  fi
+  if [[ "$unexpected_count" -gt 0 ]]; then
+    echo "kioskctl: unexpected failures/errors detected ($unexpected_count)" >&2
+    return 1
+  fi
+  return 0
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --raw) RAW=1; shift ;;
+    --strict) STRICT=1; shift ;;
+    --no-color) NO_COLOR_FLAG=1; shift ;;
+    -h|--help|help) usage ;;
+    *) break ;;
+  esac
+done
+
+colorize_setup
+
+case "${1:-}" in
+  status)
+    status_all
     ;;
   uptime)
     run_all 'hostname; uptime'
