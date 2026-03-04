@@ -44,6 +44,9 @@ fs.chmodSync(PERSIST_SCRIPT, 0o755);
 
 let passed = 0;
 let failed = 0;
+const TEST_ADMIN_PASSWORD = 'test-admin-password';
+let authToken = '';
+let authCookie = '';
 
 function assert(label, condition, detail = '') {
     if (condition) {
@@ -55,20 +58,45 @@ function assert(label, condition, detail = '') {
     }
 }
 
+function buildAuthHeaders() {
+    const headers = {};
+    if (authToken) headers.Authorization = `Bearer ${authToken}`;
+    if (authCookie) headers.Cookie = authCookie;
+    return headers;
+}
+
+function stashAuthState(response) {
+    if (response && response.body && typeof response.body.token === 'string') {
+        authToken = response.body.token;
+    }
+    const rawSetCookie = response && response.headers ? response.headers['set-cookie'] : null;
+    const cookies = Array.isArray(rawSetCookie) ? rawSetCookie : (rawSetCookie ? [rawSetCookie] : []);
+    for (const cookie of cookies) {
+        const match = String(cookie).match(/kiosk_admin_session=([^;]+)/);
+        if (match) {
+            authCookie = `kiosk_admin_session=${match[1]}`;
+            break;
+        }
+    }
+}
+
 async function req(method, urlPath, body, contentType) {
     return new Promise((resolve, reject) => {
         const isForm = contentType === 'multipart';
+        const headers = buildAuthHeaders();
         const opts = { hostname: 'localhost', port: PORT, path: urlPath, method };
         if (body && !isForm) {
             const json = JSON.stringify(body);
-            opts.headers = { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(json) };
+            headers['Content-Type'] = 'application/json';
+            headers['Content-Length'] = Buffer.byteLength(json);
         }
+        if (Object.keys(headers).length > 0) opts.headers = headers;
         const r = http.request(opts, res => {
             let data = '';
             res.on('data', c => data += c);
             res.on('end', () => {
-                try { resolve({ status: res.statusCode, body: JSON.parse(data) }); }
-                catch { resolve({ status: res.statusCode, body: data }); }
+                try { resolve({ status: res.statusCode, body: JSON.parse(data), headers: res.headers }); }
+                catch { resolve({ status: res.statusCode, body: data, headers: res.headers }); }
             });
         });
         r.on('error', reject);
@@ -88,14 +116,18 @@ async function uploadFile(urlPath, fieldName, filename, fileContent, mimeType) {
         const body = Buffer.concat([head, fileContent, tail]);
         const opts = {
             hostname: 'localhost', port: PORT, path: urlPath, method: 'POST',
-            headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}`, 'Content-Length': body.length }
+            headers: {
+                ...buildAuthHeaders(),
+                'Content-Type': `multipart/form-data; boundary=${boundary}`,
+                'Content-Length': body.length
+            }
         };
         const r = http.request(opts, res => {
             let data = '';
             res.on('data', c => data += c);
             res.on('end', () => {
-                try { resolve({ status: res.statusCode, body: JSON.parse(data) }); }
-                catch { resolve({ status: res.statusCode, body: data }); }
+                try { resolve({ status: res.statusCode, body: JSON.parse(data), headers: res.headers }); }
+                catch { resolve({ status: res.statusCode, body: data, headers: res.headers }); }
             });
         });
         r.on('error', reject);
@@ -109,7 +141,7 @@ async function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 // Binary response helper (for backup download)
 async function reqBinary(method, urlPath) {
     return new Promise((resolve, reject) => {
-        const opts = { hostname: 'localhost', port: PORT, path: urlPath, method };
+        const opts = { hostname: 'localhost', port: PORT, path: urlPath, method, headers: buildAuthHeaders() };
         const r = http.request(opts, res => {
             const chunks = [];
             res.on('data', c => chunks.push(c));
@@ -127,6 +159,7 @@ async function startServer() {
         const env = {
             ...process.env,
             PORT: String(PORT),
+            KIOSK_ADMIN_PASSWORD: TEST_ADMIN_PASSWORD,
             KIOSK_TEMP_DIR: TEMP_DIR,
             KIOSK_UPLOADS_LOWER: UPLOADS_LOWER,
             KIOSK_PERSIST_CMD: PERSIST_SCRIPT,
@@ -158,6 +191,28 @@ async function startServer() {
 
 async function runTests(serverProc) {
     await sleep(500); // let DB initialize
+
+    console.log('\n── Auth ─────────────────────────────────────────────────────────');
+    {
+        const before = await req('GET', '/api/auth/me');
+        assert('GET /api/auth/me initially unauthenticated',
+            before.status === 200 && before.body && before.body.authenticated === false,
+            JSON.stringify(before.body));
+    }
+    {
+        const login = await req('POST', '/api/auth/login', { password: TEST_ADMIN_PASSWORD });
+        stashAuthState(login);
+        assert('POST /api/auth/login returns 200', login.status === 200, JSON.stringify(login.body));
+        assert('POST /api/auth/login returns token',
+            login.body && typeof login.body.token === 'string' && login.body.token.length > 0,
+            JSON.stringify(login.body));
+    }
+    {
+        const after = await req('GET', '/api/auth/me');
+        assert('GET /api/auth/me authenticated after login',
+            after.status === 200 && after.body && after.body.authenticated === true,
+            JSON.stringify(after.body));
+    }
 
     console.log('\n── Background image API ─────────────────────────────────────────');
 
