@@ -14,6 +14,7 @@ FULL=0
 NO_RESTART=0
 WITH_DB=0
 DB_SOURCE="${DB_SOURCE:-}"
+OVERLAY_MODE="${OVERLAY_MODE:-auto}"
 
 usage() {
   cat <<USAGE
@@ -26,6 +27,8 @@ Options:
   -H, --host <user@ip>   Remote SSH target (default: kiosk@192.168.1.80)
   -n, --dry-run          Preview actions without modifying remote host
   -f, --full             Deploy full manifest (server + kiosk + scripts)
+      --overlay          Force overlayroot-chroot write mode
+      --no-overlay       Force direct write mode
       --no-restart       Skip remote service restart and health checks
       --with-db          Also copy a SQLite DB file to remote server/directory.db
       --db-source <path> SQLite DB source path for --with-db
@@ -36,6 +39,7 @@ Environment:
   DEPLOY_ROOT            Remote deploy root (default: /home/kiosk/building-directory)
   MANIFEST               Override manifest path (default: deploy-server-files.txt)
   DB_SOURCE              Same as --db-source
+  OVERLAY_MODE           auto|on|off (default: auto)
 USAGE
 }
 
@@ -51,6 +55,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     -f|--full)
       FULL=1
+      shift
+      ;;
+    --overlay)
+      OVERLAY_MODE="on"
+      shift
+      ;;
+    --no-overlay)
+      OVERLAY_MODE="off"
       shift
       ;;
     --no-restart)
@@ -133,8 +145,59 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
   RSYNC_ARGS+=(-n -v)
 fi
 
-echo "==> Syncing manifest files..."
-rsync "${RSYNC_ARGS[@]}" "$SRC_ROOT/" "$HOST:$DEPLOY_ROOT/"
+detect_overlay() {
+  ssh "$HOST" "mount | grep -q '^overlayroot on / type overlay'"
+}
+
+EFFECTIVE_OVERLAY=0
+case "$OVERLAY_MODE" in
+  on)
+    EFFECTIVE_OVERLAY=1
+    ;;
+  off)
+    EFFECTIVE_OVERLAY=0
+    ;;
+  auto)
+    if detect_overlay; then EFFECTIVE_OVERLAY=1; fi
+    ;;
+  *)
+    echo "Invalid OVERLAY_MODE: $OVERLAY_MODE (expected auto|on|off)" >&2
+    exit 2
+    ;;
+esac
+
+if [[ "$EFFECTIVE_OVERLAY" -eq 1 ]]; then
+  echo "Overlay deploy mode: enabled"
+  STAGE_DIR="/tmp/building-directory-deploy-$RANDOM-$(date +%s)"
+  REMOTE_MANIFEST="/tmp/building-directory-deploy-manifest-$RANDOM-$(date +%s).txt"
+  echo "==> Staging manifest files on remote..."
+  ssh "$HOST" "mkdir -p '$STAGE_DIR'"
+  rsync "${RSYNC_ARGS[@]}" "$SRC_ROOT/" "$HOST:$STAGE_DIR/"
+  scp "$TMP_MANIFEST" "$HOST:$REMOTE_MANIFEST"
+  if [[ "$DRY_RUN" -eq 0 ]]; then
+    echo "==> Writing files to overlay lower layer..."
+    ssh "$HOST" "bash -lc '
+      set -euo pipefail
+      while IFS= read -r rel; do
+        [[ -z \"\$rel\" ]] && continue
+        src=\"$STAGE_DIR/\$rel\"
+        dst=\"$DEPLOY_ROOT/\$rel\"
+        [[ -f \"\$src\" ]] || { echo \"Missing staged file: \$src\" >&2; exit 1; }
+        mode=\$(stat -c %a \"\$src\")
+        sudo -n overlayroot-chroot install -D -m \"\$mode\" \"\$src\" \"\$dst\"
+      done < \"$REMOTE_MANIFEST\"
+      echo 3 | sudo -n tee /proc/sys/vm/drop_caches >/dev/null
+      rm -rf \"$STAGE_DIR\" \"$REMOTE_MANIFEST\"
+    '"
+  else
+    echo "==> [dry-run] Overlay lower-layer write step skipped."
+    ssh "$HOST" "rm -rf '$STAGE_DIR' '$REMOTE_MANIFEST'" || true
+  fi
+else
+  echo "Overlay deploy mode: disabled"
+  echo "==> Syncing manifest files..."
+  rsync "${RSYNC_ARGS[@]}" "$SRC_ROOT/" "$HOST:$DEPLOY_ROOT/"
+fi
 
 if [[ "$WITH_DB" -eq 1 ]]; then
   echo "==> Deploying database file..."
@@ -142,7 +205,11 @@ if [[ "$WITH_DB" -eq 1 ]]; then
     echo "[dry-run] Would copy $DB_SOURCE -> $HOST:$DEPLOY_ROOT/server/directory.db (with service stop/start)"
   else
     scp "$DB_SOURCE" "$HOST:/tmp/directory.db.new"
-    ssh "$HOST" "set -e; sudo -n systemctl stop directory-server; cp /tmp/directory.db.new '$DEPLOY_ROOT/server/directory.db'; rm -f /tmp/directory.db.new; sudo -n systemctl start directory-server"
+    if [[ "$EFFECTIVE_OVERLAY" -eq 1 ]]; then
+      ssh "$HOST" "set -e; sudo -n systemctl stop directory-server; sudo -n overlayroot-chroot cp /tmp/directory.db.new '$DEPLOY_ROOT/server/directory.db'; rm -f /tmp/directory.db.new; echo 3 | sudo -n tee /proc/sys/vm/drop_caches >/dev/null; sudo -n systemctl start directory-server"
+    else
+      ssh "$HOST" "set -e; sudo -n systemctl stop directory-server; cp /tmp/directory.db.new '$DEPLOY_ROOT/server/directory.db'; rm -f /tmp/directory.db.new; sudo -n systemctl start directory-server"
+    fi
   fi
 fi
 
@@ -153,10 +220,18 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
 fi
 
 echo "==> Installing production dependencies on remote..."
-ssh "$HOST" "if [[ -f '$DEPLOY_ROOT/server/package-lock.json' ]]; then npm ci --omit=dev --no-audit --no-fund --loglevel=error --prefix '$DEPLOY_ROOT/server'; else npm install --omit=dev --no-audit --no-fund --loglevel=error --prefix '$DEPLOY_ROOT/server'; fi"
+if [[ "$EFFECTIVE_OVERLAY" -eq 1 ]]; then
+  ssh "$HOST" "sudo -n overlayroot-chroot bash -lc \"if [[ -f '$DEPLOY_ROOT/server/package-lock.json' ]]; then npm ci --omit=dev --no-audit --no-fund --loglevel=error --prefix '$DEPLOY_ROOT/server'; else npm install --omit=dev --no-audit --no-fund --loglevel=error --prefix '$DEPLOY_ROOT/server'; fi\""
+else
+  ssh "$HOST" "if [[ -f '$DEPLOY_ROOT/server/package-lock.json' ]]; then npm ci --omit=dev --no-audit --no-fund --loglevel=error --prefix '$DEPLOY_ROOT/server'; else npm install --omit=dev --no-audit --no-fund --loglevel=error --prefix '$DEPLOY_ROOT/server'; fi"
+fi
 
 echo "==> Installing persist-upload helper on remote..."
-ssh "$HOST" "sudo -n install -m 755 '$DEPLOY_ROOT/server/persist-upload.sh' /usr/local/bin/persist-upload.sh"
+if [[ "$EFFECTIVE_OVERLAY" -eq 1 ]]; then
+  ssh "$HOST" "sudo -n overlayroot-chroot install -m 755 '$DEPLOY_ROOT/server/persist-upload.sh' /usr/local/bin/persist-upload.sh"
+else
+  ssh "$HOST" "sudo -n install -m 755 '$DEPLOY_ROOT/server/persist-upload.sh' /usr/local/bin/persist-upload.sh"
+fi
 
 if [[ "$NO_RESTART" -eq 1 ]]; then
   echo "==> --no-restart set; skipping service restart and health checks."
