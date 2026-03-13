@@ -158,28 +158,37 @@ body {
     min-height: 0;
     flex: 1;
     position: relative;
+    isolation: isolate;
 }
 
 .search-actions {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 10px 14px;
+    flex: 0 0 auto;
+    min-height: 72px;
+    padding: 12px 14px 14px;
     position: relative;
     z-index: 3;
 }
 
 .action-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     border: 1px solid #9ea4ad;
     background: #e8edf5;
     color: #2a2f36;
     border-radius: 22px;
     padding: 10px 18px;
+    min-height: 48px;
     font-size: 16px;
     font-weight: 700;
     cursor: pointer;
     position: relative;
     z-index: 4;
+    pointer-events: auto;
+    touch-action: manipulation;
 }
 
 .action-btn-primary {
@@ -189,6 +198,7 @@ body {
 }
 
 .search-wrap {
+    flex: 0 0 auto;
     padding: 0 14px 10px;
     position: relative;
     z-index: 3;
@@ -272,7 +282,7 @@ body {
 }
 
 .results-wrap {
-    flex: 1;
+    flex: 1 1 auto;
     min-height: 0;
     display: grid;
     grid-template-columns: 1fr 54px;
