@@ -405,4 +405,15 @@ echo \"Health checks did not pass within timeout\" >&2
 exit 1
 '"
 
+if [[ "$FULL" -eq 1 ]]; then
+  echo "==> Restarting remote kiosk session..."
+  ssh "$HOST" "bash -lc '
+if [[ -x \"$DEPLOY_ROOT/scripts/restart-kiosk.sh\" ]]; then
+  \"$DEPLOY_ROOT/scripts/restart-kiosk.sh\"
+elif pgrep -x cage >/dev/null 2>&1; then
+  pkill -x cage
+fi
+'"
+fi
+
 echo "Remote deploy complete."
