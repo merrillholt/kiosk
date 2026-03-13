@@ -496,16 +496,27 @@ async function loadDeployTab() {
             keyData.pubkey || ('Error: ' + keyData.error);
 
         renderDeployCards(kiosks, statuses);
-        window.setTimeout(async () => {
-            try {
-                const refreshRes = await apiFetch(`${API_URL}/kiosks/status`);
-                if (!refreshRes.ok) return;
-                renderDeployCards(kiosks, await refreshRes.json());
-            } catch (e) {
-                // Leave the initial cached view in place if refresh fails.
-            }
-        }, 1500);
+        scheduleDeployStatusRefresh(kiosks, 0);
     } catch (error) { showMessage('Failed to load deploy info', 'error'); }
+}
+
+function scheduleDeployStatusRefresh(kiosks, attempt) {
+    const maxAttempts = 8;
+    const delayMs = 1500;
+    window.setTimeout(async () => {
+        try {
+            const refreshRes = await apiFetch(`${API_URL}/kiosks/status`);
+            if (!refreshRes.ok) return;
+            const statuses = await refreshRes.json();
+            renderDeployCards(kiosks, statuses);
+            if (attempt + 1 >= maxAttempts) return;
+            if (Array.isArray(statuses) && statuses.some(status => status && status.refreshing)) {
+                scheduleDeployStatusRefresh(kiosks, attempt + 1);
+            }
+        } catch (e) {
+            // Leave the latest rendered view in place if refresh fails.
+        }
+    }, delayMs);
 }
 
 function renderDeployCards(kiosks, statuses) {
