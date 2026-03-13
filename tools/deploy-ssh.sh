@@ -251,7 +251,6 @@ sudo -n cp -a "$STAGE_DIR"/. "$CHROOT_STAGE"/
 CHROOT_MANIFEST="$CHROOT_STAGE/.deploy-manifest.txt"
 sudo -n cp -f "$REMOTE_MANIFEST" "$CHROOT_MANIFEST"
 sudo -n chmod 644 "$CHROOT_MANIFEST"
-sudo -n install -D -m 644 "$CHROOT_STAGE/REVISION" "$DEPLOY_ROOT/REVISION"
 # Run a single chroot session to avoid repeated mount/unmount churn.
 run_overlay_write() {
   local err_file="$1"
@@ -260,6 +259,7 @@ set -euo pipefail
 CHROOT_STAGE="$1"
 DEPLOY_ROOT="$2"
 CHROOT_MANIFEST="$3"
+install -D -m 644 "$CHROOT_STAGE/REVISION" "$DEPLOY_ROOT/REVISION"
 while IFS= read -r rel; do
   [[ -z "$rel" ]] && continue
   src="$CHROOT_STAGE/$rel"
