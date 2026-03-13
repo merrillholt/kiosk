@@ -96,11 +96,33 @@ try {
     console.warn('Could not read server package version:', err.message);
 }
 let REVISION_SOURCE = 'fallback';
+function getGitRevision() {
+    try {
+        if (!fs.existsSync(path.join(PROJECT_ROOT, '.git'))) return '';
+        const git = spawnSync('git', [
+            '-C', PROJECT_ROOT,
+            'log', '-1',
+            '--date=format:%Y.%m.%d',
+            '--format=%cd.%h'
+        ], { encoding: 'utf8' });
+        if (git.status === 0) {
+            return (git.stdout || '').trim();
+        }
+    } catch (err) {
+        console.warn('Could not read git revision:', err.message);
+    }
+    return '';
+}
 const DEPLOY_REVISION = (() => {
     const envRevision = (process.env.KIOSK_REVISION || '').trim();
     if (envRevision) {
         REVISION_SOURCE = 'env';
         return envRevision;
+    }
+    const gitRevision = getGitRevision();
+    if (gitRevision) {
+        REVISION_SOURCE = 'git';
+        return gitRevision;
     }
     try {
         const fileRevision = fs.readFileSync(REVISION_FILE, 'utf8').trim();

@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SRC_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+COMPUTE_REVISION="$SCRIPT_DIR/compute-revision.sh"
 
 HOST="${HOST:-kiosk@192.168.1.80}"
 DEPLOY_ROOT="${DEPLOY_ROOT:-/home/kiosk/building-directory}"
@@ -126,15 +127,19 @@ if [[ ! -f "$MANIFEST" ]]; then
 fi
 
 TMP_MANIFEST="$(mktemp)"
-cleanup() { rm -f "$TMP_MANIFEST"; }
+TMP_REVISION="$(mktemp)"
+cleanup() { rm -f "$TMP_MANIFEST" "$TMP_REVISION"; }
 trap cleanup EXIT
 
 awk '!/^\s*($|#)/ { print }' "$MANIFEST" > "$TMP_MANIFEST"
+REVISION_VALUE="$("$COMPUTE_REVISION")"
+printf '%s\n' "$REVISION_VALUE" > "$TMP_REVISION"
 
 echo "Deploy source: $SRC_ROOT"
 echo "Deploy target: $HOST:$DEPLOY_ROOT"
 [[ "$DRY_RUN" -eq 1 ]] && echo "Mode: dry-run"
 [[ "$FULL" -eq 1 ]] && echo "Profile: full" || echo "Profile: server-only"
+echo "Revision: $REVISION_VALUE"
 [[ "$REQUIRE_MAINTENANCE" -eq 1 ]] && echo "Mode: maintenance (overlay disabled required)"
 if [[ "$WITH_DB" -eq 1 ]]; then
   echo "Database source: $DB_SOURCE"
@@ -190,9 +195,11 @@ if [[ "$EFFECTIVE_OVERLAY" -eq 1 ]]; then
   STAGE_DIR="/tmp/building-directory-deploy-$RANDOM-$(date +%s)"
   CHROOT_STAGE="/run/deploy-stage"
   REMOTE_MANIFEST="/tmp/building-directory-deploy-manifest-$RANDOM-$(date +%s).txt"
+  REVISION_STAGE="$STAGE_DIR/REVISION"
   echo "==> Staging manifest files on remote..."
   ssh "$HOST" "mkdir -p '$STAGE_DIR'"
   rsync "${RSYNC_ARGS[@]}" "$SRC_ROOT/" "$HOST:$STAGE_DIR/"
+  scp "$TMP_REVISION" "$HOST:$REVISION_STAGE"
   scp "$TMP_MANIFEST" "$HOST:$REMOTE_MANIFEST"
   if [[ "$DRY_RUN" -eq 0 ]]; then
     echo "==> Writing files to overlay lower layer..."
@@ -280,6 +287,7 @@ else
   echo "Overlay deploy mode: disabled"
   echo "==> Syncing manifest files..."
   rsync "${RSYNC_ARGS[@]}" "$SRC_ROOT/" "$HOST:$DEPLOY_ROOT/"
+  scp "$TMP_REVISION" "$HOST:$DEPLOY_ROOT/REVISION"
 fi
 
 if [[ "$WITH_DB" -eq 1 ]]; then

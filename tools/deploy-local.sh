@@ -7,6 +7,7 @@ DEPLOY_ROOT="${DEPLOY_ROOT:-/home/security/building-directory}"
 SERVER_MANIFEST="$SRC_ROOT/manifest/deploy-server-files.txt"
 FULL_MANIFEST="$SRC_ROOT/manifest/install-files.txt"
 MANIFEST="${MANIFEST:-$SERVER_MANIFEST}"
+COMPUTE_REVISION="$SCRIPT_DIR/compute-revision.sh"
 DRY_RUN=0
 FULL=0
 
@@ -81,6 +82,9 @@ echo "Deploy target: $DEPLOY_ROOT"
 [[ "$DRY_RUN" -eq 1 ]] && echo "Mode: dry-run"
 [[ "$FULL" -eq 1 ]] && echo "Profile: full" || echo "Profile: server-only"
 
+REVISION_VALUE="$("$COMPUTE_REVISION")"
+echo "Revision: $REVISION_VALUE"
+
 # 1) Sync manifest-managed files into deployed tree.
 missing=0
 while IFS= read -r rel; do
@@ -100,6 +104,14 @@ done < "$MANIFEST"
 if [[ "$missing" -ne 0 ]]; then
   echo "Aborting: missing source files." >&2
   exit 1
+fi
+
+run_cmd mkdir -p "$DEPLOY_ROOT"
+if [[ "$DRY_RUN" -eq 1 ]]; then
+  echo "[dry-run] Would write computed revision to $DEPLOY_ROOT/REVISION"
+else
+  printf '%s\n' "$REVISION_VALUE" > "$DEPLOY_ROOT/REVISION"
+  echo "synced: REVISION (computed)"
 fi
 
 # 2) Ensure production dependencies are installed.

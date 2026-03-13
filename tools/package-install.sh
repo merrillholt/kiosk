@@ -8,6 +8,7 @@ MANIFEST="$ROOT_DIR/manifest/install-files.txt"
 DIST_DIR="$ROOT_DIR/dist/install"
 OUT_DIR="$DIST_DIR/building-directory-install"
 ZIP_PATH="$ROOT_DIR/dist/building-directory-install.zip"
+COMPUTE_REVISION="$SCRIPT_DIR/compute-revision.sh"
 
 if [[ ! -d "$SRC_INSTALL_DIR" ]]; then
   echo "Missing source install directory: $SRC_INSTALL_DIR" >&2
@@ -40,6 +41,10 @@ if [[ "$missing" -ne 0 ]]; then
   echo "Packaging aborted due to missing manifest files." >&2
   exit 1
 fi
+
+REVISION_VALUE="$("$COMPUTE_REVISION")"
+printf '%s\n' "$REVISION_VALUE" > "$OUT_DIR/REVISION"
+echo "Wrote computed revision: $REVISION_VALUE"
 
 if command -v zip >/dev/null 2>&1; then
   rm -f "$ZIP_PATH"

@@ -5,6 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 MANIFEST="$ROOT_DIR/manifest/install-files.txt"
 INSTALL_DIR="$ROOT_DIR/building-directory-install"
+COMPUTE_REVISION="$SCRIPT_DIR/compute-revision.sh"
 
 if [[ ! -f "$MANIFEST" ]]; then
   echo "Missing manifest: $MANIFEST" >&2
@@ -34,5 +35,9 @@ if [[ "$missing" -ne 0 ]]; then
   echo "Sync completed with missing source files." >&2
   exit 1
 fi
+
+REVISION_VALUE="$("$COMPUTE_REVISION")"
+printf '%s\n' "$REVISION_VALUE" > "$INSTALL_DIR/REVISION"
+echo "synced: REVISION (computed)"
 
 echo "Install tree synced from canonical sources."
