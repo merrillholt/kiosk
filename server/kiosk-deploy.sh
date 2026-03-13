@@ -47,6 +47,7 @@ write_files_overlay_local() {
     sudo overlayroot-chroot cp    "$chroot_stage/kiosk-keyboard-added.sh"    /usr/local/bin/kiosk-keyboard-added.sh
     sudo overlayroot-chroot chmod 755                                         /usr/local/bin/kiosk-keyboard-added.sh
     sudo overlayroot-chroot cp    "$chroot_stage/99-kiosk-keyboard.rules"    /etc/udev/rules.d/99-kiosk-keyboard.rules
+    sudo overlayroot-chroot cp    "$chroot_stage/99-elo-usb-power.rules"     /etc/udev/rules.d/99-elo-usb-power.rules
     sudo overlayroot-chroot mkdir -p                                          /etc/systemd/logind.conf.d
     sudo overlayroot-chroot cp    "$chroot_stage/80-kiosk-power-button.conf" /etc/systemd/logind.conf.d/80-kiosk-power-button.conf
     sudo overlayroot-chroot mkdir -p                                          /etc/systemd/user
@@ -56,12 +57,28 @@ write_files_overlay_local() {
     sudo rm -rf "$chroot_stage"
 }
 
+write_files_lowerdir_local() {
+    local stage="$1"
+    sudo install -D -m 755 "$stage/start-kiosk.sh"             /media/root-ro/home/${KIOSK_USER}/building-directory/scripts/start-kiosk.sh
+    sudo install -D -m 755 "$stage/restart-kiosk.sh"           /media/root-ro/home/${KIOSK_USER}/building-directory/scripts/restart-kiosk.sh
+    sudo install -D -m 755 "$stage/kiosk-keyboard-added.sh"    /media/root-ro/usr/local/bin/kiosk-keyboard-added.sh
+    sudo install -D -m 644 "$stage/99-kiosk-keyboard.rules"    /media/root-ro/etc/udev/rules.d/99-kiosk-keyboard.rules
+    sudo install -D -m 644 "$stage/99-elo-usb-power.rules"     /media/root-ro/etc/udev/rules.d/99-elo-usb-power.rules
+    sudo install -d -m 755                                      /media/root-ro/etc/systemd/logind.conf.d
+    sudo install -D -m 644 "$stage/80-kiosk-power-button.conf" /media/root-ro/etc/systemd/logind.conf.d/80-kiosk-power-button.conf
+    sudo install -d -m 755                                      /media/root-ro/etc/systemd/user
+    sudo ln -sfn                                                /dev/null /media/root-ro/etc/systemd/user/xfce4-notifyd.service
+    sudo install -D -m 644 "$stage/bash_profile"               /media/root-ro/home/${KIOSK_USER}/.bash_profile
+    echo 3 | sudo tee /proc/sys/vm/drop_caches > /dev/null
+}
+
 write_files_direct_local() {
     local stage="$1"
     sudo install -D -m 755 "$stage/start-kiosk.sh"             /home/${KIOSK_USER}/building-directory/scripts/start-kiosk.sh
     sudo install -D -m 755 "$stage/restart-kiosk.sh"           /home/${KIOSK_USER}/building-directory/scripts/restart-kiosk.sh
     sudo install -D -m 755 "$stage/kiosk-keyboard-added.sh"    /usr/local/bin/kiosk-keyboard-added.sh
     sudo install -D -m 644 "$stage/99-kiosk-keyboard.rules"    /etc/udev/rules.d/99-kiosk-keyboard.rules
+    sudo install -D -m 644 "$stage/99-elo-usb-power.rules"     /etc/udev/rules.d/99-elo-usb-power.rules
     sudo install -d -m 755                                      /etc/systemd/logind.conf.d
     sudo install -D -m 644 "$stage/80-kiosk-power-button.conf" /etc/systemd/logind.conf.d/80-kiosk-power-button.conf
     sudo install -d -m 755                                      /etc/systemd/user
@@ -80,6 +97,7 @@ if is_local_target "$KIOSK_IP"; then
     cp "$SCRIPTS_SRC/restart-kiosk.sh" "$STAGE/"
     cp "$SCRIPTS_SRC/kiosk-keyboard-added.sh" "$STAGE/"
     cp "$SCRIPTS_SRC/99-kiosk-keyboard.rules" "$STAGE/"
+    cp "$SCRIPTS_SRC/99-elo-usb-power.rules" "$STAGE/"
     cp "$SCRIPTS_SRC/80-kiosk-power-button.conf" "$STAGE/"
     cp "$SCRIPTS_SRC/bash_profile" "$STAGE/"
 
@@ -87,7 +105,14 @@ if is_local_target "$KIOSK_IP"; then
 
     if mount | grep -q '^overlayroot on / type overlay'; then
         echo "==> Writing to overlayroot lower layer..."
-        write_files_overlay_local "$STAGE"
+        if ! write_files_overlay_local "$STAGE"; then
+            if mount | grep -Eq '^/dev/.+ on /media/root-ro type .+ \(rw,'; then
+                echo "WARN: overlayroot-chroot cleanup failed; falling back to direct lower-layer writes via /media/root-ro."
+                write_files_lowerdir_local "$STAGE"
+            else
+                exit 1
+            fi
+        fi
     else
         echo "==> Writing directly (maintenance mode)..."
         write_files_direct_local "$STAGE"
@@ -115,6 +140,7 @@ scp $SSH_OPTS \
     "$SCRIPTS_SRC/restart-kiosk.sh" \
     "$SCRIPTS_SRC/kiosk-keyboard-added.sh" \
     "$SCRIPTS_SRC/99-kiosk-keyboard.rules" \
+    "$SCRIPTS_SRC/99-elo-usb-power.rules" \
     "$SCRIPTS_SRC/80-kiosk-power-button.conf" \
     "$SCRIPTS_SRC/bash_profile" \
     "${KIOSK_USER}@${KIOSK_IP}:/tmp/kiosk-deploy-staging/"
@@ -131,30 +157,38 @@ STAGE="/run/deploy-stage"
 sudo mkdir -p "\$STAGE"
 sudo cp /tmp/kiosk-deploy-staging/* "\$STAGE/"
 rm -rf /tmp/kiosk-deploy-staging
+if ! sudo overlayroot-chroot cp    "\$STAGE/start-kiosk.sh"          /home/${KIOSK_USER}/building-directory/scripts/start-kiosk.sh ||
+   ! sudo overlayroot-chroot chmod 755                                /home/${KIOSK_USER}/building-directory/scripts/start-kiosk.sh ||
+   ! sudo overlayroot-chroot cp    "\$STAGE/restart-kiosk.sh"        /home/${KIOSK_USER}/building-directory/scripts/restart-kiosk.sh ||
+   ! sudo overlayroot-chroot chmod 755                                /home/${KIOSK_USER}/building-directory/scripts/restart-kiosk.sh ||
+   ! sudo overlayroot-chroot cp    "\$STAGE/kiosk-keyboard-added.sh" /usr/local/bin/kiosk-keyboard-added.sh ||
+   ! sudo overlayroot-chroot chmod 755                                /usr/local/bin/kiosk-keyboard-added.sh ||
+   ! sudo overlayroot-chroot cp    "\$STAGE/99-kiosk-keyboard.rules" /etc/udev/rules.d/99-kiosk-keyboard.rules ||
+   ! sudo overlayroot-chroot cp    "\$STAGE/99-elo-usb-power.rules" /etc/udev/rules.d/99-elo-usb-power.rules ||
+   ! sudo overlayroot-chroot mkdir -p                                 /etc/systemd/logind.conf.d ||
+   ! sudo overlayroot-chroot cp    "\$STAGE/80-kiosk-power-button.conf" /etc/systemd/logind.conf.d/80-kiosk-power-button.conf ||
+   ! sudo overlayroot-chroot mkdir -p                                 /etc/systemd/user ||
+   ! sudo overlayroot-chroot ln -sfn                                  /dev/null /etc/systemd/user/xfce4-notifyd.service ||
+   ! sudo overlayroot-chroot cp    "\$STAGE/bash_profile"            /home/${KIOSK_USER}/.bash_profile; then
+    if mount | grep -Eq '^/dev/.+ on /media/root-ro type .+ \(rw,'; then
+        echo "WARN: overlayroot-chroot cleanup failed; applying direct lower-layer fallback."
+        sudo install -D -m 755 "\$STAGE/start-kiosk.sh"             /media/root-ro/home/${KIOSK_USER}/building-directory/scripts/start-kiosk.sh
+        sudo install -D -m 755 "\$STAGE/restart-kiosk.sh"           /media/root-ro/home/${KIOSK_USER}/building-directory/scripts/restart-kiosk.sh
+        sudo install -D -m 755 "\$STAGE/kiosk-keyboard-added.sh"    /media/root-ro/usr/local/bin/kiosk-keyboard-added.sh
+        sudo install -D -m 644 "\$STAGE/99-kiosk-keyboard.rules"    /media/root-ro/etc/udev/rules.d/99-kiosk-keyboard.rules
+        sudo install -D -m 644 "\$STAGE/99-elo-usb-power.rules"     /media/root-ro/etc/udev/rules.d/99-elo-usb-power.rules
+        sudo install -d -m 755                                      /media/root-ro/etc/systemd/logind.conf.d
+        sudo install -D -m 644 "\$STAGE/80-kiosk-power-button.conf" /media/root-ro/etc/systemd/logind.conf.d/80-kiosk-power-button.conf
+        sudo install -d -m 755                                      /media/root-ro/etc/systemd/user
+        sudo ln -sfn                                                /dev/null /media/root-ro/etc/systemd/user/xfce4-notifyd.service
+        sudo install -D -m 644 "\$STAGE/bash_profile"               /media/root-ro/home/${KIOSK_USER}/.bash_profile
+    else
+        exit 1
+    fi
+fi
 
-sudo overlayroot-chroot cp    "\$STAGE/start-kiosk.sh"          /home/${KIOSK_USER}/building-directory/scripts/start-kiosk.sh
-sudo overlayroot-chroot chmod 755                                /home/${KIOSK_USER}/building-directory/scripts/start-kiosk.sh
-
-sudo overlayroot-chroot cp    "\$STAGE/restart-kiosk.sh"        /home/${KIOSK_USER}/building-directory/scripts/restart-kiosk.sh
-sudo overlayroot-chroot chmod 755                                /home/${KIOSK_USER}/building-directory/scripts/restart-kiosk.sh
-
-sudo overlayroot-chroot cp    "\$STAGE/kiosk-keyboard-added.sh" /usr/local/bin/kiosk-keyboard-added.sh
-sudo overlayroot-chroot chmod 755                                /usr/local/bin/kiosk-keyboard-added.sh
-
-sudo overlayroot-chroot cp    "\$STAGE/99-kiosk-keyboard.rules" /etc/udev/rules.d/99-kiosk-keyboard.rules
-sudo overlayroot-chroot mkdir -p                                 /etc/systemd/logind.conf.d
-sudo overlayroot-chroot cp    "\$STAGE/80-kiosk-power-button.conf" /etc/systemd/logind.conf.d/80-kiosk-power-button.conf
-sudo overlayroot-chroot mkdir -p                                 /etc/systemd/user
-sudo overlayroot-chroot ln -sfn                                  /dev/null /etc/systemd/user/xfce4-notifyd.service
-
-sudo overlayroot-chroot cp    "\$STAGE/bash_profile"            /home/${KIOSK_USER}/.bash_profile
-
-# Make new lower-layer entries visible to running overlay without reboot
 echo 3 | sudo tee /proc/sys/vm/drop_caches > /dev/null
-
-# Reload udev so the keyboard rule takes effect immediately
 sudo udevadm control --reload-rules
-
 sudo rm -rf "\$STAGE"
 ENDSSH
 

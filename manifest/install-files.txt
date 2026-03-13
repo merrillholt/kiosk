@@ -30,6 +30,7 @@ scripts/sample-data.sql
 scripts/bash_profile
 scripts/kiosk-keyboard-added.sh
 scripts/99-kiosk-keyboard.rules
+scripts/99-elo-usb-power.rules
 scripts/80-kiosk-power-button.conf
 scripts/start-server.sh
 scripts/restart-server.sh

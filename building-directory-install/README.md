@@ -87,6 +87,7 @@ This installs:
 - Auto-start configuration
 - Screen management utilities
 - **Keyboard breakout to admin desktop**: Plugging in a USB keyboard stops the kiosk and launches XFCE for admin access. Logging out of XFCE restarts the kiosk.
+- **Optional Elo legacy driver**: The installer can optionally enable the bundled Elo Linux driver for older IntelliTouch/2700 panels. Leave this disabled for newer HID-native Elo models.
 
 ### Testing Installation
 
@@ -141,6 +142,9 @@ curl -i http://127.0.0.1/admin
 
 # Restart kiosk
 ~/building-directory/scripts/restart-kiosk.sh
+
+# Optional: enable the bundled Elo legacy driver later
+~/building-directory/scripts/install-elo-driver.sh
 ```
 
 ### Database Backups
@@ -171,6 +175,7 @@ Manual backup:
 └── scripts/               # Utility scripts
     ├── start-kiosk.sh
     ├── restart-kiosk.sh
+    ├── install-elo-driver.sh
     └── backup.sh
 ```
 
@@ -220,6 +225,27 @@ curl http://SERVER_IP/api/companies
 # Check if Chromium recognizes touch events
 # Look for touch device in xinput
 xinput list
+```
+
+### Legacy Elo Touchscreens
+
+Use the optional Elo driver only for older IntelliTouch / 2700-class displays.
+The bundled driver starts `elomtusbd` in `--stdigitizer` mode and is intended
+for kiosks where the generic stack reports pointer-style touch behavior.
+
+Enable it when:
+- touch input is reported as pointer or mouse clicks
+- the display is an older Elo legacy touchscreen
+
+Skip it when:
+- the kiosk uses a newer HID-native Elo model
+- touch already behaves correctly with the default stack
+
+Manual install after initial setup:
+
+```bash
+~/building-directory/scripts/install-elo-driver.sh
+sudo systemctl status elo.service --no-pager
 ```
 
 ## Network Configuration

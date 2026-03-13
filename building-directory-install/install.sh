@@ -34,6 +34,25 @@ print_header() {
     echo ""
 }
 
+wait_for_http_ok() {
+    local url="$1"
+    local label="$2"
+    local attempts="${3:-15}"
+    local delay="${4:-1}"
+    local i
+
+    for ((i = 1; i <= attempts; i++)); do
+        if curl -fsS "$url" > /dev/null 2>&1; then
+            print_info "$label passed"
+            return 0
+        fi
+        sleep "$delay"
+    done
+
+    print_warn "$label failed"
+    return 1
+}
+
 # Check if running as root
 if [ "$EUID" -eq 0 ]; then
     print_error "Please do not run this script as root or with sudo"
@@ -175,10 +194,10 @@ WorkingDirectory=$INSTALL_DIR/server
 ExecStart=/usr/bin/node $INSTALL_DIR/server/server.js
 Restart=on-failure
 RestartSec=10
-StandardOutput=syslog
-StandardError=syslog
 SyslogIdentifier=directory-server
 Environment=NODE_ENV=production
+Environment=KIOSK_ALLOW_DEFAULT_PASSWORD=true
+Environment=KIOSK_ADMIN_PASSWORD=kiosk
 
 [Install]
 WantedBy=multi-user.target
@@ -360,7 +379,6 @@ EOF
     # Start server
     print_info "Starting directory server..."
     sudo systemctl start directory-server
-    sleep 3
 
     # Load sample data if requested
     if [ -f "$INSTALL_DIR/server/.load-sample-data" ]; then
@@ -377,21 +395,9 @@ EOF
     else
         print_error "directory-server service is not active"
     fi
-    if curl -fsS http://127.0.0.1:3000/api/data-version > /dev/null; then
-        print_info "API health check passed (/api/data-version)"
-    else
-        print_warn "API health check failed on /api/data-version"
-    fi
-    if curl -fsS http://127.0.0.1:3000/api/kiosks > /dev/null; then
-        print_info "Deploy API check passed (/api/kiosks)"
-    else
-        print_warn "Deploy API check failed (/api/kiosks)"
-    fi
-    if curl -fsS -I http://127.0.0.1:3000/api/backup > /dev/null; then
-        print_info "Backup API check passed (/api/backup)"
-    else
-        print_warn "Backup API check failed (/api/backup)"
-    fi
+    wait_for_http_ok "http://127.0.0.1:3000/api/data-version" "API health check (/api/data-version)"
+    wait_for_http_ok "http://127.0.0.1:3000/api/kiosks" "Deploy API check (/api/kiosks)"
+    wait_for_http_ok "http://127.0.0.1:3000/api/backup.txt" "Backup API check (/api/backup.txt)"
 
     LOCAL_IP=$(ip route get 1.1.1.1 | awk '{print $7; exit}')
 
@@ -428,13 +434,21 @@ if [ "$INSTALL_MODE" = "client" ] || [ "$INSTALL_MODE" = "both" ]; then
 
     # Create installation directory if not exists
     mkdir -p "$INSTALL_DIR/scripts"
+    mkdir -p "$INSTALL_DIR/vendor"
 
     # Copy kiosk scripts
     print_info "Installing kiosk scripts..."
     cp scripts/start-kiosk.sh    "$INSTALL_DIR/scripts/"
     cp scripts/restart-kiosk.sh  "$INSTALL_DIR/scripts/"
+    cp scripts/install-elo-driver.sh "$INSTALL_DIR/scripts/"
     chmod +x "$INSTALL_DIR/scripts/start-kiosk.sh"
     chmod +x "$INSTALL_DIR/scripts/restart-kiosk.sh"
+    chmod +x "$INSTALL_DIR/scripts/install-elo-driver.sh"
+
+    if [ -d vendor/elo-mt-usb ]; then
+        rm -rf "$INSTALL_DIR/vendor/elo-mt-usb"
+        cp -r vendor/elo-mt-usb "$INSTALL_DIR/vendor/"
+    fi
 
     # Update server URL in start-kiosk.sh
     if [ "$INSTALL_MODE" = "both" ]; then
@@ -449,6 +463,8 @@ if [ "$INSTALL_MODE" = "client" ] || [ "$INSTALL_MODE" = "both" ]; then
     print_info "Installing keyboard detection udev rule..."
     sudo cp scripts/99-kiosk-keyboard.rules \
         /etc/udev/rules.d/99-kiosk-keyboard.rules
+    sudo cp scripts/99-elo-usb-power.rules \
+        /etc/udev/rules.d/99-elo-usb-power.rules
 
     # Install the script that the udev rule calls
     sudo cp scripts/kiosk-keyboard-added.sh \
@@ -465,6 +481,14 @@ if [ "$INSTALL_MODE" = "client" ] || [ "$INSTALL_MODE" = "both" ]; then
     sudo systemctl --global mask xfce4-notifyd.service
 
     sudo udevadm control --reload-rules
+
+    read -p "Install optional Elo legacy touchscreen driver bundle (IntelliTouch/2700)? (y/n): " INSTALL_ELO_DRIVER
+    if [ "$INSTALL_ELO_DRIVER" = "y" ]; then
+        print_info "Installing optional Elo legacy touchscreen driver..."
+        "$PWD/scripts/install-elo-driver.sh"
+    else
+        print_info "Skipping optional Elo legacy touchscreen driver."
+    fi
 
     # Allow kiosk deploys to run required root commands without a password.
     # Used by server-side kiosk-deploy.sh.

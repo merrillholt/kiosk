@@ -160,6 +160,7 @@ detect_overlay() {
 }
 
 EFFECTIVE_OVERLAY=0
+LOWERDIR_DIRECT_WRITE=0
 case "$OVERLAY_MODE" in
   on)
     EFFECTIVE_OVERLAY=1
@@ -195,7 +196,8 @@ if [[ "$EFFECTIVE_OVERLAY" -eq 1 ]]; then
   scp "$TMP_MANIFEST" "$HOST:$REMOTE_MANIFEST"
   if [[ "$DRY_RUN" -eq 0 ]]; then
     echo "==> Writing files to overlay lower layer..."
-    ssh "$HOST" CHROOT_STAGE="$CHROOT_STAGE" DEPLOY_ROOT="$DEPLOY_ROOT" REMOTE_MANIFEST="$REMOTE_MANIFEST" STAGE_DIR="$STAGE_DIR" 'bash -s' <<'REMOTE_SCRIPT'
+    set +e
+    REMOTE_OUTPUT="$(ssh "$HOST" CHROOT_STAGE="$CHROOT_STAGE" DEPLOY_ROOT="$DEPLOY_ROOT" REMOTE_MANIFEST="$REMOTE_MANIFEST" STAGE_DIR="$STAGE_DIR" 'bash -s' <<'REMOTE_SCRIPT'
 set -euo pipefail
 cleanup() {
   sudo -n rm -rf "$CHROOT_STAGE"
@@ -206,9 +208,11 @@ sudo -n mkdir -p "$CHROOT_STAGE"
 sudo -n cp -a "$STAGE_DIR"/. "$CHROOT_STAGE"/
 CHROOT_MANIFEST="$CHROOT_STAGE/.deploy-manifest.txt"
 sudo -n cp -f "$REMOTE_MANIFEST" "$CHROOT_MANIFEST"
+sudo -n chmod 644 "$CHROOT_MANIFEST"
 # Run a single chroot session to avoid repeated mount/unmount churn.
-CHROOT_ERR="$(mktemp /tmp/overlayroot-chroot.XXXXXX)"
-sudo -n overlayroot-chroot bash -s -- "$CHROOT_STAGE" "$DEPLOY_ROOT" "$CHROOT_MANIFEST" 2>"$CHROOT_ERR" <<'CHROOT_SCRIPT'
+run_overlay_write() {
+  local err_file="$1"
+  sudo -n overlayroot-chroot bash -s -- "$CHROOT_STAGE" "$DEPLOY_ROOT" "$CHROOT_MANIFEST" 2>"$err_file" <<'CHROOT_SCRIPT'
 set -euo pipefail
 CHROOT_STAGE="$1"
 DEPLOY_ROOT="$2"
@@ -222,9 +226,31 @@ while IFS= read -r rel; do
   install -D -m "$mode" "$src" "$dst"
 done < "$CHROOT_MANIFEST"
 CHROOT_SCRIPT
+}
+
+run_lowerdir_fallback() {
+  while IFS= read -r rel; do
+    [[ -z "$rel" ]] && continue
+    src="$CHROOT_STAGE/$rel"
+    dst="/media/root-ro$DEPLOY_ROOT/$rel"
+    [[ -f "$src" ]] || { echo "Missing staged file: $src" >&2; exit 1; }
+    mode=$(stat -c %a "$src")
+    sudo -n install -D -m "$mode" "$src" "$dst"
+  done < "$CHROOT_MANIFEST"
+}
+
+CHROOT_ERR="$(mktemp /tmp/overlayroot-chroot.XXXXXX)"
+if ! run_overlay_write "$CHROOT_ERR"; then
+  cat "$CHROOT_ERR" >&2
+  exit 1
+fi
 if grep -q "mount point is busy" "$CHROOT_ERR"; then
   if mount | grep -Eq '^/dev/.+ on /media/root-ro type .+ \(ro,'; then
     echo "INFO: overlayroot remount warning observed; /media/root-ro is read-only after file write."
+  elif mount | grep -Eq '^/dev/.+ on /media/root-ro type .+ \(rw,'; then
+    echo "WARN: overlayroot-chroot cleanup failed; falling back to direct lower-layer writes via /media/root-ro."
+    run_lowerdir_fallback
+    echo "__LOWERDIR_DIRECT_WRITE__"
   else
     cat "$CHROOT_ERR" >&2
     echo "ERROR: /media/root-ro is not read-only after overlay write." >&2
@@ -236,6 +262,16 @@ fi
 rm -f "$CHROOT_ERR"
 echo 3 | sudo -n tee /proc/sys/vm/drop_caches >/dev/null
 REMOTE_SCRIPT
+)"
+    REMOTE_RC=$?
+    set -e
+    echo "$REMOTE_OUTPUT"
+    if [[ "$REMOTE_RC" -ne 0 ]]; then
+      exit 1
+    fi
+    if [[ "$REMOTE_OUTPUT" == *"__LOWERDIR_DIRECT_WRITE__"* ]]; then
+      LOWERDIR_DIRECT_WRITE=1
+    fi
   else
     echo "==> [dry-run] Overlay lower-layer write step skipped."
     ssh "$HOST" "sudo -n rm -rf '$CHROOT_STAGE'; rm -rf '$STAGE_DIR' '$REMOTE_MANIFEST'" || true
@@ -253,7 +289,11 @@ if [[ "$WITH_DB" -eq 1 ]]; then
   else
     scp "$DB_SOURCE" "$HOST:/tmp/directory.db.new"
     if [[ "$EFFECTIVE_OVERLAY" -eq 1 ]]; then
-      ssh "$HOST" "set -e; sudo -n systemctl stop directory-server; sudo -n overlayroot-chroot cp /tmp/directory.db.new '$DEPLOY_ROOT/server/directory.db'; rm -f /tmp/directory.db.new; echo 3 | sudo -n tee /proc/sys/vm/drop_caches >/dev/null; sudo -n systemctl start directory-server"
+      if [[ "$LOWERDIR_DIRECT_WRITE" -eq 1 ]]; then
+        ssh "$HOST" "set -e; sudo -n systemctl stop directory-server; sudo -n install -D -m 644 /tmp/directory.db.new '/media/root-ro$DEPLOY_ROOT/server/directory.db'; rm -f /tmp/directory.db.new; echo 3 | sudo -n tee /proc/sys/vm/drop_caches >/dev/null; sudo -n systemctl start directory-server"
+      else
+        ssh "$HOST" "set -e; sudo -n systemctl stop directory-server; sudo -n overlayroot-chroot cp /tmp/directory.db.new '$DEPLOY_ROOT/server/directory.db'; rm -f /tmp/directory.db.new; echo 3 | sudo -n tee /proc/sys/vm/drop_caches >/dev/null; sudo -n systemctl start directory-server"
+      fi
     else
       ssh "$HOST" "set -e; sudo -n systemctl stop directory-server; cp /tmp/directory.db.new '$DEPLOY_ROOT/server/directory.db'; rm -f /tmp/directory.db.new; sudo -n systemctl start directory-server"
     fi
@@ -281,7 +321,11 @@ fi
 
 echo "==> Installing persist-upload helper on remote..."
 if [[ "$EFFECTIVE_OVERLAY" -eq 1 ]]; then
-  ssh "$HOST" "sudo -n overlayroot-chroot install -m 755 '$DEPLOY_ROOT/server/persist-upload.sh' /usr/local/bin/persist-upload.sh"
+  if [[ "$LOWERDIR_DIRECT_WRITE" -eq 1 ]]; then
+    ssh "$HOST" "sudo -n install -D -m 755 '$DEPLOY_ROOT/server/persist-upload.sh' /media/root-ro/usr/local/bin/persist-upload.sh"
+  else
+    ssh "$HOST" "sudo -n overlayroot-chroot install -m 755 '$DEPLOY_ROOT/server/persist-upload.sh' /usr/local/bin/persist-upload.sh"
+  fi
 else
   ssh "$HOST" "sudo -n install -m 755 '$DEPLOY_ROOT/server/persist-upload.sh' /usr/local/bin/persist-upload.sh"
 fi

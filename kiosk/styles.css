@@ -199,6 +199,57 @@ body {
     font-size: 24px;
 }
 
+.virtual-keyboard {
+    position: fixed;
+    left: 50%;
+    bottom: 18px;
+    transform: translateX(-50%);
+    width: min(1080px, calc(100vw - 40px));
+    padding: 14px 16px 16px;
+    border: 2px solid rgba(255, 255, 255, .88);
+    border-radius: 18px;
+    background: linear-gradient(180deg, rgba(64, 86, 122, .97) 0%, rgba(31, 45, 67, .97) 100%);
+    box-shadow: 0 18px 36px rgba(0, 0, 0, .34);
+    z-index: 50;
+}
+
+.virtual-keyboard.hidden {
+    display: none;
+}
+
+.keyboard-row {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.keyboard-row:first-child {
+    margin-top: 0;
+}
+
+.vk-key {
+    min-width: 64px;
+    height: 58px;
+    border: 1px solid rgba(255, 255, 255, .72);
+    border-radius: 12px;
+    background: linear-gradient(180deg, rgba(245, 248, 252, .98) 0%, rgba(201, 211, 225, .98) 100%);
+    color: #233247;
+    font-size: 28px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.vk-key-wide {
+    min-width: 110px;
+    font-size: 22px;
+}
+
+.vk-key-space {
+    min-width: 420px;
+    font-size: 22px;
+}
+
 .results-list {
     flex: 1;
     min-height: 0;

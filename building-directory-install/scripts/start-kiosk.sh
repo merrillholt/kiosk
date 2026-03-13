@@ -75,6 +75,5 @@ cage -d -- sh -c '
     --disable-restore-session-state \
     --disable-sync \
     --disable-translate \
-    --touch-events=enabled \
     '"$ACTIVE_SERVER_URL"'
 '
