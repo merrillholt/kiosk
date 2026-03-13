@@ -19,6 +19,33 @@ OVERLAY_MODE="${OVERLAY_MODE:-auto}"
 OVERLAY_INSTALL_DEPS="${OVERLAY_INSTALL_DEPS:-0}"
 REQUIRE_MAINTENANCE=0
 
+host_ip() {
+  local target="$1"
+  if [[ "$target" == *"@"* ]]; then
+    printf '%s\n' "${target##*@}"
+  else
+    printf '%s\n' "$target"
+  fi
+}
+
+is_protected_kiosk_ip() {
+  case "$1" in
+    192.168.1.80|192.168.1.81|192.168.1.82)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+is_dirty_worktree() {
+  if ! command -v git >/dev/null 2>&1 || [[ ! -d "$SRC_ROOT/.git" ]]; then
+    return 1
+  fi
+  [[ -n "$(git -C "$SRC_ROOT" status --porcelain)" ]]
+}
+
 usage() {
   cat <<USAGE
 Usage: tools/deploy-ssh.sh [options]
@@ -104,6 +131,8 @@ if [[ -z "$HOST" ]]; then
   exit 2
 fi
 
+HOST_IP="$(host_ip "$HOST")"
+
 if [[ "$FULL" -eq 1 ]]; then
   MANIFEST="$FULL_MANIFEST"
 fi
@@ -123,6 +152,12 @@ if [[ "$WITH_DB" -eq 1 && ! -f "$DB_SOURCE" ]]; then
 fi
 if [[ ! -f "$MANIFEST" ]]; then
   echo "Missing manifest: $MANIFEST" >&2
+  exit 1
+fi
+
+if is_protected_kiosk_ip "$HOST_IP" && is_dirty_worktree; then
+  echo "Refusing deploy: working tree has uncommitted changes and target $HOST_IP is protected." >&2
+  echo "Commit changes before deploying to 192.168.1.80/81/82." >&2
   exit 1
 fi
 
