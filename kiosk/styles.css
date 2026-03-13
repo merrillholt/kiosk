@@ -157,6 +157,7 @@ body {
     flex-direction: column;
     min-height: 0;
     flex: 1;
+    position: relative;
 }
 
 .search-actions {
@@ -164,6 +165,8 @@ body {
     align-items: center;
     gap: 8px;
     padding: 10px 14px;
+    position: relative;
+    z-index: 3;
 }
 
 .action-btn {
@@ -175,6 +178,8 @@ body {
     font-size: 16px;
     font-weight: 700;
     cursor: pointer;
+    position: relative;
+    z-index: 4;
 }
 
 .action-btn-primary {
@@ -185,6 +190,8 @@ body {
 
 .search-wrap {
     padding: 0 14px 10px;
+    position: relative;
+    z-index: 3;
 }
 
 .search-wrap.hidden {
@@ -271,6 +278,8 @@ body {
     grid-template-columns: 1fr 54px;
     gap: 10px;
     padding-right: 8px;
+    position: relative;
+    z-index: 1;
 }
 
 .scroll-controls {
