@@ -103,8 +103,8 @@ echo "kiosk-guard=$(systemctl show -p ActiveState --value kiosk-guard 2>/dev/nul
 if pgrep -x cage >/dev/null 2>&1; then echo "cage=running"; else echo "cage=stopped"; fi
 if pgrep -a chromium >/dev/null 2>&1; then echo "chromium=running"; else echo "chromium=stopped"; fi
 if [[ -f /home/kiosk/building-directory/scripts/start-kiosk.sh ]]; then
-  primary="$(sed -n 's/^SERVER_URL=\"\\(.*\\)\"/\\1/p' /home/kiosk/building-directory/scripts/start-kiosk.sh | head -n1)"
-  standby="$(sed -n 's/^SERVER_URL_STANDBY=\"\\(.*\\)\"/\\1/p' /home/kiosk/building-directory/scripts/start-kiosk.sh | head -n1)"
+  primary="$(awk -F'\"' '/^SERVER_URL=/{print $2; exit}' /home/kiosk/building-directory/scripts/start-kiosk.sh)"
+  standby="$(awk -F'\"' '/^SERVER_URL_STANDBY=/{print $2; exit}' /home/kiosk/building-directory/scripts/start-kiosk.sh)"
   echo "server_url=${primary:-unknown}"
   echo "server_url_standby=${standby:-unknown}"
 else
