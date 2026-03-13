@@ -297,6 +297,10 @@ async function runTests(serverProc) {
         const exists = fs.existsSync(path.join(UPLOADS_LOWER, uploadedFilename));
         assert('Uploaded file persisted to UPLOADS_LOWER', exists, uploadedFilename);
     }
+    {
+        const tempFiles = fs.readdirSync(TEMP_DIR).filter(name => !name.startsWith('.'));
+        assert('Background upload temp file cleaned up after POST', tempFiles.length === 0, JSON.stringify(tempFiles));
+    }
 
     // Active background should now be the uploaded file
     {
@@ -435,6 +439,33 @@ async function runTests(serverProc) {
         const r2 = await req('GET', '/api/companies');
         assert('DELETE /api/companies/:id removes record', !r2.body.some(c => c.id === companyId), JSON.stringify(r2.body));
     }
+    {
+        const company = await req('POST', '/api/companies', { name: 'Delete Me Co', building: 'D', suite: '404', phone: '', floor: '4' });
+        const linkedCompanyId = company.body.id;
+        const person = await req('POST', '/api/individuals', {
+            first_name: 'Linked',
+            last_name: 'Person',
+            company_id: linkedCompanyId,
+            building: 'D',
+            suite: '404',
+            title: 'Tenant',
+            phone: ''
+        });
+        const linkedPersonId = person.body.id;
+
+        const deleted = await req('DELETE', `/api/companies/${linkedCompanyId}`);
+        assert('DELETE /api/companies/:id succeeds when individuals are linked', deleted.status === 200, JSON.stringify(deleted.body));
+
+        const individuals = await req('GET', '/api/individuals');
+        const linkedPerson = Array.isArray(individuals.body)
+            ? individuals.body.find(p => p.id === linkedPersonId)
+            : null;
+        assert(
+            'DELETE /api/companies/:id clears linked individual company_id values',
+            !!linkedPerson && linkedPerson.company_id == null,
+            JSON.stringify(linkedPerson)
+        );
+    }
 
     console.log('\n── Individuals ──────────────────────────────────────────────────');
 
@@ -502,6 +533,16 @@ async function runTests(serverProc) {
         assert('GET /api/kiosks entries have required fields',
             r.body.length > 0 && typeof r.body[0].id === 'number' && typeof r.body[0].ip === 'string',
             JSON.stringify(r.body));
+    }
+    {
+        const r = await req('GET', '/api/kiosks/status');
+        assert('GET /api/kiosks/status returns array', r.status === 200 && Array.isArray(r.body), JSON.stringify(r.body));
+        assert(
+            'GET /api/kiosks/status entries include cache metadata',
+            r.body.length > 0 && Object.prototype.hasOwnProperty.call(r.body[0], 'checkedAt') &&
+                Object.prototype.hasOwnProperty.call(r.body[0], 'refreshing'),
+            JSON.stringify(r.body[0] || null)
+        );
     }
     {
         const r = await req('GET', '/api/kiosks/server-url');

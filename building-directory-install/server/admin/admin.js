@@ -476,7 +476,7 @@ async function loadDeployTab() {
     try {
         const [kioskRes, statusRes, urlRes, keyRes, revRes] = await Promise.all([
             apiFetch(`${API_URL}/kiosks`),
-            apiFetch(`${API_URL}/kiosks/status`),
+            apiFetch(`${API_URL}/kiosks/status?refresh=1`),
             apiFetch(`${API_URL}/kiosks/server-url`),
             apiFetch(`${API_URL}/kiosks/deploy-pubkey`),
             apiFetch(`${API_URL}/revision`)
@@ -495,7 +495,22 @@ async function loadDeployTab() {
         document.getElementById('deploy-pubkey').textContent =
             keyData.pubkey || ('Error: ' + keyData.error);
 
-        document.getElementById('kiosk-deploy-list').innerHTML = kiosks.map(k => `
+        renderDeployCards(kiosks, statuses);
+        window.setTimeout(async () => {
+            try {
+                const refreshRes = await apiFetch(`${API_URL}/kiosks/status`);
+                if (!refreshRes.ok) return;
+                renderDeployCards(kiosks, await refreshRes.json());
+            } catch (e) {
+                // Leave the initial cached view in place if refresh fails.
+            }
+        }, 1500);
+    } catch (error) { showMessage('Failed to load deploy info', 'error'); }
+}
+
+function renderDeployCards(kiosks, statuses) {
+    const statusById = new Map((Array.isArray(statuses) ? statuses : []).map(s => [s.id, s]));
+    document.getElementById('kiosk-deploy-list').innerHTML = kiosks.map(k => `
             <div class="kiosk-deploy-card">
                 <div class="kiosk-deploy-info">
                     <strong>${escapeHtml(k.name)}</strong>
@@ -505,23 +520,27 @@ async function loadDeployTab() {
                 <button class="btn btn-success" onclick="deployOne(${k.id}, '${escapeHtml(k.name)}')">Deploy</button>
             </div>
         `).join('');
-    } catch (error) { showMessage('Failed to load deploy info', 'error'); }
 }
 
 function renderKioskStatus(status) {
     const role = (status && status.serverRole) || 'client';
     const overlay = (status && status.overlay) || 'unknown';
     const reachable = !!(status && status.reachable);
+    const refreshing = !!(status && status.refreshing);
     const roleLabel = role === 'active'
         ? 'active server'
         : (role === 'standby' ? 'standby server' : 'client');
-    const reachLabel = reachable ? 'reachable' : 'unreachable';
-    const error = status && status.error ? ` title="${escapeHtml(status.error)}"` : '';
+    const reachLabel = refreshing ? 'refreshing' : (reachable ? 'reachable' : 'unreachable');
+    const details = [];
+    if (status && status.error) details.push(String(status.error));
+    if (status && status.checkedAt) details.push(`checked ${status.checkedAt}`);
+    const titleText = details.length > 0 ? escapeHtml(details.join(' | ')) : '';
+    const titleAttr = titleText ? ` title="${titleText}"` : '';
     return `
         <div class="kiosk-status-row">
             <span class="status-chip role-${role}">${escapeHtml(roleLabel)}</span>
             <span class="status-chip overlay-${overlay}">overlay ${escapeHtml(overlay)}</span>
-            <span class="status-chip reach-${reachable ? 'up' : 'down'}"${error}>${escapeHtml(reachLabel)}</span>
+            <span class="status-chip reach-${reachable ? 'up' : 'down'}"${titleAttr}>${escapeHtml(reachLabel)}</span>
         </div>
     `;
 }

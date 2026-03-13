@@ -13,7 +13,8 @@ const state = {
     dataVersion: 0,
     revision: '--',
     currentScreen: 'main-menu',
-    inactivityTimer: null
+    inactivityTimer: null,
+    activeSearchInputId: null
 };
 
 async function init() {
@@ -126,6 +127,10 @@ function showScreen(screenId) {
 
     state.currentScreen = screenId;
 
+    if (screenId !== 'companies' && screenId !== 'individuals') {
+        hideVirtualKeyboard();
+    }
+
     if (screenId === 'companies') {
         displayCompanies(state.companies);
     } else if (screenId === 'individuals') {
@@ -148,7 +153,9 @@ function openSearch(type) {
     if (!wrap || !input) return;
 
     wrap.classList.remove('hidden');
-    input.focus();
+    state.activeSearchInputId = inputId;
+    showVirtualKeyboard(inputId);
+    input.focus({ preventScroll: true });
     resetInactivityTimer();
 }
 
@@ -163,6 +170,7 @@ function listAll(type) {
         displayIndividuals(state.individuals);
     }
 
+    hideVirtualKeyboard();
     resetInactivityTimer();
 }
 
@@ -287,11 +295,127 @@ function setupScrollControls() {
 }
 
 function setupInactivityDetection() {
-    ['mousedown', 'touchstart', 'keydown'].forEach(event => {
-        document.addEventListener(event, resetInactivityTimer);
+    [
+        'mousedown',
+        'mousemove',
+        'pointerdown',
+        'pointermove',
+        'touchstart',
+        'touchend',
+        'keydown',
+        'wheel',
+        'scroll',
+        'input'
+    ].forEach(event => {
+        document.addEventListener(event, resetInactivityTimer, { passive: true });
     });
 
     resetInactivityTimer();
+}
+
+function setupVirtualKeyboard() {
+    const keyboard = document.getElementById('virtual-keyboard');
+    if (!keyboard) return;
+
+    keyboard.addEventListener('click', (event) => {
+        const key = event.target.closest('.vk-key');
+        if (!key) return;
+
+        const action = key.dataset.action;
+        if (action) {
+            handleKeyboardAction(action);
+            return;
+        }
+
+        pressVirtualKey(key.dataset.key || '');
+    });
+
+    ['company-search', 'individual-search'].forEach((id) => {
+        const input = document.getElementById(id);
+        if (!input) return;
+
+        input.addEventListener('focus', () => {
+            state.activeSearchInputId = id;
+            showVirtualKeyboard(id);
+        });
+
+        input.addEventListener('pointerdown', () => {
+            state.activeSearchInputId = id;
+            showVirtualKeyboard(id);
+        });
+    });
+}
+
+function showVirtualKeyboard(inputId) {
+    const keyboard = document.getElementById('virtual-keyboard');
+    const input = document.getElementById(inputId);
+    if (!keyboard || !input) return;
+
+    state.activeSearchInputId = inputId;
+    keyboard.classList.remove('hidden');
+    keyboard.setAttribute('aria-hidden', 'false');
+    input.focus({ preventScroll: true });
+}
+
+function hideVirtualKeyboard() {
+    const keyboard = document.getElementById('virtual-keyboard');
+    if (!keyboard) return;
+
+    keyboard.classList.add('hidden');
+    keyboard.setAttribute('aria-hidden', 'true');
+    state.activeSearchInputId = null;
+}
+
+function handleKeyboardAction(action) {
+    if (action === 'hide') {
+        hideVirtualKeyboard();
+        return;
+    }
+
+    const input = getActiveSearchInput();
+    if (!input) return;
+
+    if (action === 'backspace') {
+        input.value = input.value.slice(0, -1);
+    } else if (action === 'clear') {
+        input.value = '';
+    }
+
+    dispatchSearchInput(input);
+}
+
+function pressVirtualKey(key) {
+    const input = getActiveSearchInput();
+    if (!input || !key) return;
+
+    input.value += key;
+    dispatchSearchInput(input);
+}
+
+function getActiveSearchInput() {
+    if (!state.activeSearchInputId) return null;
+    return document.getElementById(state.activeSearchInputId);
+}
+
+function dispatchSearchInput(input) {
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.focus({ preventScroll: true });
+    resetInactivityTimer();
+}
+
+function returnToHomeScreen() {
+    const companySearch = document.getElementById('company-search');
+    const individualSearch = document.getElementById('individual-search');
+    const companySearchWrap = document.getElementById('company-search-wrap');
+    const individualSearchWrap = document.getElementById('individual-search-wrap');
+
+    if (companySearch) companySearch.value = '';
+    if (individualSearch) individualSearch.value = '';
+    if (companySearchWrap) companySearchWrap.classList.add('hidden');
+    if (individualSearchWrap) individualSearchWrap.classList.add('hidden');
+    hideVirtualKeyboard();
+
+    showScreen('main-menu');
 }
 
 function resetInactivityTimer() {
@@ -299,11 +423,7 @@ function resetInactivityTimer() {
 
     state.inactivityTimer = setTimeout(() => {
         if (state.currentScreen !== 'main-menu') {
-            showScreen('main-menu');
-            const c = document.getElementById('company-search');
-            const i = document.getElementById('individual-search');
-            if (c) c.value = '';
-            if (i) i.value = '';
+            returnToHomeScreen();
         }
     }, CONFIG.INACTIVITY_TIMEOUT);
 }
@@ -386,5 +506,6 @@ window.scrollResults = scrollResults;
 
 window.addEventListener('DOMContentLoaded', () => {
     setupScrollControls();
+    setupVirtualKeyboard();
     init();
 });

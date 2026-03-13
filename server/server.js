@@ -5,7 +5,7 @@ const multer = require('multer');
 const fs = require('fs');
 const os = require('os');
 const crypto = require('crypto');
-const { spawnSync } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -61,7 +61,6 @@ const ADMIN_PASSWORD = process.env.KIOSK_ADMIN_PASSWORD || 'kiosk';
 const SESSION_COOKIE = 'kiosk_admin_session';
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000; // 8 hours
 const adminSessions = new Map();
-const ALLOW_DEFAULT_PASSWORD = process.env.KIOSK_ALLOW_DEFAULT_PASSWORD === 'true';
 const LOGIN_WINDOW_MS = Number.parseInt(process.env.KIOSK_LOGIN_WINDOW_MS || '', 10) || (15 * 60 * 1000);
 const LOGIN_MAX_ATTEMPTS = Number.parseInt(process.env.KIOSK_LOGIN_MAX_ATTEMPTS || '', 10) || 10;
 const LOGIN_BLOCK_MS = Number.parseInt(process.env.KIOSK_LOGIN_BLOCK_MS || '', 10) || (15 * 60 * 1000);
@@ -184,12 +183,7 @@ app.use('/api', (req, res, next) => {
 });
 
 if (ADMIN_PASSWORD === 'kiosk') {
-    if (!ALLOW_DEFAULT_PASSWORD) {
-        console.error('FATAL: Default admin password "kiosk" is active.');
-        console.error('Set KIOSK_ADMIN_PASSWORD to a strong value, or set KIOSK_ALLOW_DEFAULT_PASSWORD=true for dev only.');
-        process.exit(1);
-    }
-    console.warn('WARNING: Default password "kiosk" is active (KIOSK_ALLOW_DEFAULT_PASSWORD=true).');
+    console.warn('WARNING: Default admin password "kiosk" is active.');
 }
 
 function parseCookies(req) {
@@ -677,13 +671,31 @@ app.put('/api/companies/:id', (req, res) => {
 });
 
 app.delete('/api/companies/:id', (req, res) => {
-    db.run('DELETE FROM companies WHERE id = ?', [req.params.id], (err) => {
-        if (err) {
-            res.status(500).json({ error: err.message });
-        } else {
-            incrementDataVersion();
-            res.json({ success: true });
-        }
+    const companyId = req.params.id;
+    db.serialize(() => {
+        db.run('BEGIN TRANSACTION');
+        db.run('UPDATE individuals SET company_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE company_id = ?', [companyId], (updateErr) => {
+            if (updateErr) {
+                db.run('ROLLBACK');
+                return res.status(500).json({ error: updateErr.message });
+            }
+
+            db.run('DELETE FROM companies WHERE id = ?', [companyId], (deleteErr) => {
+                if (deleteErr) {
+                    db.run('ROLLBACK');
+                    return res.status(500).json({ error: deleteErr.message });
+                }
+
+                db.run('COMMIT', (commitErr) => {
+                    if (commitErr) {
+                        db.run('ROLLBACK');
+                        return res.status(500).json({ error: commitErr.message });
+                    }
+                    incrementDataVersion();
+                    return res.json({ success: true });
+                });
+            });
+        });
     });
 });
 
@@ -1167,9 +1179,11 @@ app.post('/api/background-image', bgUpload.single('image'), (req, res) => {
     if (!req.file) {
         return res.status(400).json({ error: 'No file uploaded' });
     }
+    const cleanupUpload = () => fs.unlink(req.file.path, () => {});
     const filename = req.file.filename;
     const result = spawnSync(PERSIST_ARGV[0], [...PERSIST_ARGV.slice(1), 'copy', req.file.path, filename]);
     if (result.status !== 0) {
+        cleanupUpload();
         return res.status(500).json({ error: 'Failed to persist file: ' + (result.stderr ? result.stderr.toString().trim() : 'unknown error') });
     }
     const dbKey = `uploads/${filename}`;
@@ -1177,9 +1191,10 @@ app.post('/api/background-image', bgUpload.single('image'), (req, res) => {
         `INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('background_image', ?, CURRENT_TIMESTAMP)`,
         [dbKey],
         (err) => {
+            cleanupUpload();
             if (err) return res.status(500).json({ error: err.message });
             incrementDataVersion();
-            res.json({ success: true, filename: dbKey });
+            return res.json({ success: true, filename: dbKey });
         }
     );
 });
@@ -1338,13 +1353,85 @@ function getLocalIpv4Set() {
     return out;
 }
 
-function probeKioskOverlayStatus(kiosk) {
+const KIOSK_STATUS_REFRESH_MS = Number.parseInt(process.env.KIOSK_STATUS_REFRESH_MS || '', 10) || 30000;
+const kioskStatusCache = new Map(
+    KIOSK_CLIENTS.map(k => [k.id, {
+        overlay: 'unknown',
+        reachable: false,
+        error: 'Status pending',
+        checkedAt: null
+    }])
+);
+let kioskStatusRefreshPromise = null;
+let kioskStatusLastRefreshStartedAt = 0;
+
+function runCommandCapture(cmd, args, options = {}) {
+    const timeout = options.timeout || 0;
+    return new Promise((resolve) => {
+        let stdout = '';
+        let stderr = '';
+        let timedOut = false;
+        let settled = false;
+        let child;
+
+        const finalize = (result) => {
+            if (settled) return;
+            settled = true;
+            if (timer) clearTimeout(timer);
+            resolve(result);
+        };
+
+        let timer = null;
+        try {
+            child = spawn(cmd, args, {
+                stdio: ['ignore', 'pipe', 'pipe'],
+                ...options.spawnOptions
+            });
+        } catch (err) {
+            finalize({ status: 1, stdout, stderr, error: err.message, timedOut: false });
+            return;
+        }
+
+        if (child.stdout) {
+            child.stdout.on('data', (chunk) => {
+                stdout += chunk.toString();
+            });
+        }
+        if (child.stderr) {
+            child.stderr.on('data', (chunk) => {
+                stderr += chunk.toString();
+            });
+        }
+
+        child.on('error', (err) => {
+            finalize({ status: 1, stdout, stderr, error: err.message, timedOut });
+        });
+        child.on('close', (code) => {
+            finalize({
+                status: code == null ? 1 : code,
+                stdout,
+                stderr,
+                error: timedOut ? `Timed out after ${timeout}ms` : '',
+                timedOut
+            });
+        });
+
+        if (timeout > 0) {
+            timer = setTimeout(() => {
+                timedOut = true;
+                child.kill('SIGKILL');
+            }, timeout);
+        }
+    });
+}
+
+async function probeKioskOverlayStatus(kiosk) {
     const localIps = getLocalIpv4Set();
     if (localIps.has(kiosk.ip)) {
-        const local = spawnSync('bash', [
+        const local = await runCommandCapture('bash', [
             '-lc',
             "if mount | grep -q '^overlayroot on / type overlay'; then echo on; else echo off; fi"
-        ], { encoding: 'utf8', timeout: 3000 });
+        ], { timeout: 3000 });
         if (local.status === 0) {
             return {
                 id: kiosk.id,
@@ -1363,17 +1450,17 @@ function probeKioskOverlayStatus(kiosk) {
             error: 'SSH key not found'
         };
     }
-    const result = spawnSync('ssh', [
+    const result = await runCommandCapture('ssh', [
         '-i', KIOSK_SSH_KEY,
         '-o', 'BatchMode=yes',
         '-o', 'ConnectTimeout=4',
         '-o', 'StrictHostKeyChecking=accept-new',
         `${kiosk.user}@${kiosk.ip}`,
         "if mount | grep -q '^overlayroot on / type overlay'; then echo on; else echo off; fi"
-    ], { encoding: 'utf8', timeout: 7000 });
+    ], { timeout: 7000 });
 
     if (result.status !== 0) {
-        const err = ((result.stderr || '').trim() || (result.error && result.error.message) || 'unreachable');
+        const err = ((result.stderr || '').trim() || result.error || 'unreachable');
         return {
             id: kiosk.id,
             overlay: 'unknown',
@@ -1390,6 +1477,57 @@ function probeKioskOverlayStatus(kiosk) {
         error: null
     };
 }
+
+function getCachedKioskStatuses() {
+    return KIOSK_CLIENTS.map(k => {
+        const cached = kioskStatusCache.get(k.id) || {};
+        return {
+            id: k.id,
+            name: k.name,
+            ip: k.ip,
+            serverRole: getKioskServerRole(k.ip),
+            overlay: cached.overlay || 'unknown',
+            reachable: !!cached.reachable,
+            error: cached.error || null,
+            checkedAt: cached.checkedAt || null,
+            refreshing: !!kioskStatusRefreshPromise
+        };
+    });
+}
+
+function refreshKioskStatusCache(force = false) {
+    const now = Date.now();
+    if (kioskStatusRefreshPromise) return kioskStatusRefreshPromise;
+    if (!force && kioskStatusLastRefreshStartedAt && (now - kioskStatusLastRefreshStartedAt) < KIOSK_STATUS_REFRESH_MS) {
+        return Promise.resolve();
+    }
+
+    kioskStatusLastRefreshStartedAt = now;
+    kioskStatusRefreshPromise = (async () => {
+        const checkedAt = new Date().toISOString();
+        const statuses = await Promise.all(KIOSK_CLIENTS.map(k => probeKioskOverlayStatus(k)));
+        for (const status of statuses) {
+            kioskStatusCache.set(status.id, {
+                overlay: status.overlay,
+                reachable: status.reachable,
+                error: status.error,
+                checkedAt
+            });
+        }
+    })().catch((err) => {
+        console.warn('Failed to refresh kiosk status cache:', err.message);
+    }).finally(() => {
+        kioskStatusRefreshPromise = null;
+    });
+
+    return kioskStatusRefreshPromise;
+}
+
+const kioskStatusInterval = setInterval(() => {
+    void refreshKioskStatusCache(false);
+}, KIOSK_STATUS_REFRESH_MS);
+if (typeof kioskStatusInterval.unref === 'function') kioskStatusInterval.unref();
+void refreshKioskStatusCache(true);
 
 function resolveFirstLanIp() {
     try {
@@ -1451,19 +1589,9 @@ app.get('/api/kiosks', (req, res) => {
 
 // Live per-kiosk node status (overlay + reachability)
 app.get('/api/kiosks/status', (req, res) => {
-    const statuses = KIOSK_CLIENTS.map(k => {
-        const live = probeKioskOverlayStatus(k);
-        return {
-            id: k.id,
-            name: k.name,
-            ip: k.ip,
-            serverRole: getKioskServerRole(k.ip),
-            overlay: live.overlay,
-            reachable: live.reachable,
-            error: live.error
-        };
-    });
-    res.json(statuses);
+    const forceRefresh = req.query.refresh === '1' || req.query.refresh === 'true';
+    void refreshKioskStatusCache(forceRefresh);
+    res.json(getCachedKioskStatuses());
 });
 
 // Server URL that kiosk machines should use to reach this server
