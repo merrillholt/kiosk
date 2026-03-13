@@ -3,7 +3,6 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-REVISION_FILE="${REVISION_FILE:-$ROOT_DIR/REVISION}"
 PACKAGE_JSON_FILE="${PACKAGE_JSON_FILE:-$ROOT_DIR/server/package.json}"
 
 if [[ -n "${KIOSK_REVISION:-}" ]]; then
@@ -15,14 +14,6 @@ if command -v git >/dev/null 2>&1 && [[ -d "$ROOT_DIR/.git" ]]; then
   git_rev="$(git -C "$ROOT_DIR" log -1 --date=format:%Y.%m.%d --format='%cd.%h' 2>/dev/null || true)"
   if [[ -n "$git_rev" ]]; then
     printf '%s\n' "$git_rev"
-    exit 0
-  fi
-fi
-
-if [[ -f "$REVISION_FILE" ]]; then
-  file_rev="$(tr -d '\r' < "$REVISION_FILE" | head -n 1 | sed 's/[[:space:]]*$//')"
-  if [[ -n "$file_rev" ]]; then
-    printf '%s\n' "$file_rev"
     exit 0
   fi
 fi

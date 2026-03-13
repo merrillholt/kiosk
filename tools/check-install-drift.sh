@@ -17,20 +17,6 @@ while IFS= read -r rel; do
   [[ -z "$rel" || "$rel" =~ ^# ]] && continue
   src="$ROOT_DIR/$rel"
   inst="$INSTALL_DIR/$rel"
-  if [[ "$rel" == "REVISION" ]]; then
-    if [[ ! -e "$inst" ]]; then
-      echo "MISSING install: $rel"
-      status=1
-      continue
-    fi
-    expected_revision="$("$COMPUTE_REVISION")"
-    actual_revision="$(tr -d '\r' < "$inst" | head -n 1 | sed 's/[[:space:]]*$//')"
-    if [[ "$actual_revision" != "$expected_revision" ]]; then
-      echo "DIFF: $rel"
-      status=1
-    fi
-    continue
-  fi
   if [[ ! -e "$src" ]]; then
     echo "MISSING source: $rel"
     status=1
@@ -46,6 +32,19 @@ while IFS= read -r rel; do
     status=1
   fi
 done < "$MANIFEST"
+
+expected_revision="$("$COMPUTE_REVISION")"
+install_revision_file="$INSTALL_DIR/REVISION"
+if [[ ! -e "$install_revision_file" ]]; then
+  echo "MISSING install: REVISION"
+  status=1
+else
+  actual_revision="$(tr -d '\r' < "$install_revision_file" | head -n 1 | sed 's/[[:space:]]*$//')"
+  if [[ "$actual_revision" != "$expected_revision" ]]; then
+    echo "DIFF: REVISION"
+    status=1
+  fi
+fi
 
 if [[ "$status" -eq 0 ]]; then
   echo "OK: install tree matches manifest files"

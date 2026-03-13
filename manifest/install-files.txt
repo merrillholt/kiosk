@@ -1,8 +1,6 @@
 # Canonical source files copied into building-directory-install during packaging.
 # Paths are relative to project root.
 
-REVISION
-
 # Server
 server/server.js
 server/package.json

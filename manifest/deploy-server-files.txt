@@ -1,7 +1,6 @@
 # Server-only local deploy manifest (default for deploy-local.sh)
 # Paths are relative to project root.
 
-REVISION
 server/server.js
 server/package.json
 server/package-lock.json
