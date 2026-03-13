@@ -18,6 +18,8 @@ DB_SOURCE="${DB_SOURCE:-}"
 OVERLAY_MODE="${OVERLAY_MODE:-auto}"
 OVERLAY_INSTALL_DEPS="${OVERLAY_INSTALL_DEPS:-0}"
 REQUIRE_MAINTENANCE=0
+KIOSK_PRIMARY_URL="${KIOSK_PRIMARY_URL:-http://192.168.1.80}"
+KIOSK_STANDBY_URL="${KIOSK_STANDBY_URL:-http://192.168.1.81}"
 
 host_ip() {
   local target="$1"
@@ -166,6 +168,10 @@ TMP_REVISION="$(mktemp)"
 cleanup() { rm -f "$TMP_MANIFEST" "$TMP_REVISION"; }
 trap cleanup EXIT
 
+escape_sed_replacement() {
+  printf '%s' "$1" | sed 's/[&|]/\\&/g'
+}
+
 awk '!/^\s*($|#)/ { print }' "$MANIFEST" > "$TMP_MANIFEST"
 REVISION_VALUE="$("$COMPUTE_REVISION")"
 printf '%s\n' "$REVISION_VALUE" > "$TMP_REVISION"
@@ -178,6 +184,13 @@ echo "Revision: $REVISION_VALUE"
 [[ "$REQUIRE_MAINTENANCE" -eq 1 ]] && echo "Mode: maintenance (overlay disabled required)"
 if [[ "$WITH_DB" -eq 1 ]]; then
   echo "Database source: $DB_SOURCE"
+fi
+PATCH_PRIMARY="$(escape_sed_replacement "$KIOSK_PRIMARY_URL")"
+PATCH_STANDBY="$(escape_sed_replacement "$KIOSK_STANDBY_URL")"
+if [[ "$FULL" -eq 1 ]]; then
+  echo "Kiosk browser URLs:"
+  echo "  primary: $KIOSK_PRIMARY_URL"
+  echo "  standby: $KIOSK_STANDBY_URL"
 fi
 
 # Validate all source files exist before remote operations.
@@ -236,6 +249,9 @@ if [[ "$EFFECTIVE_OVERLAY" -eq 1 ]]; then
   rsync "${RSYNC_ARGS[@]}" "$SRC_ROOT/" "$HOST:$STAGE_DIR/"
   scp "$TMP_REVISION" "$HOST:$REVISION_STAGE"
   scp "$TMP_MANIFEST" "$HOST:$REMOTE_MANIFEST"
+  if [[ "$FULL" -eq 1 ]]; then
+    ssh "$HOST" "sed -i 's|^SERVER_URL=.*|SERVER_URL=\"$PATCH_PRIMARY\"|; s|^SERVER_URL_STANDBY=.*|SERVER_URL_STANDBY=\"$PATCH_STANDBY\"|' '$STAGE_DIR/scripts/start-kiosk.sh'"
+  fi
   if [[ "$DRY_RUN" -eq 0 ]]; then
     echo "==> Writing files to overlay lower layer..."
     set +e
@@ -324,6 +340,9 @@ else
   echo "==> Syncing manifest files..."
   rsync "${RSYNC_ARGS[@]}" "$SRC_ROOT/" "$HOST:$DEPLOY_ROOT/"
   scp "$TMP_REVISION" "$HOST:$DEPLOY_ROOT/REVISION"
+  if [[ "$FULL" -eq 1 ]]; then
+    ssh "$HOST" "sed -i 's|^SERVER_URL=.*|SERVER_URL=\"$PATCH_PRIMARY\"|; s|^SERVER_URL_STANDBY=.*|SERVER_URL_STANDBY=\"$PATCH_STANDBY\"|' '$DEPLOY_ROOT/scripts/start-kiosk.sh'"
+  fi
 fi
 
 if [[ "$WITH_DB" -eq 1 ]]; then
@@ -406,6 +425,8 @@ exit 1
 '"
 
 if [[ "$FULL" -eq 1 ]]; then
+  echo "==> Waiting briefly before restarting kiosk session..."
+  sleep 3
   echo "==> Restarting remote kiosk session..."
   ssh "$HOST" "bash -lc '
 if [[ -x \"$DEPLOY_ROOT/scripts/restart-kiosk.sh\" ]]; then
