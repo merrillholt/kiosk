@@ -430,17 +430,9 @@ else
   exit 1
 fi
 
-echo "==> Running remote health checks..."
-ssh "$HOST" "bash -lc '
-for i in {1..20}; do
-  curl -fsS http://127.0.0.1:3000/api/auth/me >/dev/null 2>&1 &&
-  curl -fsS http://127.0.0.1:3000/api/data-version >/dev/null 2>&1 &&
-  exit 0
-  sleep 1
-done
-echo \"Health checks did not pass within timeout\" >&2
-exit 1
-'"
+echo "==> Running remote smoke tests..."
+sleep 2
+ssh "$HOST" "bash -s -- --url http://127.0.0.1:3000 --no-color" < "$SCRIPT_DIR/smoke-test.sh"
 
 if [[ "$FULL" -eq 1 ]]; then
   echo "==> Waiting briefly before restarting kiosk session..."

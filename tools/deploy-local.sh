@@ -162,12 +162,10 @@ else
   echo "  $DEPLOY_ROOT/scripts/restart-server.sh"
 fi
 
-# 5) Health checks (skip in dry-run).
+# 5) Smoke tests (skip in dry-run).
 if [[ "$DRY_RUN" -eq 0 ]]; then
   sleep 2
-  curl -fsS http://127.0.0.1:3000/api/auth/me > /dev/null
-  curl -fsS http://127.0.0.1:3000/api/data-version > /dev/null
-  echo "Health checks passed: /api/auth/me, /api/data-version"
+  "$SCRIPT_DIR/smoke-test.sh" --url http://127.0.0.1:3000
 fi
 
 echo "Local deploy complete."
