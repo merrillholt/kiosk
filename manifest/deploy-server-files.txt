@@ -14,6 +14,9 @@ server/admin/admin.css
 kiosk/index.html
 kiosk/app.js
 kiosk/styles.css
+scripts/backup.sh
+scripts/restore-db.sh
+scripts/production-ops.sh
 scripts/start-server.sh
 scripts/restart-server.sh
 scripts/kioskctl

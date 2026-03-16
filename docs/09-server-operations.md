@@ -18,8 +18,9 @@ Related docs:
 - Node.js Express backend serves API on port `3000` bound to `127.0.0.1` (local only).
 - Nginx serves `kiosk/` and `admin/`, proxies `/api` to `127.0.0.1:3000`.
 - Nginx proxies `/uploads` to `127.0.0.1:3000` with buffering disabled for large image reliability in protected mode.
-- SQLite DB: `server/directory.db`.
+- SQLite DB path is `server/directory.db`, which may be a symlink to persistent storage such as `/data/directory/directory.db`.
 - Service name: `directory-server`.
+- Production-side operations can be run from `scripts/production-ops.sh`.
 
 ## Nginx Requirement
 
@@ -109,11 +110,17 @@ When development and server deployment are on different machines:
 
 Remote deploy behavior:
 1. Syncs manifest-managed files over SSH to remote deploy root.
-2. Runs remote `npm ci --omit=dev` (or `npm install --omit=dev`).
-3. Attempts remote `sudo systemctl restart directory-server`.
-4. Runs remote health checks:
+2. In maintenance/writable mode, runs remote `npm ci --omit=dev` (or `npm install --omit=dev`).
+3. In normal overlay mode, skips dependency install by default unless `OVERLAY_INSTALL_DEPS=1` is set.
+4. Writes the computed deployed revision to remote `REVISION`.
+5. On `--full`, patches `scripts/start-kiosk.sh` with:
+   - primary `http://192.168.1.80`
+   - standby `http://192.168.1.81`
+6. Attempts remote `sudo systemctl restart directory-server`.
+7. Runs remote health checks:
    - `/api/auth/me`
    - `/api/data-version`
+8. On `--full`, waits briefly and restarts the kiosk session.
 
 If non-interactive sudo is unavailable remotely, run:
 ```bash
@@ -186,7 +193,7 @@ curl -i http://127.0.0.1/admin
 
 LAN check:
 ```bash
-curl -i http://192.168.1.131/admin
+curl -i http://192.168.1.80/admin
 ```
 
 ## Environment Variables
@@ -196,8 +203,10 @@ Common server vars:
 - `KIOSK_ADMIN_PASSWORD`
 - `KIOSK_ALLOWED_IPS`
 - `KIOSK_SERVER_URL`
+- `KIOSK_SERVER_URL_STANDBY`
 - `KIOSK_CLIENTS`
 - `KIOSK_SSH_KEY`
+- `KIOSK_DB`
 - `KIOSK_UPLOADS_LOWER` (optional override for uploaded background image directory)
 
 ## Admin Functions (Current Behavior)
@@ -226,6 +235,10 @@ Common server vars:
 - Restore semantics:
   - Replaces current database with uploaded content.
   - Returns DB row counts for `companies` and `individuals`.
+- Production-local host scripts:
+  - `scripts/backup.sh`
+  - `scripts/restore-db.sh`
+  - `scripts/production-ops.sh`
 
 ## Troubleshooting
 

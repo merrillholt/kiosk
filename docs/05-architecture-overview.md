@@ -147,7 +147,9 @@ building-directory/
 ├── scripts/                  # Utility scripts
 │   ├── start-kiosk.sh
 │   ├── restart-kiosk.sh
-│   └── backup.sh
+│   ├── backup.sh
+│   ├── restore-db.sh
+│   └── production-ops.sh
 ├── docs/                     # Documentation
 └── building-directory-install/
     ├── install.sh            # Main installer
@@ -185,18 +187,18 @@ CREATE TABLE individuals (
 
 -- Building information pages
 CREATE TABLE building_info (
-    id INTEGER PRIMARY KEY,
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
     title TEXT NOT NULL,
-    content TEXT,           -- HTML allowed
-    display_order INTEGER,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    content TEXT NOT NULL,
+    display_order INTEGER DEFAULT 0,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Configuration settings
 CREATE TABLE settings (
     key TEXT PRIMARY KEY,
-    value TEXT
+    value TEXT,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 ```
 
@@ -227,7 +229,7 @@ Kiosks check for updates every 60 seconds:
 const REFRESH_INTERVAL = 60000; // 60 seconds
 
 async function checkForUpdates() {
-    const response = await fetch(`${API_URL}/api/data-version`);
+    const response = await fetch(`${CONFIG.API_URL}/data-version`);
     const { version } = await response.json();
 
     if (version !== localStorage.getItem('data_version')) {
@@ -251,4 +253,4 @@ localStorage.setItem('building_info', JSON.stringify(buildingInfoArray));
 localStorage.setItem('data_version', versionString);
 ```
 
-If the server is unreachable, the kiosk continues displaying cached data.
+If the server is unreachable, the kiosk continues displaying cached data and can fall back to the standby server URL configured in `scripts/start-kiosk.sh`.

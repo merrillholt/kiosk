@@ -27,10 +27,16 @@ Keep one canonical source tree at the project root (`server/`, `kiosk/`, `script
 
 When this machine is both development and deployed runtime, use:
 
-- `tools/deploy-local.sh` (default: server-only manifest) to sync server files into `/home/security/building-directory`, update server dependencies, restart the service/process, and run health checks.
+- `tools/deploy-local.sh` (default: server-only manifest) to sync server files into `/home/security/building-directory`, update server dependencies, install the computed deployed revision, and run health checks against the currently running service.
 - `tools/deploy-local.sh --full` to deploy full manifest (server + kiosk + scripts).
 - `tools/deploy-local.sh --dry-run` to preview actions.
 - `make deploy-local` and `make deploy-local-full` as shortcuts.
+
+Important:
+- `tools/deploy-local.sh` does not restart `directory-server` for you.
+- It prints a manual restart step:
+  - `sudo systemctl restart directory-server`
+- Use `--full` before testing kiosk-script or kiosk-session behavior from the localhost admin UI.
 
 ## Remote Deploy (SSH Push to Server Node)
 
@@ -50,13 +56,20 @@ Notes:
 - `rsync` must be installed on both local and remote hosts.
 - If remote host is currently in maintenance/writable mode, install prerequisite with:
   - `sudo apt-get update && sudo apt-get install -y rsync`
-- Script runs remote `npm ci --omit=dev` (or `npm install --omit=dev`) in `server/`.
+- In normal overlay mode, dependency install is skipped by default (`OVERLAY_INSTALL_DEPS=0`).
+- In maintenance/writable mode, script runs remote `npm ci --omit=dev` (or `npm install --omit=dev`) in `server/`.
 - Deploy scripts install/update `/usr/local/bin/persist-upload.sh` on target host.
 - Script attempts non-interactive `sudo systemctl restart directory-server`.
+- Full deploy patches kiosk browser URLs into `scripts/start-kiosk.sh`.
+- Full deploy restarts the kiosk session after server health checks pass.
 - Remote host should already have `directory-server` service installed/enabled.
 - For standard URL access on port 80, remote host should have nginx installed/configured.
 - If remote sudo requires a password, restart must be done manually on remote host.
 - Database is not copied by default; use `--with-db --db-source <path>` when promoting data.
+
+Current default kiosk browser URLs:
+- primary: `http://192.168.1.80`
+- standby: `http://192.168.1.81`
 
 ## Admin-Related Deployment Notes
 
@@ -66,6 +79,7 @@ Notes:
   - auth/session behavior
   - backup/restore endpoints
   - background upload handling
+- The admin Deploy tab uses `server/kiosk-deploy.sh` for kiosk script deployment; it is not the same as a full application deploy from `tools/deploy-ssh.sh`.
 
 ## Fleet Script Convenience Wrapper
 

@@ -24,6 +24,8 @@ kiosk/cushman-wakefield-logo.png
 scripts/start-kiosk.sh
 scripts/restart-kiosk.sh
 scripts/backup.sh
+scripts/restore-db.sh
+scripts/production-ops.sh
 scripts/sample-data.sql
 scripts/bash_profile
 scripts/kiosk-keyboard-added.sh

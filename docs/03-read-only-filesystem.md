@@ -104,16 +104,23 @@ Typical read-only kiosk layout:
 ├── /var             → tmpfs (RAM)
 ├── /tmp             → tmpfs (RAM)
 ├── /home            → tmpfs (RAM)
-└── /data            → small writable partition (for database)
-                       ↑
-                       Only this can corrupt, and it's
-                       easily replaceable/restorable
+└── /data            → persistent writable partition
+                       mounted directly as ext4 in normal mode
 ```
 
-For the building directory app, the database is the only thing that truly needs persistence. The setup:
-1. Puts SQLite on a small dedicated writable partition
-2. Syncs it to a backup server periodically
-3. If corrupted, restores from backup automatically on boot
+For the building directory app, the important persistent state is:
+1. the SQLite database
+2. uploaded background images
+
+Current production model:
+- `server/directory.db` is a symlink into `/data/directory/directory.db`
+- `/data` must mount directly as ext4 in normal mode
+- uploaded files are persisted via `/usr/local/bin/persist-upload.sh`
+- production-local backups are created explicitly, not automatically on boot
+
+Important:
+- if `/data` is accidentally overlaid by overlayroot, admin edits will be lost on reboot
+- current production systems should use `overlayroot="tmpfs:swap=1,recurse=0"` so `/data` remains persistent
 
 ## Trade-offs
 
@@ -139,6 +146,9 @@ After setup, these commands are available:
 ```bash
 # Check current mode
 kiosk-status
+
+# Verify /data is truly persistent
+mount | grep ' on /data '
 
 # Make persistent changes (for updates)
 sudo overlayroot-chroot

@@ -121,6 +121,20 @@ if [[ "$SKIP_LOCAL" -eq 1 && "$SKIP_STANDBY" -eq 1 ]]; then
   exit 2
 fi
 
+if [[ "$SKIP_LOCAL" -eq 0 ]]; then
+  local_db_dir="$(dirname "$LOCAL_DB")"
+  if [[ ! -d "$local_db_dir" ]]; then
+    echo "Missing local deployed runtime: $local_db_dir" >&2
+    echo "Run ./tools/deploy-local.sh --full first, then restart the local service." >&2
+    exit 1
+  fi
+  if [[ ! -f "$LOCAL_DB" ]]; then
+    echo "Missing local development DB: $LOCAL_DB" >&2
+    echo "Run ./tools/deploy-local.sh --full first, then restart the local service." >&2
+    exit 1
+  fi
+fi
+
 ts="$(date +%Y%m%d-%H%M%S)"
 remote_backup="/tmp/directory-primary-sync-${ts}.sqlite"
 local_backup="$(mktemp /tmp/directory-primary-sync-${ts}.XXXXXX.sqlite)"
