@@ -138,7 +138,7 @@ server {
     listen 80;
     access_log /run/nginx/access.log;
     server_name _;
-    client_max_body_size 20m;
+    client_max_body_size 100m;
 
     location / {
         root /home/${KIOSK_USER}/building-directory/kiosk;

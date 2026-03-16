@@ -8,7 +8,7 @@ This project has separate documentation by scope.
 - **Server operations:** [09-server-operations.md](09-server-operations.md)
 - **Server and packaging/deploy workflow:** [08-packaging-and-deploy.md](08-packaging-and-deploy.md)
 - **System architecture overview:** [05-architecture-overview.md](05-architecture-overview.md)
-- **Development VM workflow:** [04-development-environment.md](04-development-environment.md)
+- **Development environment workflow:** [04-development-environment.md](04-development-environment.md)
 
 ## Supporting Docs
 

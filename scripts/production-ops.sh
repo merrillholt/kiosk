@@ -50,7 +50,7 @@ cmd_status() {
     curl -fsS "$API_URL/api/revision" 2>/dev/null || echo "unreachable"
     echo -n "api_data_version="
     curl -fsS "$API_URL/api/data-version" 2>/dev/null || echo "unreachable"
-    echo "kiosk_cage=$(systemctl --user is-active cage 2>/dev/null || pgrep -x cage >/dev/null 2>&1 && echo active || echo inactive)"
+    echo "kiosk_cage=$(pgrep -x cage >/dev/null 2>&1 && echo active || echo inactive)"
     echo "kiosk_chromium=$(pgrep -x chromium >/dev/null 2>&1 && echo active || echo inactive)"
 }
 

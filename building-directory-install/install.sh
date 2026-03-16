@@ -277,7 +277,7 @@ EOF
 server {
     listen 80;
     server_name _;
-    client_max_body_size 20m;
+    client_max_body_size 100m;
 
     location / {
         root $INSTALL_DIR/kiosk;
@@ -335,7 +335,7 @@ EOF
 server {
     listen 80;
     server_name _;
-    client_max_body_size 20m;
+    client_max_body_size 100m;
 
     location / {
         root $INSTALL_DIR/kiosk;

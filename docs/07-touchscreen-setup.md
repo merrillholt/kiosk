@@ -189,20 +189,6 @@ For kiosk use:
 | Response time | < 10ms |
 | Surface | Anti-glare, scratch-resistant |
 
-## VirtualBox Touch Testing
-
-VirtualBox doesn't emulate touchscreens directly, but:
-
-1. Mouse clicks work as single-touch events
-2. Chromium in kiosk mode treats clicks as touch
-3. For real touch testing, deploy to physical hardware
-
-To test multi-touch in VM, you can pass through a USB touchscreen:
-
-```
-VirtualBox → Settings → USB → Add Filter → Select touchscreen
-```
-
 ## Summary
 
 | Component | Connection | Driver |

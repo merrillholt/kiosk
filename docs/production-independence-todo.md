@@ -14,11 +14,7 @@ Goal: make production on `192.168.1.80` run and recover correctly even if the de
 ## Priority 2: Production-Local Backup And Restore
 
 - Maintenance mode needed: No.
-- Status: production-local backup and restore scripts added in the repo; still needs deployment to `192.168.1.80` and a round-trip validation there.
-- Add a production-local backup workflow on `192.168.1.80` that does not require the development machine.
-- Decide where production backups live on `192.168.1.80` or attached persistent storage.
-- Add a documented restore procedure that can be executed directly on `192.168.1.80`.
-- Verify backup/restore with a real round-trip test on production or a production-equivalent machine.
+- Status: complete. Scripts deployed to `192.168.1.80` and round-trip validated. Backups stored on `/data/backups/building-directory/`. Restore procedure via `scripts/restore-db.sh` confirmed working directly on production.
 
 ## Priority 3: Direct Standby Sync From Production
 
