@@ -34,18 +34,16 @@ DB_FILE="$(readlink -f "$DB_LINK")"
 BACKUP_SCRIPT="$SCRIPT_DIR/backup.sh"
 SERVICE_NAME="${SERVICE_NAME:-directory-server}"
 STOPPED_SERVICE=0
+SOURCE_COPY="$(mktemp /tmp/restore-source.XXXXXX.sqlite)"
 
 if [[ ! -f "$DB_FILE" ]]; then
     echo "Database not found: $DB_FILE" >&2
     exit 1
 fi
 
-sqlite3 "$SOURCE_DB" 'PRAGMA schema_version;' >/dev/null
-TABLE_COUNT="$(sqlite3 "$SOURCE_DB" "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('companies','individuals','settings');")"
-if [[ "$TABLE_COUNT" -lt 3 ]]; then
-    echo "Backup is missing required tables." >&2
-    exit 1
-fi
+cleanup() {
+    rm -f "$SOURCE_COPY"
+}
 
 restart_service_if_needed() {
     if [[ "$STOPPED_SERVICE" -eq 1 ]]; then
@@ -53,7 +51,15 @@ restart_service_if_needed() {
     fi
 }
 
-trap restart_service_if_needed EXIT
+trap 'cleanup; restart_service_if_needed' EXIT
+
+cp "$SOURCE_DB" "$SOURCE_COPY"
+sqlite3 "$SOURCE_COPY" 'PRAGMA schema_version;' >/dev/null
+TABLE_COUNT="$(sqlite3 "$SOURCE_COPY" "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('companies','individuals','settings');")"
+if [[ "$TABLE_COUNT" -lt 3 ]]; then
+    echo "Backup is missing required tables." >&2
+    exit 1
+fi
 
 if [[ -x "$BACKUP_SCRIPT" ]]; then
     "$BACKUP_SCRIPT" >/dev/null
@@ -65,7 +71,7 @@ if command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files "$SERVICE_N
 fi
 
 TMP_RESTORE="${DB_FILE}.restore.$$"
-cp "$SOURCE_DB" "$TMP_RESTORE"
+cp "$SOURCE_COPY" "$TMP_RESTORE"
 sqlite3 "$TMP_RESTORE" 'PRAGMA quick_check;' >/dev/null
 mv "$TMP_RESTORE" "$DB_FILE"
 
