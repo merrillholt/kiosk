@@ -5,6 +5,8 @@ Goal: rebuild a development machine from a fresh clone and reattach it to the au
 ## Preconditions
 
 - The repo has been cloned or pulled to `/home/security/Public-Kiosk`.
+- The development environment should use the `security` user account.
+  - Current local deploy and runtime paths assume `/home/security/...`.
 - `192.168.1.80` is reachable over SSH.
 - The production server on `192.168.1.80` remains the source of truth for runtime data.
 

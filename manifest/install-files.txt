@@ -26,6 +26,8 @@ scripts/restart-kiosk.sh
 scripts/backup.sh
 scripts/restore-db.sh
 scripts/production-ops.sh
+scripts/directory-backup.service
+scripts/directory-backup.timer
 scripts/sample-data.sql
 scripts/bash_profile
 scripts/kiosk-keyboard-added.sh

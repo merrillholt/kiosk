@@ -124,13 +124,30 @@ fi
 # 3) Ensure persist-upload helper is installed when non-interactive sudo is available.
 if [[ "$DRY_RUN" -eq 1 ]]; then
   echo "[dry-run] Would install $DEPLOY_ROOT/server/persist-upload.sh to /usr/local/bin/persist-upload.sh"
+  echo "[dry-run] Would install backup timer units to /etc/systemd/system/"
 else
   if command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
     sudo -n install -m 755 "$DEPLOY_ROOT/server/persist-upload.sh" /usr/local/bin/persist-upload.sh
     echo "Installed helper: /usr/local/bin/persist-upload.sh"
+    INSTALL_USER="$(id -un)"
+    sed \
+      -e "s|@INSTALL_USER@|$INSTALL_USER|g" \
+      -e "s|@INSTALL_DIR@|$DEPLOY_ROOT|g" \
+      "$DEPLOY_ROOT/scripts/directory-backup.service" \
+      | sudo -n tee /etc/systemd/system/directory-backup.service > /dev/null
+    sudo -n chmod 644 /etc/systemd/system/directory-backup.service
+    sudo -n install -D -m 644 "$DEPLOY_ROOT/scripts/directory-backup.timer" /etc/systemd/system/directory-backup.timer
+    sudo -n systemctl daemon-reload
+    sudo -n systemctl enable --now directory-backup.timer
+    echo "Installed backup timer: directory-backup.timer"
   else
     echo "Manual step required:"
     echo "  sudo install -m 755 $DEPLOY_ROOT/server/persist-upload.sh /usr/local/bin/persist-upload.sh"
+    echo "  sed -e 's|@INSTALL_USER@|$(id -un)|g' -e 's|@INSTALL_DIR@|$DEPLOY_ROOT|g' $DEPLOY_ROOT/scripts/directory-backup.service | sudo tee /etc/systemd/system/directory-backup.service >/dev/null"
+    echo "  sudo chmod 644 /etc/systemd/system/directory-backup.service"
+    echo "  sudo install -D -m 644 $DEPLOY_ROOT/scripts/directory-backup.timer /etc/systemd/system/directory-backup.timer"
+    echo "  sudo systemctl daemon-reload"
+    echo "  sudo systemctl enable --now directory-backup.timer"
   fi
 fi
 

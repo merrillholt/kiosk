@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Building Directory backup daily
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=15m
+Unit=directory-backup.service
+
+[Install]
+WantedBy=timers.target

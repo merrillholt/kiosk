@@ -17,6 +17,8 @@ kiosk/styles.css
 scripts/backup.sh
 scripts/restore-db.sh
 scripts/production-ops.sh
+scripts/directory-backup.service
+scripts/directory-backup.timer
 scripts/start-server.sh
 scripts/restart-server.sh
 scripts/kioskctl

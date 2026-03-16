@@ -393,6 +393,21 @@ else
   ssh "$HOST" "sudo -n install -m 755 '$DEPLOY_ROOT/server/persist-upload.sh' /usr/local/bin/persist-upload.sh"
 fi
 
+echo "==> Installing backup timer units on remote..."
+if [[ "$EFFECTIVE_OVERLAY" -eq 1 ]]; then
+  if [[ "$LOWERDIR_DIRECT_WRITE" -eq 1 ]]; then
+    ssh "$HOST" "set -e; install_user=\$(stat -c %U '$DEPLOY_ROOT'); sed -e \"s|@INSTALL_USER@|\$install_user|g\" -e \"s|@INSTALL_DIR@|$DEPLOY_ROOT|g\" '$DEPLOY_ROOT/scripts/directory-backup.service' | sudo -n tee /media/root-ro/etc/systemd/system/directory-backup.service >/dev/null; sudo -n chmod 644 /media/root-ro/etc/systemd/system/directory-backup.service"
+    ssh "$HOST" "sudo -n install -D -m 644 '$DEPLOY_ROOT/scripts/directory-backup.timer' /media/root-ro/etc/systemd/system/directory-backup.timer"
+  else
+    ssh "$HOST" "set -e; install_user=\$(stat -c %U '$DEPLOY_ROOT'); tmp_unit=\$(mktemp /tmp/directory-backup.service.XXXXXX); sed -e \"s|@INSTALL_USER@|\$install_user|g\" -e \"s|@INSTALL_DIR@|$DEPLOY_ROOT|g\" '$DEPLOY_ROOT/scripts/directory-backup.service' > \"\$tmp_unit\"; sudo -n overlayroot-chroot install -D -m 644 \"\$tmp_unit\" /etc/systemd/system/directory-backup.service; rm -f \"\$tmp_unit\""
+    ssh "$HOST" "sudo -n overlayroot-chroot install -D -m 644 '$DEPLOY_ROOT/scripts/directory-backup.timer' /etc/systemd/system/directory-backup.timer"
+  fi
+else
+  ssh "$HOST" "set -e; install_user=\$(stat -c %U '$DEPLOY_ROOT'); sed -e \"s|@INSTALL_USER@|\$install_user|g\" -e \"s|@INSTALL_DIR@|$DEPLOY_ROOT|g\" '$DEPLOY_ROOT/scripts/directory-backup.service' | sudo -n tee /etc/systemd/system/directory-backup.service >/dev/null; sudo -n chmod 644 /etc/systemd/system/directory-backup.service"
+  ssh "$HOST" "sudo -n install -D -m 644 '$DEPLOY_ROOT/scripts/directory-backup.timer' /etc/systemd/system/directory-backup.timer"
+fi
+ssh "$HOST" "sudo -n systemctl daemon-reload && sudo -n systemctl enable --now directory-backup.timer"
+
 if [[ "$NO_RESTART" -eq 1 ]]; then
   echo "==> --no-restart set; skipping service restart and health checks."
   echo "Remote deploy complete."

@@ -206,6 +206,17 @@ EOF
     sudo systemctl daemon-reload
     sudo systemctl enable directory-server
 
+    print_info "Installing daily backup timer..."
+    sed \
+        -e "s|@INSTALL_USER@|$INSTALL_USER|g" \
+        -e "s|@INSTALL_DIR@|$INSTALL_DIR|g" \
+        "$INSTALL_DIR/scripts/directory-backup.service" \
+        | sudo tee /etc/systemd/system/directory-backup.service > /dev/null
+    sudo chmod 644 /etc/systemd/system/directory-backup.service
+    sudo install -D -m 644 "$INSTALL_DIR/scripts/directory-backup.timer" /etc/systemd/system/directory-backup.timer
+    sudo systemctl daemon-reload
+    sudo systemctl enable --now directory-backup.timer
+
     # Optional admin hardening
     ADMIN_AUTH_ENABLED="n"
     ADMIN_AUTH_USER="admin"
