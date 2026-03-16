@@ -74,7 +74,7 @@ Read-only systems boot to identical state whether it's day 1 or day 500.
 
 ### 3. Reduces SSD Wear
 
-The 32GB SSD has limited write cycles. Constant logging and temp files degrade it over time.
+The SSD has limited write cycles. Constant logging and temp files degrade it over time.
 
 ```
 Writable system:     ~10-50 GB written/day (logs, journals, tmp)
@@ -94,75 +94,101 @@ Writable:    SSH in → diagnose → maybe fix → maybe reinstall
 Read-only:   Reboot. Done.
 ```
 
-## How It Works in Practice
+## Production Disk Layout
+
+Current production hosts use three partitions:
 
 ```
-Typical read-only kiosk layout:
-
-/                    → read-only (squashfs or ext4 ro)
-├── /etc             → overlay (changes in RAM)
-├── /var             → tmpfs (RAM)
-├── /tmp             → tmpfs (RAM)
-├── /home            → tmpfs (RAM)
-└── /data            → persistent writable partition
-                       mounted directly as ext4 in normal mode
+/dev/sda   (root disk)
+├── sda1   ~18 GB   /              ext4   (root — mounted read-only by overlayroot)
+├── sda2            swap
+└── sda4    ~7 GB   /data          ext4   (persistent data — always mounted rw)
 ```
 
-For the building directory app, the important persistent state is:
-1. the SQLite database
-2. uploaded background images
+The overlayroot layer sits on top of the read-only root:
 
-Current production model:
-- `server/directory.db` is a symlink into `/data/directory/directory.db`
-- `/data` must mount directly as ext4 in normal mode
-- uploaded files are persisted via `/usr/local/bin/persist-upload.sh`
-- production-local backups are created explicitly, not automatically on boot
+```
+/media/root-ro        ← lower layer: read-only ext4 (the real filesystem)
+/media/root-rw        ← upper layer: tmpfs (ephemeral writes, lost on reboot)
+/                     ← overlay of the two (what the running system sees)
+/data                 ← mounted directly from sda4, unaffected by overlayroot
+```
 
-Important:
-- if `/data` is accidentally overlaid by overlayroot, admin edits will be lost on reboot
-- current production systems should use `overlayroot="tmpfs:swap=1,recurse=0"` so `/data` remains persistent
+The application's persistent state lives on `/data`:
+
+| Item | Path |
+|------|------|
+| Database | `/data/directory/directory.db` |
+| Backups | `/data/backups/building-directory/` |
+| DB symlink | `~/building-directory/server/directory.db → /data/directory/directory.db` |
+| Uploaded images | persisted to overlay lower layer via `/usr/local/bin/persist-upload.sh` |
+
+Critical: `overlayroot.conf` must be:
+```
+overlayroot="tmpfs:swap=1,recurse=0"
+```
+The `recurse=0` flag prevents `/data` from being overlaid. Without it, admin edits are lost on reboot.
 
 ## Trade-offs
 
 | Benefit | Trade-off |
 |---------|-----------|
-| Can't corrupt OS | Updates require reboot or remount |
-| Consistent state | Logs don't persist (send to server instead) |
-| No SSD wear | Database needs special handling |
+| Can't corrupt OS | Updates require deploy or overlayroot-chroot |
+| Consistent state | Logs don't persist across reboots |
+| No SSD wear on root | Database needs persistent partition |
 | Easy recovery | Slightly more complex initial setup |
+
+## Making Persistent Changes
+
+### Normal deploys (recommended)
+
+Use `tools/deploy-ssh.sh` from the development machine. The script is overlay-aware and writes files directly to the lower layer via `overlayroot-chroot`:
+
+```bash
+tools/deploy-ssh.sh           # server-only
+tools/deploy-ssh.sh --full    # server + kiosk + scripts
+```
+
+### Manual persistent change on a running host
+
+```bash
+# Run a single command in the lower layer
+sudo overlayroot-chroot <command>
+
+# Or drop into an interactive shell in the lower layer
+sudo overlayroot-chroot bash
+# ... make changes ...
+exit
+```
+
+Note: if `/media/root-ro` is already mounted read-write (busy), `overlayroot-chroot`
+will print a warning but still execute the command successfully.
+
+### Verify /data is mounted correctly
+
+```bash
+mount | grep ' on /data '
+# Expected: /dev/sda4 on /data type ext4 (rw,relatime)
+```
+
+## Maintenance Mode (Writable Root)
+
+For changes that cannot be made via `overlayroot-chroot` (e.g. package installs, grub updates):
+
+1. Reboot and hold/press the key for the grub menu
+2. Select the **Maintenance** entry (added by `setup-readonly-simple.sh`)
+3. Root filesystem is fully writable in this mode
+4. Reboot normally when done — overlay is restored
+
+Or pass the kernel parameter manually at the grub prompt:
+```
+overlayroot=disabled
+```
 
 ## Implementation
 
 See the `readonly/` directory for setup scripts:
 
-- `setup-readonly-simple.sh` - Easy setup using overlayroot (recommended)
-- `setup-readonly.sh` - Custom initramfs overlay setup
-- `migrate-to-data-partition.sh` - Move database to persistent partition
-
-## Management Commands
-
-After setup, these commands are available:
-
-```bash
-# Check current mode
-kiosk-status
-
-# Verify /data is truly persistent
-mount | grep ' on /data '
-
-# Make persistent changes (for updates)
-sudo overlayroot-chroot
-# ... make changes ...
-exit
-
-# Or with custom setup:
-sudo rwmode           # Enable writes
-# ... make changes ...
-sudo romode           # Return to read-only
-```
-
-## Disabling Read-Only Mode
-
-For troubleshooting, boot with kernel parameter:
-- `overlayroot=disabled` (simple method)
-- `overlay=disable` (custom method)
+- `setup-readonly-simple.sh` — Easy setup using overlayroot (recommended)
+- `setup-readonly.sh` — Custom initramfs overlay setup
+- `migrate-to-data-partition.sh` — Move database to persistent `/data` partition

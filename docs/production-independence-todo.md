@@ -37,19 +37,12 @@ Goal: make production on `192.168.1.80` run and recover correctly even if the de
 ## Priority 5: Deployment And Recovery Decoupling
 
 - Maintenance mode needed: Generally no, except where persistent host-level config must be changed on a kiosk.
-- Status: production-side operations entrypoint added as `scripts/production-ops.sh`; still needs deployment to `192.168.1.80` and validation there.
-- Review every operational workflow that currently assumes `/home/security/Public-Kiosk` on the development machine.
-- Separate “production runtime operation” from “development build/deploy workstation” responsibilities.
-- Ensure kiosk recovery steps on `192.168.1.80` do not depend on tools existing only on the development machine.
-- Confirm production can continue operating normally if the development machine is powered off indefinitely.
+- Status: complete. `scripts/production-ops.sh` deployed and all commands validated on `192.168.1.80`: `status`, `restart-server`, `restart-kiosk`, `backup`, `restore`.
 
 ## Priority 6: Documentation Updates
 
 - Maintenance mode needed: No.
-- Update `docs/03-read-only-filesystem.md` to match the real persistence model.
-- Update `docs/08-packaging-and-deploy.md` for current deploy behavior and production/development separation.
-- Update `docs/09-server-operations.md` with the correct production-first operating model.
-- Add a dedicated “production continuity / dev rebuild” document.
+- Status: complete. All three docs updated to reflect current production state. Dev rebuild procedure documented in `docs/dev-reattachment.md`.
 
 ## Validation Checklist
 

@@ -23,32 +23,31 @@ Keep one canonical source tree at the project root (`server/`, `kiosk/`, `script
 - Canonical app files in the manifest overwrite matching files in the packaged output.
 - `dist/` is generated output and should not be edited manually.
 
-## Local Deploy (Dev == Server)
+## Local Deploy
 
-When this machine is both development and deployed runtime, use:
+Syncs the repo source tree into the local runtime at `/home/security/building-directory`:
 
-- `tools/deploy-local.sh` (default: server-only manifest) to sync server files into `/home/security/building-directory`, update server dependencies, install the computed deployed revision, and run health checks against the currently running service.
-- `tools/deploy-local.sh --full` to deploy full manifest (server + kiosk + scripts).
-- `tools/deploy-local.sh --dry-run` to preview actions.
-- `make deploy-local` and `make deploy-local-full` as shortcuts.
+- `tools/deploy-local.sh` — server-only manifest (default)
+- `tools/deploy-local.sh --full` — full manifest (server + kiosk + scripts)
+- `tools/deploy-local.sh --dry-run` — preview actions
+- `make deploy-local` and `make deploy-local-full` as shortcuts
 
 Important:
-- `tools/deploy-local.sh` does not restart `directory-server` for you.
-- It prints a manual restart step:
-  - `sudo systemctl restart directory-server`
-- Use `--full` before testing kiosk-script or kiosk-session behavior from the localhost admin UI.
+- `tools/deploy-local.sh` does not restart `directory-server`.
+- It prints the manual restart step: `sudo systemctl restart directory-server`
+- Use `--full` before testing kiosk-script or kiosk-session behavior from the local admin UI.
 
-## Remote Deploy (SSH Push to Server Node)
+## Remote Deploy (SSH to Production)
 
-For deploying from this development machine to a separate server host:
+Deploys from this machine to a production host over SSH. **Requires a clean git working tree** before deploying to protected IPs (`192.168.1.80`, `.81`, `.82`).
 
-- `tools/deploy-ssh.sh` deploys server-only manifest files to remote `DEPLOY_ROOT` (default host: `kiosk@192.168.1.80`).
-- `tools/deploy-ssh.sh --full` deploys the full manifest (server + kiosk + scripts).
-- `tools/deploy-ssh.sh --dry-run` previews sync actions only.
-- `tools/deploy-ssh.sh --host <user@ip>` targets a specific host.
-- `tools/deploy-ssh.sh --no-restart` skips service restart/health checks.
-- `tools/deploy-ssh.sh --with-db --db-source <path>` also deploys a SQLite DB file.
-- `make deploy-ssh` and `make deploy-ssh-full` are shortcuts.
+- `tools/deploy-ssh.sh` — server-only manifest to `kiosk@192.168.1.80` (default)
+- `tools/deploy-ssh.sh --full` — full manifest (server + kiosk + scripts)
+- `tools/deploy-ssh.sh --dry-run` — preview sync actions only
+- `tools/deploy-ssh.sh --host <user@ip>` — target a specific host
+- `tools/deploy-ssh.sh --no-restart` — skip service restart/health checks
+- `tools/deploy-ssh.sh --with-db --db-source <path>` — also deploy a SQLite DB file
+- `make deploy-ssh` and `make deploy-ssh-full` as shortcuts
 
 Notes:
 
@@ -56,15 +55,17 @@ Notes:
 - `rsync` must be installed on both local and remote hosts.
 - If remote host is currently in maintenance/writable mode, install prerequisite with:
   - `sudo apt-get update && sudo apt-get install -y rsync`
-- In normal overlay mode, dependency install is skipped by default (`OVERLAY_INSTALL_DEPS=0`).
-- In maintenance/writable mode, script runs remote `npm ci --omit=dev` (or `npm install --omit=dev`) in `server/`.
+- **Overlay mode** (normal production): writes files directly to the lower layer via
+  `overlayroot-chroot`, making changes persistent without a reboot.
+- **Maintenance/writable mode**: syncs directly and runs `npm ci --omit=dev` in `server/`.
+- In overlay mode, dependency install is skipped by default (`OVERLAY_INSTALL_DEPS=0`).
 - Deploy scripts install/update `/usr/local/bin/persist-upload.sh` on target host.
 - Script attempts non-interactive `sudo systemctl restart directory-server`.
-- Full deploy patches kiosk browser URLs into `scripts/start-kiosk.sh`.
+- Full deploy patches primary/standby URLs into `scripts/start-kiosk.sh`.
 - Full deploy restarts the kiosk session after server health checks pass.
-- Remote host should already have `directory-server` service installed/enabled.
-- For standard URL access on port 80, remote host should have nginx installed/configured.
-- If remote sudo requires a password, restart must be done manually on remote host.
+- Remote host must have `directory-server` service installed and enabled.
+- Remote host must have nginx installed and configured (port 80).
+- If remote sudo requires a password, restart must be done manually on the remote host.
 - Database is not copied by default; use `--with-db --db-source <path>` when promoting data.
 
 Current default kiosk browser URLs:
@@ -73,15 +74,17 @@ Current default kiosk browser URLs:
 
 ## Admin-Related Deployment Notes
 
-- If kiosk UI image assets are changed (for example building info logo), use full deploy:
+- If kiosk UI image assets are changed (e.g. building info logo), use full deploy:
   - `tools/deploy-ssh.sh --full --host <user@ip>`
 - Server-only deploy updates admin/API logic, including:
   - auth/session behavior
   - backup/restore endpoints
   - background upload handling
-- The admin Deploy tab uses `server/kiosk-deploy.sh` for kiosk script deployment; it is not the same as a full application deploy from `tools/deploy-ssh.sh`.
+- The admin Deploy tab uses `server/kiosk-deploy.sh` for kiosk script deployment; it is
+  not the same as a full application deploy from `tools/deploy-ssh.sh`.
 
 ## Fleet Script Convenience Wrapper
 
 - `scripts/kioskctl` is a thin wrapper that executes `kiosk-fleet/kioskctl`.
-- This lets operators run fleet commands from the `scripts/` path while keeping fleet tooling source under `kiosk-fleet/`.
+- This lets operators run fleet commands from the `scripts/` path while keeping fleet
+  tooling source under `kiosk-fleet/`.

@@ -6,21 +6,36 @@ This document covers the building-directory server lifecycle: install, deploy, a
 
 - Server host setup and operation
 - API/auth behavior
-- Local deploy workflow (dev machine == deployed machine)
+- Deploy workflow
 - Service and nginx checks
 
 Related docs:
 - Client setup: `docs/Debian 13 Configuration.tex`
 - Packaging/deploy pipeline: `docs/08-packaging-and-deploy.md`
+- Read-only filesystem: `docs/03-read-only-filesystem.md`
 
 ## Runtime Architecture
 
 - Node.js Express backend serves API on port `3000` bound to `127.0.0.1` (local only).
-- Nginx serves `kiosk/` and `admin/`, proxies `/api` to `127.0.0.1:3000`.
-- Nginx proxies `/uploads` to `127.0.0.1:3000` with buffering disabled for large image reliability in protected mode.
-- SQLite DB path is `server/directory.db`, which may be a symlink to persistent storage such as `/data/directory/directory.db`.
+- Nginx serves `kiosk/` and `admin/`, proxies `/api` and `/uploads` to `127.0.0.1:3000`.
+- Nginx `client_max_body_size` is `100m` to accommodate DB restore uploads.
+- Nginx proxies `/uploads` with `proxy_buffering off` and `proxy_max_temp_file_size 0`
+  to avoid writes to `/var/lib/nginx/proxy` in overlay mode.
+- SQLite DB: `server/directory.db` is a symlink to `/data/directory/directory.db`.
 - Service name: `directory-server`.
-- Production-side operations can be run from `scripts/production-ops.sh`.
+- Application root on production: `/home/kiosk/building-directory/`
+
+## Production Operations
+
+Use `scripts/production-ops.sh` for day-to-day production tasks on the server host:
+
+```bash
+scripts/production-ops.sh status           # Health and storage state
+scripts/production-ops.sh restart-server   # Restart directory-server service
+scripts/production-ops.sh restart-kiosk    # Restart cage + chromium session
+scripts/production-ops.sh backup           # Run local DB backup
+scripts/production-ops.sh restore <file>   # Restore DB from local backup file
+```
 
 ## Nginx Requirement
 
@@ -41,19 +56,15 @@ sudo chmod 711 /home/kiosk
 ```
 This keeps home directory contents non-readable while allowing path traversal.
 
-## Security Model (Current)
+## Security Model
 
 - Kiosk read API routes are IP allowlisted via `KIOSK_ALLOWED_IPS`.
 - Admin API access requires session auth:
   - `POST /api/auth/login`
   - `POST /api/auth/logout`
   - `GET /api/auth/me`
-- Admin UI logout behavior:
-  - Clicking `Logout` in `/admin` clears session and redirects to `/` (kiosk client page).
-- Default password fallback: `kiosk` (override with `KIOSK_ADMIN_PASSWORD`).
-
-Important:
-- Set `KIOSK_ADMIN_PASSWORD` in production.
+- Admin UI logout clears session and redirects to `/` (kiosk client page).
+- Admin password is `kiosk` — systems are physically secured; this is intentional.
 - Keep nginx and firewall restricted to trusted networks.
 
 ## Initial Server Install
@@ -68,34 +79,12 @@ Installer performs:
 - Installs and enables `directory-server` service
 - Configures nginx reverse proxy
 
-## Day-2 Deploy (Local Machine)
+## Day-2 Deploy (from Development Machine)
 
-When this machine is both development and deployed runtime:
+All deploys originate from the development machine at `/home/security/Public-Kiosk`.
+A **clean git working tree is required** before deploying to protected IPs (`.80`, `.81`, `.82`).
 
-- Server-only deploy (default):
-  - `tools/deploy-local.sh`
-  - `make deploy-local`
-- Full deploy (server + kiosk + scripts):
-  - `tools/deploy-local.sh --full`
-  - `make deploy-local-full`
-- Preview actions:
-  - `tools/deploy-local.sh --dry-run`
-
-Deploy behavior:
-1. Syncs manifest-managed files to `/home/security/building-directory`
-2. Runs `npm ci --omit=dev` in deployed server dir
-3. Prints restart instruction (manual restart required):
-   - `sudo systemctl restart directory-server`
-   - or fallback start script if no systemd service
-4. Runs health checks:
-   - `/api/auth/me`
-   - `/api/data-version`
-
-## Day-2 Deploy (Remote Server over SSH)
-
-When development and server deployment are on different machines:
-
-- Server-only deploy:
+- Server-only deploy (most common):
   - `tools/deploy-ssh.sh`
   - `make deploy-ssh`
 - Full deploy (server + kiosk + scripts):
@@ -103,40 +92,43 @@ When development and server deployment are on different machines:
   - `make deploy-ssh-full`
 - Preview actions:
   - `tools/deploy-ssh.sh --dry-run`
-- Target a different host:
+- Target a specific host:
   - `tools/deploy-ssh.sh --host kiosk@192.168.1.80`
 - Include database promotion:
-  - `tools/deploy-ssh.sh --host kiosk@192.168.1.80 --with-db --db-source /home/security/building-directory/server/directory.db`
+  - `tools/deploy-ssh.sh --with-db --db-source /home/security/building-directory/server/directory.db`
 
 Remote deploy behavior:
-1. Syncs manifest-managed files over SSH to remote deploy root.
-2. In maintenance/writable mode, runs remote `npm ci --omit=dev` (or `npm install --omit=dev`).
-3. In normal overlay mode, skips dependency install by default unless `OVERLAY_INSTALL_DEPS=1` is set.
-4. Writes the computed deployed revision to remote `REVISION`.
-5. On `--full`, patches `scripts/start-kiosk.sh` with:
-   - primary `http://192.168.1.80`
-   - standby `http://192.168.1.81`
-6. Attempts remote `sudo systemctl restart directory-server`.
-7. Runs remote health checks:
-   - `/api/auth/me`
-   - `/api/data-version`
-8. On `--full`, waits briefly and restarts the kiosk session.
+1. Verifies clean git working tree (for protected IPs).
+2. Syncs manifest-managed files over SSH to remote deploy root.
+3. In overlay mode, writes to the lower layer via `overlayroot-chroot` (persistent without reboot).
+4. In maintenance/writable mode, runs remote `npm ci --omit=dev`.
+5. Writes the computed deployed revision to remote `REVISION`.
+6. On `--full`, patches `scripts/start-kiosk.sh` with primary/standby URLs.
+7. Attempts remote `sudo systemctl restart directory-server`.
+8. Runs remote health checks: `/api/auth/me`, `/api/data-version`.
+9. On `--full`, waits briefly and restarts the kiosk session.
 
-If non-interactive sudo is unavailable remotely, run:
+If non-interactive sudo is unavailable remotely, restart manually on the target:
 ```bash
 sudo systemctl restart directory-server
 ```
-on the target host after deploy.
 
-Requirement:
-- Target host should have `directory-server` systemd unit installed and enabled.
-- DB note: `directory.db` is not copied unless `--with-db --db-source ...` is provided.
+## Day-2 Deploy (Local Machine)
 
-Prerequisite:
-- `rsync` must exist on both local and target host.
-- On a target in maintenance/writable mode, install with:
+When testing changes locally before pushing to production:
+
+- Server-only deploy:
+  - `tools/deploy-local.sh`
+  - `make deploy-local`
+- Full deploy:
+  - `tools/deploy-local.sh --full`
+  - `make deploy-local-full`
+- Preview:
+  - `tools/deploy-local.sh --dry-run`
+
+`deploy-local.sh` does not restart the service automatically — run:
 ```bash
-sudo apt-get update && sudo apt-get install -y rsync
+sudo systemctl restart directory-server
 ```
 
 ## Service Operations
@@ -150,6 +142,8 @@ systemctl status directory-server --no-pager
 Restart:
 ```bash
 sudo systemctl restart directory-server
+# or via production-ops.sh:
+scripts/production-ops.sh restart-server
 ```
 
 Logs:
@@ -166,16 +160,13 @@ sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-Production nginx proxy requirements:
-- Use `proxy_pass http://127.0.0.1:3000;` (avoid `localhost` to prevent IPv6 `::1` mismatches).
-- In `location /uploads`, set:
+Production nginx requirements:
+- `client_max_body_size 100m` (accommodates DB restore uploads up to 100MB)
+- Use `proxy_pass http://127.0.0.1:3000;` (not `localhost` — avoids IPv6 `::1` mismatches)
+- In `location /uploads`:
   - `proxy_buffering off;`
   - `proxy_max_temp_file_size 0;`
-This avoids writes to `/var/lib/nginx/proxy` in read-only overlay mode.
-
-Check site config paths:
-- Should reference `/home/security/building-directory/...`
-- Not `/root/building-directory/...`
+- Site config root paths should reference `/home/kiosk/building-directory/...`
 
 ## Health Checks
 
@@ -198,9 +189,10 @@ curl -i http://192.168.1.80/admin
 
 ## Environment Variables
 
-Common server vars:
+Common server vars (set in `/etc/systemd/system/directory-server.service`):
 - `PORT` (default `3000`)
-- `KIOSK_ADMIN_PASSWORD`
+- `KIOSK_ADMIN_PASSWORD` (default `kiosk`)
+- `KIOSK_ALLOW_DEFAULT_PASSWORD` (set `true` to suppress startup warning)
 - `KIOSK_ALLOWED_IPS`
 - `KIOSK_SERVER_URL`
 - `KIOSK_SERVER_URL_STANDBY`
@@ -209,14 +201,13 @@ Common server vars:
 - `KIOSK_DB`
 - `KIOSK_UPLOADS_LOWER` (optional override for uploaded background image directory)
 
-## Admin Functions (Current Behavior)
+## Admin Functions
 
 ### Background image upload/gallery
 
 - Admin upload endpoint: `POST /api/background-image` (auth required).
 - Gallery endpoint: `GET /api/background-images` (auth required).
-- Upload persistence helper:
-  - `/usr/local/bin/persist-upload.sh`
+- Upload persistence helper: `/usr/local/bin/persist-upload.sh`
 - Runtime upload directory selection:
   - Uses `KIOSK_UPLOADS_LOWER` if set.
   - Else uses overlay lower path when present.
@@ -225,20 +216,14 @@ Common server vars:
 ### Backup/restore
 
 - Recommended admin backup download:
-  - `GET /api/backup.txt`
-  - Returns SQL text dump as `directory-backup.txt`.
-- Additional endpoint retained:
-  - `GET /api/backup.sql` returns SQL dump as `.sql`.
+  - `GET /api/backup.txt` — returns SQL text dump as `directory-backup.txt`
 - Restore endpoint:
-  - `POST /api/restore`
-  - Accepts `.txt`, `.sql`, `.sqlite`, `.db`.
-- Restore semantics:
-  - Replaces current database with uploaded content.
-  - Returns DB row counts for `companies` and `individuals`.
-- Production-local host scripts:
-  - `scripts/backup.sh`
-  - `scripts/restore-db.sh`
-  - `scripts/production-ops.sh`
+  - `POST /api/restore` — accepts `.txt`, `.sql`, `.sqlite`, `.db` (max 100MB)
+  - Returns DB row counts for `companies` and `individuals`
+- Production-local scripts (run directly on server host):
+  - `scripts/backup.sh` — creates timestamped backup in `/data/backups/building-directory/`, 60-day retention
+  - `scripts/restore-db.sh <file>` — validates, stops service, restores, restarts
+  - `scripts/production-ops.sh backup|restore` — wrapper for the above
 
 ## Troubleshooting
 
@@ -256,20 +241,21 @@ journalctl -u directory-server -n 80 --no-pager
 ```
 3. Check listener:
 ```bash
-ss -ltnp | rg ':3000\b'
+ss -ltnp | grep ':3000'
 ```
 
 ### Admin URL fails but nginx is up
 
-1. Validate nginx config path roots/aliases
+1. Validate nginx config: `sudo nginx -t`
 2. Confirm `/api` proxy to `http://127.0.0.1:3000`
 3. Confirm `/uploads` has `proxy_buffering off` and `proxy_max_temp_file_size 0`
-4. Reload nginx after changes
+4. Confirm `client_max_body_size 100m`
+5. Reload nginx after changes
 
 ### IP allowlist blocks expected kiosk reads
 
 1. Confirm source IP observed by server (`req.ip` / proxy setup)
-2. Update `KIOSK_ALLOWED_IPS`
+2. Update `KIOSK_ALLOWED_IPS` in service environment
 3. Restart service
 
 ### Auth login fails
