@@ -97,6 +97,10 @@ status_all() {
       "${USER_NAME}@${h}" 'bash -s' <<'END_REMOTE'
 hostname
 if mount | grep -q "^overlayroot on / type overlay"; then echo "overlayroot=1"; else echo "overlayroot=0"; fi
+_rro="$(mount | awk '$3=="/media/root-ro"{print; exit}')"
+if [[ -z "$_rro" ]]; then echo "root_ro_lower=not-mounted"
+elif echo "$_rro" | grep -q '\bro\b'; then echo "root_ro_lower=ro"
+else echo "root_ro_lower=rw"; fi
 echo -n "ssh="; systemctl is-active ssh 2>/dev/null || systemctl is-active sshd 2>/dev/null || echo "unknown"
 echo -n "getty@tty1="; systemctl is-active getty@tty1 2>/dev/null || echo "unknown"
 echo "kiosk-guard=$(systemctl show -p ActiveState --value kiosk-guard 2>/dev/null || echo not-found)"
@@ -147,7 +151,13 @@ END_REMOTE
 
     local header overlay
     header="$(printf '%s\n' "$out" | sed '/^__FAILED_UNITS_BEGIN__$/,$d')"
-    echo "$header"
+    while IFS= read -r line; do
+      if [[ "$line" == "root_ro_lower=rw" ]]; then
+        printf "${C_RED}%s (reboot needed)${C_RESET}\n" "$line"
+      else
+        echo "$line"
+      fi
+    done <<< "$header"
     overlay="$(printf '%s\n' "$header" | awk -F= '/^overlayroot=/{print $2; exit}')"
     [[ -z "$overlay" ]] && overlay="0"
 
