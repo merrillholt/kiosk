@@ -215,7 +215,8 @@ EOF
     sudo chmod 644 /etc/systemd/system/directory-backup.service
     sudo install -D -m 644 "$INSTALL_DIR/scripts/directory-backup.timer" /etc/systemd/system/directory-backup.timer
     sudo systemctl daemon-reload
-    sudo systemctl enable --now directory-backup.timer
+    sudo systemctl enable directory-backup.timer
+    sudo systemctl start directory-backup.timer
 
     # Optional admin hardening
     ADMIN_AUTH_ENABLED="n"

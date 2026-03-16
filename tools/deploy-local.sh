@@ -138,7 +138,8 @@ else
     sudo -n chmod 644 /etc/systemd/system/directory-backup.service
     sudo -n install -D -m 644 "$DEPLOY_ROOT/scripts/directory-backup.timer" /etc/systemd/system/directory-backup.timer
     sudo -n systemctl daemon-reload
-    sudo -n systemctl enable --now directory-backup.timer
+    sudo -n systemctl enable directory-backup.timer
+    sudo -n systemctl start directory-backup.timer
     echo "Installed backup timer: directory-backup.timer"
   else
     echo "Manual step required:"
@@ -147,7 +148,8 @@ else
     echo "  sudo chmod 644 /etc/systemd/system/directory-backup.service"
     echo "  sudo install -D -m 644 $DEPLOY_ROOT/scripts/directory-backup.timer /etc/systemd/system/directory-backup.timer"
     echo "  sudo systemctl daemon-reload"
-    echo "  sudo systemctl enable --now directory-backup.timer"
+    echo "  sudo systemctl enable directory-backup.timer"
+    echo "  sudo systemctl start directory-backup.timer"
   fi
 fi
 
