@@ -1,184 +1,149 @@
-# Desktop Environment Selection
+# Desktop Environment
 
-## Recommendation: No Desktop Environment
+## Production Setup: Cage + Wayland
 
-For a kiosk deployment, **no desktop environment** is the best choice. You only need enough to run Chromium fullscreen.
-
-## Debian Install Selection
-
-During Debian install, **uncheck all desktop options**:
-
-```
-[ ] Debian desktop environment
-[ ] ... GNOME
-[ ] ... Xfce
-[ ] ... KDE Plasma
-[ ] ... Cinnamon
-[ ] ... MATE
-[ ] ... LXDE
-[ ] ... LXQt
-[x] SSH server
-[x] standard system utilities
-```
-
-Then install only what's needed after first boot:
-
-```bash
-sudo apt install --no-install-recommends \
-  xorg \
-  chromium \
-  openbox \
-  unclutter
-```
-
-**Total additional install: ~300-400 MB** (vs 2-4 GB for a full DE)
-
-## Why No Desktop Environment
-
-| Aspect | Full DE (GNOME/KDE) | Minimal X11 |
-|--------|---------------------|-------------|
-| RAM usage | 800 MB - 1.5 GB | ~150 MB |
-| Disk space | 2-4 GB | ~400 MB |
-| Boot time | 30-60 sec | 10-15 sec |
-| Attack surface | Large | Minimal |
-| Things to break | Many | Few |
-| User can exit kiosk | Possibly | No |
+The kiosk does not use a traditional desktop environment. It runs Chromium
+fullscreen under **Cage**, a minimal Wayland compositor designed for single-app
+kiosk use. There is no display manager, no X11 session, and no window
+decorations.
 
 ## Component Overview
 
 | Package | Purpose |
 |---------|---------|
-| `xorg` | X11 display server (required for GUI) |
-| `chromium` | The kiosk browser |
-| `openbox` | Minimal window manager (optional but helps) |
-| `unclutter` | Hides mouse cursor after idle |
+| `cage` | Wayland kiosk compositor — runs one app fullscreen |
+| `chromium` | Kiosk browser |
+| `wlr-randr` | Wayland output inspection and resolution control |
+| `xfce4` | Admin desktop (X11) — started only on USB keyboard insertion |
+| `xserver-xorg` + `xserver-xorg-input-libinput` | X11 server for XFCE admin sessions |
+| `overlayroot` | Read-only root filesystem overlay |
 
-## Auto-Start Configuration
+These packages are installed by `building-directory-install/install.sh` (mode 3 — both).
 
-### Step 1: Create X11 startup script
+## Kiosk Session Boot Sequence
 
-Create `/home/kiosk/.xinitrc`:
+```
+Power on
+  └─ systemd boots to multi-user.target (no graphical.target)
+       └─ getty@tty1 autologin as kiosk user
+            └─ .bash_profile detects tty1
+                 └─ loop:
+                      ├─ run start-kiosk.sh  (cage + chromium)
+                      │    cage exits
+                      ├─ if /tmp/kiosk-exit present:
+                      │    start XFCE (X11) for admin access
+                      │    XFCE exits
+                      └─ repeat
+```
+
+There is no systemd kiosk service — the loop runs entirely within the kiosk
+user's login shell on `tty1`.
+
+## start-kiosk.sh
+
+Located at `~/building-directory/scripts/start-kiosk.sh`. Launched by the
+`.bash_profile` loop. Starts Cage with Chromium in kiosk mode:
 
 ```bash
-#!/bin/bash
-
-# Hide cursor after 2 seconds
-unclutter -idle 2 &
-
-# Disable screen blanking
-xset s off
-xset -dpms
-xset s noblank
-
-# Start Chromium in kiosk mode
-chromium --kiosk --noerrdialogs --disable-infobars http://localhost
+cage -- chromium \
+  --kiosk \
+  --ozone-platform=wayland \
+  --noerrdialogs \
+  --disable-session-crashed-bubble \
+  --disable-pinch \
+  --overscroll-history-navigation=0 \
+  --disable-translate \
+  --no-first-run \
+  --disable-sync \
+  --touch-events=enabled \
+  "$SERVER_URL"
 ```
 
-Make it executable:
-
-```bash
-chmod +x /home/kiosk/.xinitrc
-```
-
-### Step 2: Create systemd service
-
-Create `/etc/systemd/system/kiosk.service`:
-
-```ini
-[Unit]
-Description=Kiosk Display
-After=network.target
-
-[Service]
-User=kiosk
-Environment=DISPLAY=:0
-ExecStart=/usr/bin/startx
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=graphical.target
-```
-
-### Step 3: Enable the service
-
-```bash
-sudo systemctl enable kiosk
-```
-
-The kiosk will now start automatically on boot, launching directly into Chromium fullscreen with no desktop environment visible.
-
-## Optional: Debug Desktop
-
-If you want the ability to occasionally use a desktop for debugging, install Xfce but don't auto-start it:
-
-```bash
-sudo apt install --no-install-recommends xfce4
-```
-
-Usage:
-- Normal boot: Goes directly to Chromium kiosk
-- Debug mode: SSH in, stop kiosk service, run `startxfce4`
+`SERVER_URL` and `SERVER_URL_STANDBY` are set at the top of the script and
+patched in by `tools/deploy-ssh.sh --full` on each deploy.
 
 ## Admin Breakout (USB Keyboard)
 
-When a USB keyboard is plugged in, the kiosk session exits and XFCE starts for admin access. Logging out of XFCE restarts the kiosk automatically. This is handled by a udev rule and the `.bash_profile` autostart loop installed by `install.sh`.
+Plugging in a USB keyboard triggers a udev rule (`99-kiosk-keyboard.rules`)
+which runs `/usr/local/bin/kiosk-keyboard-added.sh`. That script writes
+`/tmp/kiosk-exit` and kills `cage`. The `.bash_profile` loop detects the flag
+file and starts XFCE as an X11 session:
 
 ```bash
-# To temporarily use Xfce for debugging:
-sudo systemctl stop kiosk
-export DISPLAY=:0
-startxfce4
+# Started by .bash_profile after cage exits with /tmp/kiosk-exit present
+startxfce4 -- -logfile /tmp/Xorg.0.log
 ```
 
-## Desktop Environment Comparison
-
-If for some reason you need a full DE, here's a comparison:
-
-| DE | RAM Usage | Disk Space | Best For |
-|----|-----------|------------|----------|
-| **None (X11 only)** | ~150 MB | ~400 MB | Production kiosk |
-| LXDE | ~300 MB | ~800 MB | Extremely limited hardware |
-| LXQt | ~350 MB | ~900 MB | Qt-based lightweight option |
-| Xfce | ~400 MB | ~1 GB | Debug/development flexibility |
-| MATE | ~500 MB | ~1.5 GB | Traditional desktop feel |
-| Cinnamon | ~700 MB | ~2 GB | Modern but heavier |
-| GNOME | ~1 GB+ | ~3 GB | Not recommended for kiosk |
-| KDE Plasma | ~800 MB+ | ~3 GB | Not recommended for kiosk |
-
-## Security Considerations
-
-A minimal X11 setup is more secure for a public kiosk:
-
-- **No file manager**: Users can't browse filesystem
-- **No terminal**: No command-line access
-- **No application menu**: Can't launch other programs
-- **No window decorations**: Can't minimize/close/move browser
-- **Kiosk mode**: Chromium runs fullscreen with no UI chrome
-
-## Chromium Kiosk Flags
-
-Key flags for kiosk mode:
+XFCE runs entirely in `/tmp` (config, cache, auth files) because the root
+filesystem is read-only:
 
 ```bash
-chromium \
-  --kiosk \                          # Fullscreen, no UI
-  --noerrdialogs \                   # Suppress error dialogs
-  --disable-infobars \               # No "Chrome is being controlled" bar
-  --disable-session-crashed-bubble \ # No "restore session" prompt
-  --disable-pinch \                  # Disable pinch-to-zoom
-  --overscroll-history-navigation=0 \ # Disable swipe navigation
-  --disable-translate \              # No translation prompts
-  --no-first-run \                   # Skip first-run wizard
-  --disable-sync \                   # No Google sync prompts
-  --touch-events=enabled \           # Enable touch support
-  "http://localhost"
+export XAUTHORITY=/tmp/.Xauthority
+export XDG_CONFIG_HOME=/tmp/xfce4-config
+export XDG_CACHE_HOME=/tmp/xfce4-cache
 ```
 
-## Summary
+Logging out of XFCE returns to the `.bash_profile` loop which restarts the
+kiosk automatically. Unplugging the keyboard is not required.
 
-| Scenario | What to Install |
-|----------|-----------------|
-| **Production kiosk** | `xorg chromium openbox unclutter` |
-| **Dev/debug flexibility** | Add `xfce4` (but don't autostart) |
-| **Never for kiosk** | GNOME, KDE, full desktop environments |
+## Restarting the Kiosk Session
+
+From the dev machine:
+
+```bash
+kiosk-fleet/kioskctl restart-kiosk
+# or:
+scripts/kioskctl restart-kiosk
+```
+
+This kills `cage`; the `.bash_profile` loop restarts it automatically (no
+keyboard insertion needed, no reboot needed).
+
+On the host directly:
+
+```bash
+sudo pkill -x cage
+```
+
+## Why No Display Manager
+
+| Aspect | Display manager (GDM/LightDM) | This setup (getty autologin) |
+|--------|------------------------------|------------------------------|
+| Boot time | Slower (extra service) | Faster |
+| Complexity | Higher | Minimal |
+| Failure mode | DM crash = black screen | Loop restarts cage automatically |
+| Kiosk escape risk | Possible via DM UI | None |
+
+## Output Resolution
+
+Inspect the active Wayland output from within a running kiosk session:
+
+```bash
+# Via kioskctl (from dev machine):
+kiosk-fleet/kioskctl cmd 'wlr-randr'
+```
+
+Or directly on the host after plugging in a USB keyboard to get XFCE, then
+opening a terminal:
+
+```bash
+wlr-randr
+```
+
+## Checking Kiosk State
+
+From the dev machine:
+
+```bash
+kiosk-fleet/kioskctl status
+```
+
+Key fields:
+
+| Field | Expected |
+|-------|----------|
+| `cage` | `running` |
+| `chromium` | `running` |
+| `getty@tty1` | `active` |
+| `overlayroot` | `1` |
+| `root_ro_lower` | `ro` |

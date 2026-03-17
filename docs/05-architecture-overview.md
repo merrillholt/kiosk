@@ -14,9 +14,6 @@ The building directory application consists of three main components:
 │  │  │Companies│  │Individ- │  │    Building Info    │  │    │
 │  │  │   Tab   │  │uals Tab │  │        Tab          │  │    │
 │  │  └─────────┘  └─────────┘  └─────────────────────┘  │    │
-│  │  ┌─────────────────────────────────────────────┐    │    │
-│  │  │           On-Screen Keyboard                │    │    │
-│  │  └─────────────────────────────────────────────┘    │    │
 │  └─────────────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────┘
                             │
@@ -55,53 +52,42 @@ The building directory application consists of three main components:
 | Backend | Node.js + Express | REST API server |
 | Database | SQLite3 | Data storage |
 | Web Server | Nginx | Reverse proxy, static files |
+| Compositor | Cage (Wayland) | Kiosk window management |
 | Browser | Chromium | Kiosk mode display |
 | OS | Debian 13 | Base operating system |
 
-## Deployment Architecture
-
-### Three-Kiosk Setup (Recommended)
+## Deployed Architecture
 
 ```
-                                    ┌─────────────────┐
-                                    │  Admin Computer │
-                                    │  (web browser)  │
-                                    └────────┬────────┘
-                                             │
-    ┌────────────────────────────────────────┼────────────────────────────────────────┐
-    │                                   Network                                        │
-    └────────┬───────────────────────────────┼───────────────────────────┬────────────┘
-             │                               │                           │
-    ┌────────┴────────┐             ┌────────┴────────┐         ┌────────┴────────┐
-    │    Kiosk 1      │             │    Kiosk 2      │         │    Kiosk 3      │
-    │  (Read-only)    │             │  (Read-only)    │         │  (Read-only)    │
-    │                 │             │                 │         │                 │
-    │  ┌───────────┐  │             │  ┌───────────┐  │         │  ┌───────────┐  │
-    │  │ Chromium  │  │             │  │ Chromium  │  │         │  │ Chromium  │  │
-    │  │  Kiosk    │  │             │  │  Kiosk    │  │         │  │  Kiosk    │  │
-    │  └───────────┘  │             │  └───────────┘  │         │  └───────────┘  │
-    │        ↓        │             │        ↓        │         │        ↓        │
-    │    Server       │◄─ sync ─────┤    Cache        │── sync ─┤    Cache        │
-    │    + SQLite     │             │  (localStorage) │         │  (localStorage) │
-    │                 │             │                 │         │                 │
-    └─────────────────┘             └─────────────────┘         └─────────────────┘
+    ┌──────────────────────────────────────────────────┐
+    │                     Network                       │
+    └──────┬───────────────────────────────────┬───────┘
+           │                                   │
+  ┌────────┴────────┐                 ┌────────┴────────┐
+  │  192.168.1.80   │                 │  192.168.1.81   │
+  │  Qotom Q305P    │                 │  Intel NUC      │
+  │  Primary        │                 │  Standby        │
+  │                 │                 │                 │
+  │  Chromium+Cage  │                 │  Chromium+Cage  │
+  │  directory-     │                 │  directory-     │
+  │  server         │                 │  server         │
+  │  SQLite (live)  │                 │  SQLite (sync'd)│
+  │  overlayroot    │                 │  overlayroot    │
+  └─────────────────┘                 └─────────────────┘
            │
-           └── One kiosk runs the server, others connect to it
+           │  DB sync (periodic)
+           ▼
+  ┌────────────────────────────────────────────────────┐
+  │  Dev machine: /home/security/Public-Kiosk          │
+  │  Deploys to .80 and .81 via tools/deploy-ssh.sh    │
+  └────────────────────────────────────────────────────┘
 ```
 
-### Alternative: Dedicated Server
+Each host runs both the server and the kiosk display. The kiosk browser on each
+host points at its own local server. If the primary (`.80`) is unreachable, the
+kiosk falls back to the standby (`SERVER_URL_STANDBY` in `start-kiosk.sh`).
 
-```
-    ┌─────────────────┐
-    │  Server Machine │
-    │  (always on)    │
-    └────────┬────────┘
-             │
-    ┌────────┼────────┬────────────┐
-    │        │        │            │
-    ▼        ▼        ▼            ▼
- Kiosk 1  Kiosk 2  Kiosk 3    Admin PC
-```
+`192.168.1.82` is reserved for a second Qotom Q305P (identical to `.80`).
 
 ## Data Flow
 
@@ -110,7 +96,7 @@ The building directory application consists of three main components:
 ```
 1. User taps "Companies" tab
 2. Chromium loads cached data from localStorage
-3. Background: Check /api/data-version
+3. Background: check /api/data-version every 60 seconds
 4. If version changed:
    - Fetch /api/companies
    - Update localStorage cache
@@ -128,38 +114,41 @@ The building directory application consists of three main components:
 6. Kiosks fetch updated data
 ```
 
-## File Structure
+## File Structure (Production Host)
 
 ```
-building-directory/
-├── kiosk/                    # Kiosk display frontend
+/home/kiosk/building-directory/         ← application root
+├── kiosk/                              ← kiosk display frontend
 │   ├── index.html
 │   ├── app.js
 │   └── styles.css
-├── server/                   # Backend API
+├── server/                             ← backend API
 │   ├── server.js
 │   ├── package.json
-│   ├── directory.db          # SQLite database
-│   └── admin/                # Admin interface
+│   ├── directory.db → /data/directory/directory.db   ← symlink
+│   └── admin/                          ← admin interface
 │       ├── index.html
 │       ├── admin.js
 │       └── admin.css
-├── scripts/                  # Utility scripts
+├── scripts/                            ← ops scripts
 │   ├── start-kiosk.sh
-│   ├── restart-kiosk.sh
 │   ├── backup.sh
 │   ├── restore-db.sh
 │   └── production-ops.sh
-├── docs/                     # Documentation
-└── building-directory-install/
-    ├── install.sh            # Main installer
-    └── readonly/             # Read-only FS setup
+└── REVISION                            ← deployed git revision
+
+/data/                                  ← persistent partition (always rw)
+├── directory/directory.db              ← live SQLite database
+└── backups/building-directory/         ← timestamped DB backups
 ```
+
+The root filesystem (`/`) is read-only under overlayroot. `/data` is a separate
+ext4 partition mounted read-write and is never overlaid. See
+`docs/03-read-only-filesystem.md`.
 
 ## Database Schema
 
 ```sql
--- Companies directory
 CREATE TABLE companies (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
@@ -171,7 +160,6 @@ CREATE TABLE companies (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- Individuals directory
 CREATE TABLE individuals (
     id INTEGER PRIMARY KEY,
     first_name TEXT NOT NULL,
@@ -185,7 +173,6 @@ CREATE TABLE individuals (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- Building information pages
 CREATE TABLE building_info (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     title TEXT NOT NULL,
@@ -194,7 +181,6 @@ CREATE TABLE building_info (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Configuration settings
 CREATE TABLE settings (
     key TEXT PRIMARY KEY,
     value TEXT,
@@ -204,21 +190,25 @@ CREATE TABLE settings (
 
 ## API Endpoints
 
-| Method | Endpoint | Purpose |
-|--------|----------|---------|
-| GET | `/api/companies` | List all companies |
-| GET | `/api/companies/search?q=` | Search companies |
-| POST | `/api/companies` | Create company |
-| PUT | `/api/companies/:id` | Update company |
-| DELETE | `/api/companies/:id` | Delete company |
-| GET | `/api/individuals` | List all individuals |
-| GET | `/api/individuals/search?q=` | Search individuals |
-| POST | `/api/individuals` | Create individual |
-| PUT | `/api/individuals/:id` | Update individual |
-| DELETE | `/api/individuals/:id` | Delete individual |
-| GET | `/api/building-info` | Get building info |
-| PUT | `/api/building-info` | Update building info |
-| GET | `/api/data-version` | Check for updates |
+| Method | Endpoint | Auth | Purpose |
+|--------|----------|------|---------|
+| GET | `/api/companies` | IP allowlist | List all companies |
+| GET | `/api/companies/search?q=` | IP allowlist | Search companies |
+| POST | `/api/companies` | Session | Create company |
+| PUT | `/api/companies/:id` | Session | Update company |
+| DELETE | `/api/companies/:id` | Session | Delete company |
+| GET | `/api/individuals` | IP allowlist | List all individuals |
+| GET | `/api/individuals/search?q=` | IP allowlist | Search individuals |
+| POST | `/api/individuals` | Session | Create individual |
+| PUT | `/api/individuals/:id` | Session | Update individual |
+| DELETE | `/api/individuals/:id` | Session | Delete individual |
+| GET | `/api/building-info` | IP allowlist | Get building info |
+| PUT | `/api/building-info` | Session | Update building info |
+| GET | `/api/data-version` | IP allowlist | Check for updates |
+| GET | `/api/backup.txt` | Session | Download SQL backup |
+| POST | `/api/restore` | Session | Restore from backup |
+| POST | `/api/auth/login` | — | Authenticate |
+| GET | `/api/auth/me` | — | Session status |
 
 ## Sync Mechanism
 
@@ -226,7 +216,7 @@ Kiosks check for updates every 60 seconds:
 
 ```javascript
 // In kiosk app.js
-const REFRESH_INTERVAL = 60000; // 60 seconds
+const REFRESH_INTERVAL = 60000;
 
 async function checkForUpdates() {
     const response = await fetch(`${CONFIG.API_URL}/data-version`);
@@ -243,14 +233,6 @@ setInterval(checkForUpdates, REFRESH_INTERVAL);
 
 ## Offline Capability
 
-All data is cached in localStorage:
-
-```javascript
-// Cache structure
-localStorage.setItem('companies', JSON.stringify(companiesArray));
-localStorage.setItem('individuals', JSON.stringify(individualsArray));
-localStorage.setItem('building_info', JSON.stringify(buildingInfoArray));
-localStorage.setItem('data_version', versionString);
-```
-
-If the server is unreachable, the kiosk continues displaying cached data and can fall back to the standby server URL configured in `scripts/start-kiosk.sh`.
+All data is cached in localStorage. If the server is unreachable the kiosk
+continues displaying cached data and falls back to the standby server URL
+configured in `scripts/start-kiosk.sh`.

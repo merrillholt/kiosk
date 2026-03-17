@@ -6,119 +6,85 @@ Touchscreens require **two separate connections**:
 
 ```
 ┌─────────────┐                      ┌─────────────────┐
-│             │  Video (HDMI/DP/VGA) │                 │
+│             │  Video (HDMI)        │                 │
 │  Mini PC    │  ─────────────────→  │  Touchscreen    │
 │             │                      │    Monitor      │
 │             │  ← USB (touch data)  │                 │
 └─────────────┘                      └─────────────────┘
 ```
 
-| Cable | Direction | Purpose |
-|-------|-----------|---------|
-| HDMI / DisplayPort / VGA | PC → Display | Video signal |
-| USB | Bidirectional | Touch input data |
+| Cable | Purpose |
+|-------|---------|
+| HDMI (or DVI-to-HDMI adapter) | Video signal |
+| USB | Touch input data |
 
-**Important:** VGA, HDMI, and DisplayPort do NOT carry touch data. Touch always requires a separate USB (or serial) connection.
+HDMI does not carry touch data. Touch always requires a separate USB connection.
 
-## Video Connection Options
+## Deployed Display: Elo 3239L (ET3239L-8CNA)
 
-| Type | Quality | Audio | Recommended |
-|------|---------|-------|-------------|
-| **DisplayPort** | Best | Yes | Yes |
-| **HDMI** | Excellent | Yes | Yes |
-| VGA | Good (analog) | No | Legacy only |
-
-## Touch Connection Options
-
-| Type | Notes |
+| Spec | Value |
 |------|-------|
-| **USB HID** | Most common, plug-and-play on Linux |
-| USB with driver | Some panels need vendor drivers |
-| Serial (RS-232) | Older industrial panels |
+| Model | ET3239L-8CNA-0-D-G |
+| Size | 32" |
+| Touch | Projected Capacitive (PCAP) |
+| USB controller | Elo 2700 (`04e7:0020`) |
+| Video input | DVI-I (connected via DVI-to-HDMI adapter) |
+| Touch connection | USB-B to host USB-A |
+
+For full driver installation and udev configuration see
+`docs/elo-cage-wayland-kiosk-hardening.md`.
 
 ## Linux Touch Support
 
-Debian/Linux supports most USB touchscreens automatically via:
-- `hid-multitouch` driver (multi-touch panels)
-- `usb_touchscreen` driver (single-touch panels)
+The Elo 3239L uses the **Elo MT USB userspace driver** (`elomtusbd`) rather than
+standard kernel HID-only handling. After `elo.service` runs at boot, the kernel
+`hid-generic` driver presents the device as an absolute pointer on
+`/dev/input/event*`.
 
-### Verify Touch is Detected
+### Verify the device is detected
 
 ```bash
-# List input devices
-xinput list
+# USB device present
+lsusb | grep -i elo
+# Expected: ID 04e7:0020 Elo TouchSystems 2700 IntelliTouch
 
-# Example output:
-# ⎡ Virtual core pointer
-# ⎜   ↳ ELAN Touchscreen          id=10   [slave pointer]
+# Kernel assigned an event node
+sudo dmesg | grep -i elo
+# Expected: hid-generic ... Pointer [Elo TouchSystems...]
 
-# List event devices
-ls -la /dev/input/event*
-
-# Get detailed info
-sudo libinput list-devices | grep -A 10 -i touch
+# libinput sees it
+sudo libinput list-devices | grep -A5 -i elo
+# Expected: Capabilities: pointer
 ```
 
-### Test Touch Events
+### Test touch events
 
 ```bash
-# Install evtest
-sudo apt install evtest
-
-# Run test (select your touch device)
+sudo apt install evtest   # if not already installed
 sudo evtest
-
-# Touch the screen - you should see coordinate events:
-# Event: type 3 (EV_ABS), code 0 (ABS_X), value 512
-# Event: type 3 (EV_ABS), code 1 (ABS_Y), value 384
+# Select the Elo event device, then touch the screen
+# Expected: ABS_X and ABS_Y coordinate events
 ```
 
-## Calibration
-
-Most modern touchscreens don't need calibration, but if touch coordinates are off:
-
-### Using xinput_calibrator (X11)
+### Verify Elo driver service
 
 ```bash
-# Install
-sudo apt install xinput-calibrator
-
-# Run calibration
-xinput_calibrator
-
-# Follow on-screen instructions (tap the crosshairs)
-# Save the output to /etc/X11/xorg.conf.d/99-calibration.conf
+systemctl is-enabled elo.service    # should print: enabled
+lsmod | grep uinput                  # uinput must be loaded
+ls /etc/udev/rules.d/99-elotouch.rules
+ls /etc/udev/rules.d/99-elo-usb-power.rules
 ```
 
-### Using libinput (modern method)
+## Wayland / Cage Behaviour
+
+The kiosk compositor is **Cage** (Wayland). Touch is delivered to Chromium as
+an absolute pointer. No X11 input tools (`xinput`, `xrandr`) apply to the
+running kiosk session.
+
+Inspect active Wayland outputs:
 
 ```bash
-# Get device calibration matrix
-sudo libinput list-devices | grep -A 20 "Touchscreen"
-
-# Calibration is usually automatic with libinput
-# If needed, create /etc/libinput/local-overrides.quirks
-```
-
-## Multi-Monitor Touch Mapping
-
-If you have multiple monitors but only one touchscreen, map touch to the correct display:
-
-```bash
-# List displays
-xrandr
-
-# List touch devices
-xinput list
-
-# Map touch device to specific display
-xinput map-to-output "ELAN Touchscreen" HDMI-1
-```
-
-To make permanent, add to `/home/kiosk/.xinitrc`:
-
-```bash
-xinput map-to-output "ELAN Touchscreen" HDMI-1
+wlr-randr
 ```
 
 ## Troubleshooting
@@ -126,73 +92,58 @@ xinput map-to-output "ELAN Touchscreen" HDMI-1
 ### Touch not detected
 
 ```bash
-# Check USB devices
-lsusb
-
-# Check kernel messages
-dmesg | grep -i touch
-
-# Check for input devices
-cat /proc/bus/input/devices | grep -A 5 -i touch
+lsusb                           # confirm USB device is present
+sudo dmesg | grep -i elo        # look for kernel detection message
+systemctl status elo.service    # check driver service
 ```
 
-### Touch detected but not working in Chromium
-
-Ensure touch events are enabled in Chromium:
+### Touch detected but not working in Cage
 
 ```bash
-chromium --touch-events=enabled --kiosk http://localhost
+# Confirm elomtusbd ran at boot
+sudo journalctl -u elo.service --no-pager
+
+# Check uinput is loaded
+lsmod | grep uinput
+
+# Test raw events
+sudo evtest   # select Elo device, touch screen
 ```
 
-### Touch coordinates inverted or rotated
+### Touch freezes after idle
 
-Create `/etc/X11/xorg.conf.d/99-touch-rotation.conf`:
-
-```
-Section "InputClass"
-    Identifier "calibration"
-    MatchProduct "your touchscreen name"
-    Option "TransformationMatrix" "0 1 0 -1 0 1 0 0 1"
-EndSection
-```
-
-Common transformation matrices:
-
-| Rotation | Matrix |
-|----------|--------|
-| Normal | `1 0 0 0 1 0 0 0 1` |
-| 90° CW | `0 1 0 -1 0 1 0 0 1` |
-| 90° CCW | `0 -1 1 1 0 0 0 0 1` |
-| 180° | `-1 0 1 0 -1 1 0 0 1` |
-| X-inverted | `-1 0 1 0 1 0 0 0 1` |
-| Y-inverted | `1 0 0 0 -1 1 0 0 1` |
-
-### Touch works but multi-touch doesn't
-
-Check if the panel supports multi-touch:
+USB autosuspend may be interfering. Confirm the power rule is active:
 
 ```bash
-# Look for ABS_MT_POSITION_X in capabilities
-sudo evtest
-# Select touch device, then check "Supported events"
+cat /sys/bus/usb/devices/*/power/control 2>/dev/null
+# Expected: "on" for the Elo device
 ```
 
-## Recommended Touchscreen Specifications
+If missing, check `/etc/udev/rules.d/99-elo-usb-power.rules` is present and
+re-run `sudo udevadm control --reload-rules && sudo udevadm trigger`.
 
-For kiosk use:
+### Cursor visible after touch
 
-| Feature | Recommendation |
-|---------|----------------|
-| Touch type | Capacitive (more responsive than resistive) |
-| Multi-touch | 10-point (for gestures, though not needed for this app) |
-| Interface | USB HID (plug-and-play) |
-| Response time | < 10ms |
-| Surface | Anti-glare, scratch-resistant |
+The Elo device is classified as a pointer by libinput. This is expected and
+does not affect kiosk operation. If cursor hiding is required, see
+`docs/elo-cage-wayland-kiosk-hardening.md` section 3 for the udev conflict fix.
 
-## Summary
+## Calibration
 
-| Component | Connection | Driver |
-|-----------|------------|--------|
-| Video | HDMI/DP (preferred) or VGA | Automatic |
-| Touch | USB | `hid-multitouch` (automatic) |
-| Calibration | Usually not needed | `xinput_calibrator` if required |
+PCAP touchscreens generally do not require calibration. If touch coordinates
+are consistently offset:
+
+```bash
+sudo libinput list-devices | grep -A20 -i elo
+# Check for LIBINPUT_CALIBRATION_MATRIX property
+```
+
+To set a calibration matrix via udev (edit `/etc/udev/rules.d/99-elo-touchscreen.rules`):
+
+```udev
+SUBSYSTEM=="input", ATTRS{idVendor}=="04e7", ATTRS{idProduct}=="0020", \
+  ENV{LIBINPUT_CALIBRATION_MATRIX}="1 0 0 0 1 0"
+```
+
+The identity matrix above is a no-op template. Replace with the correct
+transform values. See `docs/elo-cage-wayland-kiosk-hardening.md` section 10.
