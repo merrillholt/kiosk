@@ -24,16 +24,16 @@ These packages are installed by `building-directory-install/install.sh` (mode 3 
 
 ```
 Power on
-  └─ systemd boots to multi-user.target (no graphical.target)
-       └─ getty@tty1 autologin as kiosk user
-            └─ .bash_profile detects tty1
-                 └─ loop:
-                      ├─ run start-kiosk.sh  (cage + chromium)
-                      │    cage exits
-                      ├─ if /tmp/kiosk-exit present:
-                      │    start XFCE (X11) for admin access
-                      │    XFCE exits
-                      └─ repeat
+  +- systemd boots to multi-user.target (no graphical.target)
+       +- getty@tty1 autologin as kiosk user
+            +- .bash_profile detects tty1
+                 +- loop:
+                      +- run start-kiosk.sh  (cage + chromium)
+                      |    cage exits
+                      +- if /tmp/kiosk-exit present:
+                      |    start XFCE (X11) for admin access
+                      |    XFCE exits
+                      +- repeat
 ```
 
 There is no systemd kiosk service — the loop runs entirely within the kiosk

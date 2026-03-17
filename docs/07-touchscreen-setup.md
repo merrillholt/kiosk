@@ -5,12 +5,12 @@
 Touchscreens require **two separate connections**:
 
 ```
-┌─────────────┐                      ┌─────────────────┐
-│             │  Video (HDMI)        │                 │
-│  Mini PC    │  ─────────────────→  │  Touchscreen    │
-│             │                      │    Monitor      │
-│             │  ← USB (touch data)  │                 │
-└─────────────┘                      └─────────────────┘
++-------------+                      +-----------------+
+|             |  Video (HDMI)        |                 |
+|  Mini PC    |  -----------------→  |  Touchscreen    |
+|             |                      |    Monitor      |
+|             |  ← USB (touch data)  |                 |
++-------------+                      +-----------------+
 ```
 
 | Cable | Purpose |
