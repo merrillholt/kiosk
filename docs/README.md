@@ -4,6 +4,7 @@ This project has separate documentation by scope.
 
 ## Primary By Scope
 
+- **New host installation (all phases):** [10-new-host-installation.md](10-new-host-installation.md)
 - **Client environment setup:** [Debian 13 Configuration.tex](Debian%2013%20Configuration.tex)
 - **Server operations:** [09-server-operations.md](09-server-operations.md)
 - **Server and packaging/deploy workflow:** [08-packaging-and-deploy.md](08-packaging-and-deploy.md)
