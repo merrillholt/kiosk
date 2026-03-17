@@ -67,6 +67,22 @@ This keeps home directory contents non-readable while allowing path traversal.
 - Admin password is `kiosk` — systems are physically secured; this is intentional.
 - Keep nginx and firewall restricted to trusted networks.
 
+### kiosk user sudo access
+
+The `kiosk` user has passwordless sudo for all commands via `/etc/sudoers.d/kiosk-nopasswd`:
+
+```
+kiosk ALL=(ALL) NOPASSWD:ALL
+```
+
+This is required for:
+- `deploy-ssh.sh` running `overlayroot-chroot` and `systemctl` remotely without a password
+- `production-ops.sh` running `systemctl restart` and backup/restore operations
+- `kiosk-guard` restarting the cage session
+
+This grant is intentional. The kiosk user account has no password login (SSH key
+only from the dev machine) and the hosts are on a physically isolated LAN.
+
 ## Initial Server Install
 
 Use installer entry point:
