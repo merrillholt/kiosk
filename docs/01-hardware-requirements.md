@@ -2,7 +2,7 @@
 
 ## Deployed Hardware
 
-### Qotom Q305P — Primary server + display (192.168.1.80)
+### Qotom Q305P — Primary server + display (192.168.1.80) / Reserved (192.168.1.82)
 
 | Spec | Value |
 |------|-------|
@@ -51,18 +51,18 @@ Reference doc: `docs/hardware/Intel® NUC Kit DC3217IYE.pdf`
 
 ## Hardware Comparison
 
-| | Qotom Q305P (.80) | NUC DC3217IYE (.81) |
-|--|--|--|
-| Role | Primary server + display | Standby server + display |
-| CPU generation | Broadwell (5th gen) | Ivy Bridge (3rd gen) |
-| Cooling | Fanless | Fan (active) |
-| Storage interface | mSATA + 2.5" SATA | mSATA only |
-| USB | USB 3.0 available | USB 2.0 only |
-| RAM max | 8GB DDR3L | 16GB DDR3 |
-| Dual NIC | Yes (2 ports) | No (1 port) |
-| Power brick | 12V | 19V — do not mix |
+| | Qotom Q305P (.80) | NUC DC3217IYE (.81) | Qotom Q305P (.82) |
+|--|--|--|--|
+| Role | Primary server + display | Standby server + display | Reserved |
+| CPU generation | Broadwell (5th gen) | Ivy Bridge (3rd gen) | Broadwell (5th gen) |
+| Cooling | Fanless | Fan (active) | Fanless |
+| Storage interface | mSATA + 2.5" SATA | mSATA only | mSATA + 2.5" SATA |
+| USB | USB 3.0 available | USB 2.0 only | USB 3.0 available |
+| RAM max | 8GB DDR3L | 16GB DDR3 | 8GB DDR3L |
+| Dual NIC | Yes (2 ports) | No (1 port) | Yes (2 ports) |
+| Power brick | 12V | 19V — do not mix | 12V |
 
-**Do not interchange power supplies** — 12V and 19V bricks are incompatible.
+**.80 and .82 are identical hardware.** Do not interchange power supplies with .81 — 12V and 19V bricks are incompatible.
 
 ---
 
