@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: drift sync package package-clean deploy-local deploy-local-full deploy-ssh deploy-ssh-full sync-primary-db docs docs-all docs-clean
+.PHONY: drift sync package package-clean deploy-local deploy-local-full deploy-ssh deploy-ssh-full sync-primary-db docs docs-all docs-admin docs-clean
 
 drift:
 	tools/check-install-drift.sh
@@ -36,6 +36,9 @@ sync-primary-db:
 
 docs-all:
 	tools/print-docs.sh all
+
+docs-admin:
+	tools/print-docs.sh 11-admin-user-guide
 
 docs-clean:
 	rm -rf dist/docs/
