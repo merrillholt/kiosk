@@ -1,0 +1,8 @@
+[Unit]
+Description=Building Directory Daily SQLite Backup
+After=network.target
+
+[Service]
+Type=oneshot
+User=@INSTALL_USER@
+ExecStart=@INSTALL_DIR@/scripts/backup.sh

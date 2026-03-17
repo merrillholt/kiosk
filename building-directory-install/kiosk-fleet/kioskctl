@@ -97,11 +97,24 @@ status_all() {
       "${USER_NAME}@${h}" 'bash -s' <<'END_REMOTE'
 hostname
 if mount | grep -q "^overlayroot on / type overlay"; then echo "overlayroot=1"; else echo "overlayroot=0"; fi
+_rro="$(mount | awk '$3=="/media/root-ro"{print; exit}')"
+if [[ -z "$_rro" ]]; then echo "root_ro_lower=not-mounted"
+elif echo "$_rro" | grep -q '\bro\b'; then echo "root_ro_lower=ro"
+else echo "root_ro_lower=rw"; fi
 echo -n "ssh="; systemctl is-active ssh 2>/dev/null || systemctl is-active sshd 2>/dev/null || echo "unknown"
 echo -n "getty@tty1="; systemctl is-active getty@tty1 2>/dev/null || echo "unknown"
 echo "kiosk-guard=$(systemctl show -p ActiveState --value kiosk-guard 2>/dev/null || echo not-found)"
 if pgrep -x cage >/dev/null 2>&1; then echo "cage=running"; else echo "cage=stopped"; fi
 if pgrep -a chromium >/dev/null 2>&1; then echo "chromium=running"; else echo "chromium=stopped"; fi
+if [[ -f /home/kiosk/building-directory/scripts/start-kiosk.sh ]]; then
+  primary="$(awk -F'\"' '/^SERVER_URL=/{print $2; exit}' /home/kiosk/building-directory/scripts/start-kiosk.sh)"
+  standby="$(awk -F'\"' '/^SERVER_URL_STANDBY=/{print $2; exit}' /home/kiosk/building-directory/scripts/start-kiosk.sh)"
+  echo "server_url=${primary:-unknown}"
+  echo "server_url_standby=${standby:-unknown}"
+else
+  echo "server_url=unknown"
+  echo "server_url_standby=unknown"
+fi
 echo "disk_root=$(df -hP / | awk 'NR==2 {print $3 "/" $2 " (" $5 ")"}')"
 echo "disk_uploads=$(df -hP /home/kiosk/building-directory/server/uploads 2>/dev/null | awk 'NR==2 {print $3 "/" $2 " (" $5 ")"}' || echo n/a)"
 echo "memory=$(free -m | awk '/Mem:/ {printf "%s/%sMB (%.0f%%)", $3, $2, ($3*100)/$2}')"
@@ -116,6 +129,14 @@ echo "cpu_usage_1s=$(awk -v a="$cpu" -v b="$cpu2" 'BEGIN {
   dt=t2-t1; did=id2-id1;
   if (dt<=0) print "n/a"; else printf("%.1f%%", (dt-did)*100/dt);
 }')"
+_fan="none"
+for _f in /sys/class/hwmon/*/fan*_input; do
+  [[ -f "$_f" ]] || continue
+  _rpm="$(cat "$_f" 2>/dev/null || echo 0)"
+  _fan="${_rpm} RPM"
+  break
+done
+echo "fan=$_fan"
 echo "__FAILED_UNITS_BEGIN__"
 systemctl --failed --no-legend --plain 2>/dev/null || true
 echo "__FAILED_UNITS_END__"
@@ -138,7 +159,15 @@ END_REMOTE
 
     local header overlay
     header="$(printf '%s\n' "$out" | sed '/^__FAILED_UNITS_BEGIN__$/,$d')"
-    echo "$header"
+    while IFS= read -r line; do
+      if [[ "$line" == "root_ro_lower=rw" ]]; then
+        printf "${C_RED}%s (reboot needed)${C_RESET}\n" "$line"
+      elif [[ "$line" == "fan=0 RPM" ]]; then
+        printf "${C_RED}%s (fan stopped?)${C_RESET}\n" "$line"
+      else
+        echo "$line"
+      fi
+    done <<< "$header"
     overlay="$(printf '%s\n' "$header" | awk -F= '/^overlayroot=/{print $2; exit}')"
     [[ -z "$overlay" ]] && overlay="0"
 

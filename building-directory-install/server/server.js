@@ -68,21 +68,8 @@ const loginAttempts = new Map();
 // SSH private key used to connect to kiosk machines for deployment
 const KIOSK_SSH_KEY = process.env.KIOSK_SSH_KEY ||
     path.join(os.homedir(), '.ssh', 'kiosk_deploy_key');
-// URL kiosk machines use to reach this server (auto-detected if not set)
-const KIOSK_SERVER_URL = process.env.KIOSK_SERVER_URL || (() => {
-    try {
-        const interfaces = os.networkInterfaces() || {};
-        for (const iface of Object.values(interfaces)) {
-            if (!Array.isArray(iface)) continue;
-            for (const addr of iface) {
-                if (addr && addr.family === 'IPv4' && !addr.internal) return `http://${addr.address}`;
-            }
-        }
-    } catch (err) {
-        console.warn('Could not auto-detect network interface for KIOSK_SERVER_URL:', err.message);
-    }
-    return 'http://localhost';
-})();
+// Authoritative URLs kiosk machines use to reach the primary and standby servers.
+const KIOSK_SERVER_URL = process.env.KIOSK_SERVER_URL || 'http://192.168.1.80';
 // Warm-standby URL kiosk machines will switch to if primary is unavailable.
 const KIOSK_SERVER_URL_STANDBY = process.env.KIOSK_SERVER_URL_STANDBY || 'http://192.168.1.81';
 const KIOSK_DEPLOY_SCRIPT = path.join(__dirname, 'kiosk-deploy.sh');

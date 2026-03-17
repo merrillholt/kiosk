@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-SERVER_URL="http://localhost"
+SERVER_URL="http://192.168.1.80"
 SERVER_URL_STANDBY="http://192.168.1.81"
 PRIMARY_TIMEOUT_SEC="${KIOSK_PRIMARY_TIMEOUT_SEC:-300}"
 STANDBY_WAIT_ATTEMPTS="${KIOSK_STANDBY_WAIT_ATTEMPTS:-30}"
@@ -50,9 +50,7 @@ select_server_url() {
 select_server_url
 
 # ── cage: hides cursor (-d), manages Chromium lifecycle ──────────────────────
-# wlr-randr auto-detects the first connected output and sets 1920x1080.
-# Works in both the VirtualBox dev VM (Virtual-1) and on physical hardware
-# (HDMI-1 or similar) without any configuration change.
+# wlr-randr auto-detects the first connected output and forces 1920x1080.
 # exec replaces sh with chromium so cage sees one long-lived client.
 cage -d -- sh -c '
     OUTPUT=$(wlr-randr 2>/dev/null | sed -n "1s/ .*//p")
