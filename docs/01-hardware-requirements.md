@@ -49,47 +49,20 @@ Reference doc: `docs/hardware/Intel® NUC Kit DC3217IYE.pdf`
 
 ---
 
-### Jetway JBC372F36 — Reserved server + display (192.168.1.82)
-
-| Spec | Value |
-|------|-------|
-| CPU | Intel Atom N2600, 1.60 GHz, Dual-Core, 3.5W |
-| Chipset | Intel NM10 Express |
-| RAM | 1x DDR3-800 SODIMM slot, max 2GB |
-| Storage | 1x 2.5" SATA3 6Gb/s bay + 1x CFast slot |
-| Graphics | Intel GMA 3600 (Full HD 1080p) |
-| Network | 2x Realtek RTL8111EVL PCIe Gigabit LAN |
-| USB | 4x USB 2.0 (rear) + 2x USB 2.0 (front) — **no USB 3.0** |
-| Video output | **DVI-I only** (DVI-to-VGA adapter included) — **no HDMI** |
-| Serial ports | 2x RS-232 rear (RJ45) + 2x RS-232 front (DB9) |
-| Power | 12V DC, 60W adapter |
-| Cooling | **Fanless** |
-| Dimensions | 180 × 142.6 × 48mm |
-| VESA mount | Optional kit |
-| Watchdog | Yes (hardware) |
-| WiFi | Optional (Mini-PCIe slot) |
-
-**Important:** DVI-I video output only — requires a DVI-to-HDMI active adapter or a DVI-compatible touchscreen display. Do not assume HDMI connectivity without the adapter.
-
-Reference doc: `docs/hardware/JBC372F36.pdf`
-
----
-
 ## Hardware Comparison
 
-| | Qotom Q305P (.80) | NUC DC3217IYE (.81) | Jetway JBC372F36 (.82) |
-|--|--|--|--|
-| Role | Primary server + display | Standby server + display | Reserved |
-| CPU | Celeron 3205U (Broadwell) | Core i3-3217U (Ivy Bridge) | Atom N2600 (Cedar Trail) |
-| Cooling | Fanless | Fan (active) | Fanless |
-| Storage interface | mSATA + 2.5" SATA | mSATA only | 2.5" SATA + CFast |
-| USB | USB 3.0 available | USB 2.0 only | USB 2.0 only |
-| RAM max | 8GB DDR3L | 16GB DDR3 | 2GB DDR3 |
-| Dual NIC | Yes (2 ports) | No (1 port) | Yes (2 ports) |
-| Video output | 2x HDMI | 2x HDMI | DVI-I only |
-| Power brick | 12V | 19V — do not mix | 12V |
+| | Qotom Q305P (.80) | NUC DC3217IYE (.81) |
+|--|--|--|
+| Role | Primary server + display | Standby server + display |
+| CPU generation | Broadwell (5th gen) | Ivy Bridge (3rd gen) |
+| Cooling | Fanless | Fan (active) |
+| Storage interface | mSATA + 2.5" SATA | mSATA only |
+| USB | USB 3.0 available | USB 2.0 only |
+| RAM max | 8GB DDR3L | 16GB DDR3 |
+| Dual NIC | Yes (2 ports) | No (1 port) |
+| Power brick | 12V | 19V — do not mix |
 
-**Do not interchange power supplies** — the NUC uses 19V; Qotom and Jetway use 12V (incompatible).
+**Do not interchange power supplies** — 12V and 19V bricks are incompatible.
 
 ---
 
@@ -108,7 +81,7 @@ See `docs/elo-cage-wayland-kiosk-hardening.md` for Elo 3239L-specific configurat
 
 - Wired Ethernet (WiFi not recommended for permanent installation)
 - DHCP reservation per host to maintain stable IPs
-- Static assignment: `.80` = primary (Qotom Q305P), `.81` = standby (NUC DC3217IYE), `.82` = reserved (Jetway JBC372F36)
+- Static assignment: `.80` = primary, `.81` = standby, `.82` = reserved
 
 ## Storage Sizing
 
