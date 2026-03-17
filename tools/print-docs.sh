@@ -42,7 +42,6 @@ ALL_DOCS=(
   "09-server-operations.md"
   "10-new-host-installation.md"
   "04-development-environment.md"
-  "02-linux-distro-selection.md"
 )
 
 usage() {

@@ -15,7 +15,6 @@ This project has separate documentation by scope.
 
 - [debian13_kiosk_updated_docs.md](debian13_kiosk_updated_docs.md)
 - [01-hardware-requirements.md](01-hardware-requirements.md)
-- [02-linux-distro-selection.md](02-linux-distro-selection.md)
 - [03-read-only-filesystem.md](03-read-only-filesystem.md)
 - [06-desktop-environment.md](06-desktop-environment.md)
 - [07-touchscreen-setup.md](07-touchscreen-setup.md)
@@ -29,3 +28,4 @@ This project has separate documentation by scope.
 ## Archive
 
 - `docs/archive/` contains legacy/reference artifacts.
+- [archive/02-linux-distro-selection.md](archive/02-linux-distro-selection.md) — pre-decision OS comparison (Debian 13 selected)
