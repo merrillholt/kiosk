@@ -139,7 +139,8 @@ kiosk falls back to the standby (`SERVER_URL_STANDBY` in `start-kiosk.sh`).
 
 /data/                                  ← persistent partition (always rw)
 ├── directory/directory.db              ← live SQLite database
-└── backups/building-directory/         ← timestamped DB backups
+├── backups/building-directory/         ← timestamped DB backups
+└── logs/                               ← persistent application logs
 ```
 
 The root filesystem (`/`) is read-only under overlayroot. `/data` is a separate

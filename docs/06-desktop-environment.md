@@ -42,25 +42,46 @@ user's login shell on `tty1`.
 ## start-kiosk.sh
 
 Located at `~/building-directory/scripts/start-kiosk.sh`. Launched by the
-`.bash_profile` loop. Starts Cage with Chromium in kiosk mode:
+`.bash_profile` loop. Before starting Cage it runs a server health check:
 
-```bash
-cage -- chromium \
-  --kiosk \
-  --ozone-platform=wayland \
-  --noerrdialogs \
-  --disable-session-crashed-bubble \
-  --disable-pinch \
-  --overscroll-history-navigation=0 \
-  --disable-translate \
-  --no-first-run \
-  --disable-sync \
-  --touch-events=enabled \
-  "$SERVER_URL"
-```
+1. Polls `$SERVER_URL/api/data-version` for up to 300 seconds.
+2. If the primary is unreachable, switches to `$SERVER_URL_STANDBY`.
+3. Launches Cage once a server responds (or after timeout).
 
 `SERVER_URL` and `SERVER_URL_STANDBY` are set at the top of the script and
 patched in by `tools/deploy-ssh.sh --full` on each deploy.
+
+The Cage launch uses `-d` to hide the cursor, detects the active display output
+with `wlr-randr` and forces 1920×1080, then starts Chromium:
+
+```bash
+cage -d -- sh -c '
+    OUTPUT=$(wlr-randr 2>/dev/null | sed -n "1s/ .*//p")
+    [ -n "$OUTPUT" ] && wlr-randr --output "$OUTPUT" --mode 1920x1080
+    exec chromium \
+      --ozone-platform=wayland \
+      --user-data-dir=/tmp/chromium-profile \
+      --password-store=basic \
+      --kiosk \
+      --noerrdialogs \
+      --disable-infobars \
+      --disable-notifications \
+      --deny-permission-prompts \
+      --disable-session-crashed-bubble \
+      --disable-pinch \
+      --overscroll-history-navigation=0 \
+      --disable-features=TranslateUI,NotificationTriggers \
+      --check-for-update-interval=31536000 \
+      --no-first-run \
+      --disable-restore-session-state \
+      --disable-sync \
+      --disable-translate \
+      "$ACTIVE_SERVER_URL"
+'
+```
+
+Chromium profile and state are written to `/tmp` so nothing persists across
+reboots on the read-only root filesystem.
 
 ## Admin Breakout (USB Keyboard)
 
@@ -85,6 +106,23 @@ export XDG_CACHE_HOME=/tmp/xfce4-cache
 
 Logging out of XFCE returns to the `.bash_profile` loop which restarts the
 kiosk automatically. Unplugging the keyboard is not required.
+
+## kiosk-guard Service
+
+`kiosk-guard.service` runs as a system daemon (`/usr/local/sbin/kiosk-guard`),
+enabled at `multi-user.target`. It monitors the kiosk session and restarts
+`cage` if Chromium dies unexpectedly, independently of the `.bash_profile` loop.
+
+```bash
+systemctl status kiosk-guard
+```
+
+The service is set to `OOMScoreAdjust=-500` so the OOM killer targets it last.
+
+> **Note:** The `kiosk-guard` binary is installed directly on production hosts
+> and is not currently tracked in this repository. If reinstalling a host,
+> confirm the binary is present at `/usr/local/sbin/kiosk-guard` and
+> `kiosk-guard.service` is installed in `/etc/systemd/system/`.
 
 ## Restarting the Kiosk Session
 

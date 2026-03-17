@@ -96,19 +96,20 @@ Read-only:   Reboot. Done.
 
 ## Production Disk Layout
 
-Current production hosts use three partitions:
+Current production hosts use four partitions on a single mSATA SSD:
 
 ```
-/dev/sda   (root disk)
-├── sda1   ~18 GB   /              ext4   (root — mounted read-only by overlayroot)
-├── sda2            swap
-└── sda4    ~7 GB   /data          ext4   (persistent data — always mounted rw)
+/dev/sda   (mSATA SSD)
+├── sda1   ~976 MB   EFI System    vfat   (UEFI boot partition)
+├── sda2   ~20.5 GB  /             ext4   (root — mounted read-only by overlayroot)
+├── sda3   ~1.5 GB   swap
+└── sda4   ~6.8 GB   /data         ext4   (persistent data — always mounted rw)
 ```
 
 The overlayroot layer sits on top of the read-only root:
 
 ```
-/media/root-ro        ← lower layer: read-only ext4 (the real filesystem)
+/media/root-ro        ← lower layer: read-only ext4 (sda2, the real filesystem)
 /media/root-rw        ← upper layer: tmpfs (ephemeral writes, lost on reboot)
 /                     ← overlay of the two (what the running system sees)
 /data                 ← mounted directly from sda4, unaffected by overlayroot

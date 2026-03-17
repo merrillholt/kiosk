@@ -52,20 +52,25 @@ In BIOS:
 
 At the Debian installer partitioning step, set up partitions manually:
 
-**Qotom Q305P (.80 / .82) — two drives:**
+**Qotom Q305P (.80 / .82) — single mSATA SSD (confirmed on .80):**
 
-| Drive | Partition | Size | Mount | Filesystem |
-|-------|-----------|------|-------|------------|
-| mSATA | sda1 | ~18 GB | `/` | ext4 |
-| mSATA | sda2 | 2 GB | swap | swap |
-| 2.5" SATA | sdb1 | all | `/data` | ext4 |
+| Partition | Size | Mount | Filesystem |
+|-----------|------|-------|------------|
+| sda1 | ~1 GB | EFI | vfat |
+| sda2 | ~20 GB | `/` | ext4 |
+| sda3 | ~1.5 GB | swap | swap |
+| sda4 | remainder (~7 GB) | `/data` | ext4 |
+
+The Qotom has a 2.5" SATA bay but .80 uses the mSATA drive for all partitions.
+The 2.5" bay can hold a second drive if additional `/data` capacity is needed.
 
 **Intel NUC DC3217IYE (.81) — mSATA only:**
 
 | Partition | Size | Mount | Filesystem |
 |-----------|------|-------|------------|
-| sda1 | ~18 GB | `/` | ext4 |
-| sda2 | 2 GB | swap | swap |
+| sda1 | ~1 GB | EFI | vfat |
+| sda2 | ~20 GB | `/` | ext4 |
+| sda3 | ~1.5 GB | swap | swap |
 | sda4 | remainder | `/data` | ext4 |
 
 > The `/data` partition holds the database and backups. It is never covered by
