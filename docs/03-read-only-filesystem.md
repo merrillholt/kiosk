@@ -10,14 +10,15 @@ Kiosks get unplugged, lose power during outages, or get switched off without pro
 
 ```
 Normal filesystem during write:
-┌──────────────────────────────────────┐
-│  1. Open file                        │
-│  2. Write partial data ──────────────┼──── POWER LOST HERE
-│  3. Flush to disk                    │
-│  4. Update journal/metadata          │
-│  5. Close file                       │
-└──────────────────────────────────────┘
-         ↓
++----------------------------------------------+
+|  1. Open file                                |
+|  2. Write partial data  <<< POWER LOST HERE  |
+|  3. Flush to disk           (not reached)    |
+|  4. Update journal/metadata (not reached)    |
+|  5. Close file              (not reached)    |
++----------------------------------------------+
+         |
+         v
    Corrupted file, orphaned inodes,
    or inconsistent filesystem state
 ```
@@ -37,13 +38,13 @@ Normal filesystem during write:
 ```
 Read-only root + overlay architecture:
 
-┌─────────────────────────────────────────────┐
-│         Volatile Layer (tmpfs/RAM)          │  ← Writes go here
-│         Lost on reboot - that's fine        │     (disappear on power loss)
-├─────────────────────────────────────────────┤
-│         Read-Only Root (SSD)                │  ← Never modified
-│         Always pristine, always bootable    │     (can't be corrupted)
-└─────────────────────────────────────────────┘
++---------------------------------------------+
+|         Volatile Layer (tmpfs/RAM)          |  ← Writes go here
+|         Lost on reboot - that's fine        |     (disappear on power loss)
++---------------------------------------------+
+|         Read-Only Root (SSD)                |  ← Never modified
+|         Always pristine, always bootable    |     (can't be corrupted)
++---------------------------------------------+
 ```
 
 **On power loss:** RAM contents vanish, but the SSD was never being written to. Next boot starts from a known-good state.
@@ -100,10 +101,10 @@ Current production hosts use four partitions on a single mSATA SSD:
 
 ```
 /dev/sda   (mSATA SSD)
-├── sda1   ~976 MB   EFI System    vfat   (UEFI boot partition)
-├── sda2   ~20.5 GB  /             ext4   (root — mounted read-only by overlayroot)
-├── sda3   ~1.5 GB   swap
-└── sda4   ~6.8 GB   /data         ext4   (persistent data — always mounted rw)
++-- sda1   ~976 MB   EFI System    vfat   (UEFI boot partition)
++-- sda2   ~20.5 GB  /             ext4   (root — mounted read-only by overlayroot)
++-- sda3   ~1.5 GB   swap
++-- sda4   ~6.8 GB   /data         ext4   (persistent data — always mounted rw)
 ```
 
 The overlayroot layer sits on top of the read-only root:

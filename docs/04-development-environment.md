@@ -16,21 +16,21 @@ Deployed runtime: /home/security/building-directory/
 ## Development Workflow
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     Development Cycle                        │
-├─────────────────────────────────────────────────────────────┤
-│                                                              │
-│  1. Edit files in /home/security/Public-Kiosk               │
-│              ↓                                               │
-│  2. Deploy locally: tools/deploy-local.sh                   │
-│              ↓                                               │
-│  3. Restart service: sudo systemctl restart directory-server │
-│              ↓                                               │
-│  4. Test via browser at http://127.0.0.1/admin              │
-│              ↓                                               │
-│  5. Deploy to production: tools/deploy-ssh.sh               │
-│                                                              │
-└─────────────────────────────────────────────────────────────┘
++-------------------------------------------------------------+
+|                     Development Cycle                       |
++-------------------------------------------------------------+
+|                                                             |
+|  1. Edit files in /home/security/Public-Kiosk               |
+|              v                                              |
+|  2. Deploy locally: tools/deploy-local.sh                   |
+|              v                                              |
+|  3. Restart service: sudo systemctl restart directory-server|
+|              v                                              |
+|  4. Test via browser at http://127.0.0.1/admin              |
+|              v                                              |
+|  5. Deploy to production: tools/deploy-ssh.sh               |
+|                                                             |
++-------------------------------------------------------------+
 ```
 
 ## Quick Setup (After Fresh Clone)
