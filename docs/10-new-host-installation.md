@@ -126,7 +126,7 @@ When prompted:
 | Load sample data | `n` |
 | Enable HTTP Basic Auth | `n` (systems are physically secure) |
 | Restrict to IP/CIDR | `n` |
-| Install Elo legacy driver (IntelliTouch/2700) | `n` — the Elo 3239L (ET3239L-8CNA) is PCAP/USB HID; no legacy driver needed |
+| Install optional Elo legacy touchscreen driver bundle | `y` — required for the Elo 3239L; installs `elomtusbd` userspace daemon and `uinput` module |
 | Reboot now | `n` — complete Phase 2 steps first |
 
 ### 2.3 Fix overlayroot configuration
@@ -245,44 +245,62 @@ Connect the Elo 3239L (ET3239L-8CNA) to the host:
 > The touch signal travels over USB, not HDMI. Both cables are required.
 > The DVI-to-HDMI adapter is a passive converter — the host sees a standard HDMI display.
 
-### 4.2 Verify touchscreen detection
+### 4.2 Verify the Elo driver is installed
+
+The install script runs `scripts/install-elo-driver.sh` which copies the Elo
+MT USB driver bundle to `/etc/opt/elo-mt-usb/` and enables `elo.service`.
 
 ```bash
-# Confirm USB HID device is present
+# Confirm driver files are present
+ls /etc/opt/elo-mt-usb/elomtusbd
+
+# Confirm service is enabled (it runs at boot; exits after initialising uinput)
+systemctl is-enabled elo.service
+
+# Confirm uinput module is loaded
+lsmod | grep uinput
+```
+
+**How the driver works on `.80` (confirmed):** `elo.service` runs
+`loadEloMultiTouchUSB.sh` at boot, which launches `elomtusbd --stdigitizer`.
+The daemon registers a uinput virtual device and exits. Touch input is then
+handled by the `hid-generic` kernel driver, which presents the Elo 2700
+controller as an absolute pointer on `/dev/input/event*`. This is the
+production-confirmed working configuration.
+
+### 4.3 Verify touchscreen detection
+
+```bash
+# Confirm USB device is present
 lsusb | grep -i elo
 # Expected: Bus ... ID 04e7:0020 Elo TouchSystems 2700 IntelliTouch
 
-# Confirm kernel recognises the device
+# Confirm kernel recognised the device and assigned it an event node
 sudo dmesg | grep -i elo
+# Expected: hid-generic ... input,hidraw: USB HID ... Pointer [Elo ...]
 
-# Confirm libinput sees it
+# Confirm the input device is present
 sudo libinput list-devices | grep -A5 -i elo
+# Expected: Capabilities: pointer  (absolute pointing device)
 ```
 
-### 4.3 Verify udev rules are applied
+### 4.4 Verify udev rules are applied
 
-The install script deploys `99-elo-usb-power.rules` (disables USB autosuspend).
-Confirm the pointer/touch conflict fix rule is also present:
+Two udev rules are installed by the installer:
+
+| Rule file | Purpose |
+|-----------|---------|
+| `99-elotouch.rules` | USB device permissions (mode 0666 for vendor `04e7`) |
+| `99-elo-usb-power.rules` | Disables USB autosuspend on the Elo device |
 
 ```bash
-ls /etc/udev/rules.d/99-elo-touchscreen.rules
+ls /etc/udev/rules.d/99-elotouch.rules
+ls /etc/udev/rules.d/99-elo-usb-power.rules
 ```
 
-If missing, create it:
+Both must be present. If either is missing, re-run `scripts/install-elo-driver.sh`.
 
-```bash
-sudo tee /etc/udev/rules.d/99-elo-touchscreen.rules <<'EOF'
-SUBSYSTEM=="input", ATTRS{idVendor}=="04e7", ATTRS{idProduct}=="0020", ENV{ID_INPUT_MOUSE}="0"
-SUBSYSTEM=="input", ATTRS{idVendor}=="04e7", ATTRS{idProduct}=="0020", ENV{ID_INPUT_JOYSTICK}="0"
-EOF
-sudo udevadm control --reload-rules
-sudo udevadm trigger
-```
-
-Then unplug and replug the touchscreen USB, or reboot.
-See `docs/elo-cage-wayland-kiosk-hardening.md` for full detail.
-
-### 4.4 Verify the kiosk session
+### 4.5 Verify the kiosk session
 
 The kiosk should start automatically on `tty1` after login. Confirm on the physical display — Chromium should be fullscreen showing the directory.
 
@@ -309,7 +327,7 @@ recent_log_errors_unexpected:
   none
 ```
 
-### 4.5 Touch verification
+### 4.6 Touch verification
 
 Plug in a USB keyboard to exit the kiosk session and open XFCE. Then test touch input directly:
 
