@@ -86,7 +86,10 @@ The building directory application consists of three main components:
 Production kiosks are configured with a primary server URL of
 `http://192.168.1.80` and a standby URL of `http://192.168.1.81`. On boot, the
 kiosk waits for the primary and falls back to the standby if the primary is
-unreachable (`SERVER_URL` / `SERVER_URL_STANDBY` in `start-kiosk.sh`).
+unreachable (`SERVER_URL` / `SERVER_URL_STANDBY` in `start-kiosk.sh`). If the
+kiosk starts on standby, a conservative background failback watcher probes the
+primary on a long fixed interval and restarts the kiosk only after sustained
+primary health.
 
 `localhost` is only used as the installer-time default for a fresh host
 installed in "Both Server and Client" mode before production deployment rewrites

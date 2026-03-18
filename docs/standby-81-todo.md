@@ -2,6 +2,10 @@
 
 Goal: track work that only becomes actionable after `192.168.1.81` is deployed, reachable, and serving as the standby system.
 
+Note: repo code now includes conservative automatic failback logic in
+`start-kiosk.sh`, but end-to-end failover/failback testing remains deferred
+until `192.168.1.81` is installed, reachable, and serving traffic.
+
 ## Standby-Dependent Items
 
 1. Direct database sync from production to standby
@@ -32,7 +36,8 @@ Goal: track work that only becomes actionable after `192.168.1.81` is deployed, 
    - Maintenance mode needed: No.
    - Validate behavior when `192.168.1.80` and `192.168.1.82` are down but `192.168.1.81` remains active.
    - Validate behavior when only `192.168.1.80` is down and kiosks must switch to `192.168.1.81`.
-   - Validate failback behavior when `192.168.1.80` returns after an outage.
+   - Validate automatic failback behavior when `192.168.1.80` returns after an outage.
+   - Confirm the long fixed failback intervals are acceptable in practice or adjust them upward if needed.
 
 6. Standby RPO/RTO policy
    - Maintenance mode needed: No.

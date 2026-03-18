@@ -268,8 +268,9 @@ http://192.168.1.81/admin
 
 Kiosks are deployed with a primary URL of \texttt{http://192.168.1.80} and a
 standby URL of \texttt{http://192.168.1.81}. On startup they try the primary
-first and fall back to the standby if the primary is unreachable. They do not
-automatically fail back to the primary until the kiosk session is restarted.
+first and fall back to the standby if the primary is unreachable. If startup
+selected standby, a conservative background watcher probes the primary on a long
+fixed interval and only restarts the kiosk after sustained primary health.
 
 \subsection{Do Not Host Server On All Displays}
 

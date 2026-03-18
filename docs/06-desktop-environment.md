@@ -46,10 +46,21 @@ Located at `~/building-directory/scripts/start-kiosk.sh`. Launched by the
 
 1. Polls `$SERVER_URL/api/data-version` for up to 300 seconds.
 2. If the primary is unreachable, switches to `$SERVER_URL_STANDBY`.
-3. Launches Cage once a server responds (or after timeout).
+3. If the kiosk launched on standby, arms a slow failback watcher for the primary.
+4. Launches Cage once a server responds (or after timeout).
 
 `SERVER_URL` and `SERVER_URL_STANDBY` are set at the top of the script and
 patched in by `tools/deploy-ssh.sh --full` on each deploy.
+
+The failback watcher is intentionally conservative. By default it:
+
+- waits 2 hours before checking the primary again
+- probes the primary every 30 minutes
+- requires 4 consecutive successful probes
+- then kills `cage` so the tty1 loop relaunches the kiosk and reselects the primary
+
+This means automatic failback only happens after long sustained primary health,
+which reduces restart churn if the primary is unstable.
 
 The Cage launch uses `-d` to hide the cursor, detects the active display output
 with `wlr-randr` and forces 1920×1080, then starts Chromium:
