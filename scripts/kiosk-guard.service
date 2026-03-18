@@ -1,0 +1,14 @@
+[Unit]
+Description=Kiosk guard (restart cage if Chromium dies)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/kiosk-guard
+Restart=always
+RestartSec=5
+OOMScoreAdjust=-500
+
+[Install]
+WantedBy=multi-user.target

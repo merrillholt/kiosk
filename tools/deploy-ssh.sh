@@ -411,6 +411,24 @@ else
 fi
 ssh "$HOST" "sudo -n systemctl daemon-reload && sudo -n systemctl start directory-backup.timer"
 
+echo "==> Installing kiosk-guard on remote..."
+if [[ "$EFFECTIVE_OVERLAY" -eq 1 ]]; then
+  if [[ "$LOWERDIR_DIRECT_WRITE" -eq 1 ]]; then
+    ssh "$HOST" "sudo -n install -D -m 755 '$DEPLOY_ROOT/scripts/kiosk-guard' /media/root-ro/usr/local/sbin/kiosk-guard"
+    ssh "$HOST" "sudo -n install -D -m 644 '$DEPLOY_ROOT/scripts/kiosk-guard.service' /media/root-ro/etc/systemd/system/kiosk-guard.service"
+    ssh "$HOST" "sudo -n mkdir -p /media/root-ro/etc/systemd/system/multi-user.target.wants && sudo -n ln -sfn /etc/systemd/system/kiosk-guard.service /media/root-ro/etc/systemd/system/multi-user.target.wants/kiosk-guard.service"
+  else
+    ssh "$HOST" "sudo -n overlayroot-chroot install -D -m 755 '$DEPLOY_ROOT/scripts/kiosk-guard' /usr/local/sbin/kiosk-guard"
+    ssh "$HOST" "sudo -n overlayroot-chroot install -D -m 644 '$DEPLOY_ROOT/scripts/kiosk-guard.service' /etc/systemd/system/kiosk-guard.service"
+    ssh "$HOST" "sudo -n overlayroot-chroot mkdir -p /etc/systemd/system/multi-user.target.wants && sudo -n overlayroot-chroot ln -sfn /etc/systemd/system/kiosk-guard.service /etc/systemd/system/multi-user.target.wants/kiosk-guard.service"
+  fi
+else
+  ssh "$HOST" "sudo -n install -D -m 755 '$DEPLOY_ROOT/scripts/kiosk-guard' /usr/local/sbin/kiosk-guard"
+  ssh "$HOST" "sudo -n install -D -m 644 '$DEPLOY_ROOT/scripts/kiosk-guard.service' /etc/systemd/system/kiosk-guard.service"
+  ssh "$HOST" "sudo -n systemctl enable kiosk-guard.service"
+fi
+ssh "$HOST" "sudo -n systemctl daemon-reload && sudo -n systemctl restart kiosk-guard.service"
+
 if [[ "$NO_RESTART" -eq 1 ]]; then
   echo "==> --no-restart set; skipping service restart and health checks."
   echo "Remote deploy complete."

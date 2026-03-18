@@ -8,7 +8,7 @@
 ## 1) High-level architecture
 
 ### Normal mode (default boot)
-- Root filesystem mounted read-only using `overlayroot="tmpfs"` (RAM upperdir)
+- Root filesystem mounted read-only using `overlayroot="tmpfs:swap=1,recurse=0"` (RAM upperdir, `/data` excluded from overlay)
 - Kiosk runs on **tty1** with autologin user `kiosk`
 - `.bash_profile` on tty1 launches the kiosk session:
   - `cage` (Wayland kiosk compositor) launches `chromium --ozone-platform=wayland --kiosk ... URL`

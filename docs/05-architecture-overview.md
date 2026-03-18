@@ -83,9 +83,15 @@ The building directory application consists of three main components:
   +----------------------------------------------------+
 ```
 
-Each host runs both the server and the kiosk display. The kiosk browser on each
-host points at its own local server. If the primary (`.80`) is unreachable, the
-kiosk falls back to the standby (`SERVER_URL_STANDBY` in `start-kiosk.sh`).
+Production kiosks are configured with a primary server URL of
+`http://192.168.1.80` and a standby URL of `http://192.168.1.81`. On boot, the
+kiosk waits for the primary and falls back to the standby if the primary is
+unreachable (`SERVER_URL` / `SERVER_URL_STANDBY` in `start-kiosk.sh`).
+
+`localhost` is only used as the installer-time default for a fresh host
+installed in "Both Server and Client" mode before production deployment rewrites
+`start-kiosk.sh`. A client-only host such as `.82` should use network server
+URLs, not `localhost`.
 
 `192.168.1.82` is reserved for a second Qotom Q305P (identical to `.80`).
 
@@ -125,7 +131,7 @@ kiosk falls back to the standby (`SERVER_URL_STANDBY` in `start-kiosk.sh`).
 +-- server/                             ← backend API
 |   +-- server.js
 |   +-- package.json
-|   +-- directory.db → /data/directory/directory.db   ← symlink
+|   +-- directory.db → /data/directory/directory.db   ← production symlink to live DB
 |   +-- admin/                          ← admin interface
 |       +-- index.html
 |       +-- admin.js
@@ -143,9 +149,10 @@ kiosk falls back to the standby (`SERVER_URL_STANDBY` in `start-kiosk.sh`).
 +-- logs/                               ← persistent application logs
 ```
 
-The root filesystem (`/`) is read-only under overlayroot. `/data` is a separate
-ext4 partition mounted read-write and is never overlaid. See
-`docs/03-read-only-filesystem.md`.
+In steady-state production, `server/directory.db` resolves to the live database
+on `/data/directory/directory.db`. The root filesystem (`/`) is read-only under
+overlayroot. `/data` is a separate ext4 partition mounted read-write and is
+never overlaid. See `docs/03-read-only-filesystem.md`.
 
 ## Database Schema
 

@@ -110,8 +110,10 @@ kiosk automatically. Unplugging the keyboard is not required.
 ## kiosk-guard Service
 
 `kiosk-guard.service` runs as a system daemon (`/usr/local/sbin/kiosk-guard`),
-enabled at `multi-user.target`. It monitors the kiosk session and restarts
-`cage` if Chromium dies unexpectedly, independently of the `.bash_profile` loop.
+enabled at `multi-user.target`. It monitors the kiosk session and kills `cage`
+if Chromium dies while Cage is still running. The tty1 `.bash_profile` loop
+then relaunches `start-kiosk.sh`, providing a second recovery path beyond the
+login-shell loop alone.
 
 ```bash
 systemctl status kiosk-guard
@@ -119,10 +121,13 @@ systemctl status kiosk-guard
 
 The service is set to `OOMScoreAdjust=-500` so the OOM killer targets it last.
 
-> **Note:** The `kiosk-guard` binary is installed directly on production hosts
-> and is not currently tracked in this repository. If reinstalling a host,
-> confirm the binary is present at `/usr/local/sbin/kiosk-guard` and
-> `kiosk-guard.service` is installed in `/etc/systemd/system/`.
+The implementation is a small shell watchdog tracked in this repository and
+installed by the kiosk/client setup flow. Its behavior is intentionally narrow:
+
+- If `cage` is not running, it does nothing.
+- If `cage` is running but Chromium is not, it kills `cage`.
+- It does not detect a hung Chromium process that is still running.
+- It does not recreate a missing tty1 login session by itself.
 
 ## Restarting the Kiosk Session
 

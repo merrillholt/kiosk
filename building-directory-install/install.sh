@@ -452,9 +452,12 @@ if [ "$INSTALL_MODE" = "client" ] || [ "$INSTALL_MODE" = "both" ]; then
     print_info "Installing kiosk scripts..."
     cp scripts/start-kiosk.sh    "$INSTALL_DIR/scripts/"
     cp scripts/restart-kiosk.sh  "$INSTALL_DIR/scripts/"
+    cp scripts/kiosk-guard       "$INSTALL_DIR/scripts/"
+    cp scripts/kiosk-guard.service "$INSTALL_DIR/scripts/"
     cp scripts/install-elo-driver.sh "$INSTALL_DIR/scripts/"
     chmod +x "$INSTALL_DIR/scripts/start-kiosk.sh"
     chmod +x "$INSTALL_DIR/scripts/restart-kiosk.sh"
+    chmod +x "$INSTALL_DIR/scripts/kiosk-guard"
     chmod +x "$INSTALL_DIR/scripts/install-elo-driver.sh"
 
     if [ -d vendor/elo-mt-usb ]; then
@@ -519,6 +522,11 @@ ExecStart=
 ExecStart=-/sbin/agetty --autologin $USER --noclear %I \$TERM
 EOF
 
+    print_info "Installing kiosk-guard service..."
+    sudo install -D -m 755 "$INSTALL_DIR/scripts/kiosk-guard" /usr/local/sbin/kiosk-guard
+    sudo install -D -m 644 "$INSTALL_DIR/scripts/kiosk-guard.service" /etc/systemd/system/kiosk-guard.service
+    sudo systemctl enable kiosk-guard.service
+
     # .bash_profile: kiosk loop with XFCE fallback on keyboard insertion
     print_info "Creating .bash_profile for kiosk autostart..."
     cat > "$HOME/.bash_profile" <<EOF
@@ -559,6 +567,7 @@ EOF
 
     sudo systemctl set-default multi-user.target
     sudo systemctl daemon-reload
+    sudo systemctl restart kiosk-guard.service
 
     # Set up overlayroot — makes the filesystem read-only (tmpfs upper layer).
     # Power failures cannot corrupt the OS; uploaded images and settings are

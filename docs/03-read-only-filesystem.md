@@ -122,7 +122,7 @@ The application's persistent state lives on `/data`:
 |------|------|
 | Database | `/data/directory/directory.db` |
 | Backups | `/data/backups/building-directory/` |
-| DB symlink | `~/building-directory/server/directory.db → /data/directory/directory.db` |
+| DB symlink | `~/building-directory/server/directory.db → /data/directory/directory.db` in steady-state production |
 | Uploaded images | persisted to overlay lower layer via `/usr/local/bin/persist-upload.sh` |
 
 Critical: `overlayroot.conf` must be:

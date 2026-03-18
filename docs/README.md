@@ -2,10 +2,15 @@
 
 This project has separate documentation by scope.
 
+Current Markdown docs in this folder are the primary operating instructions.
+TeX and other legacy/reference documents may lag behind the current install and
+deploy flow. If documents disagree and the question is about real deployed
+behavior, verify the production system on `192.168.1.80`.
+
 ## Primary By Scope
 
 - **New host installation (all phases):** [10-new-host-installation.md](10-new-host-installation.md)
-- **Client environment setup:** [Debian 13 Configuration.tex](Debian%2013%20Configuration.tex)
+- **Client environment setup:** [10-new-host-installation.md](10-new-host-installation.md), [06-desktop-environment.md](06-desktop-environment.md), [07-touchscreen-setup.md](07-touchscreen-setup.md)
 - **Server operations:** [09-server-operations.md](09-server-operations.md)
 - **Server and packaging/deploy workflow:** [08-packaging-and-deploy.md](08-packaging-and-deploy.md)
 - **System architecture overview:** [05-architecture-overview.md](05-architecture-overview.md)
@@ -29,3 +34,4 @@ This project has separate documentation by scope.
 
 - `docs/archive/` contains legacy/reference artifacts.
 - [archive/02-linux-distro-selection.md](archive/02-linux-distro-selection.md) — pre-decision OS comparison (Debian 13 selected)
+- [Debian 13 Configuration.tex](Debian%2013%20Configuration.tex) — legacy/reference guide; verify against the current Markdown docs before using

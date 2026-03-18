@@ -125,6 +125,7 @@ fi
 if [[ "$DRY_RUN" -eq 1 ]]; then
   echo "[dry-run] Would install $DEPLOY_ROOT/server/persist-upload.sh to /usr/local/bin/persist-upload.sh"
   echo "[dry-run] Would install backup timer units to /etc/systemd/system/"
+  echo "[dry-run] Would install kiosk-guard to /usr/local/sbin/kiosk-guard and /etc/systemd/system/kiosk-guard.service"
 else
   if command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
     sudo -n install -m 755 "$DEPLOY_ROOT/server/persist-upload.sh" /usr/local/bin/persist-upload.sh
@@ -137,19 +138,28 @@ else
       | sudo -n tee /etc/systemd/system/directory-backup.service > /dev/null
     sudo -n chmod 644 /etc/systemd/system/directory-backup.service
     sudo -n install -D -m 644 "$DEPLOY_ROOT/scripts/directory-backup.timer" /etc/systemd/system/directory-backup.timer
+    sudo -n install -D -m 755 "$DEPLOY_ROOT/scripts/kiosk-guard" /usr/local/sbin/kiosk-guard
+    sudo -n install -D -m 644 "$DEPLOY_ROOT/scripts/kiosk-guard.service" /etc/systemd/system/kiosk-guard.service
     sudo -n systemctl daemon-reload
     sudo -n systemctl enable directory-backup.timer
     sudo -n systemctl start directory-backup.timer
+    sudo -n systemctl enable kiosk-guard.service
+    sudo -n systemctl restart kiosk-guard.service
     echo "Installed backup timer: directory-backup.timer"
+    echo "Installed service: kiosk-guard.service"
   else
     echo "Manual step required:"
     echo "  sudo install -m 755 $DEPLOY_ROOT/server/persist-upload.sh /usr/local/bin/persist-upload.sh"
     echo "  sed -e 's|@INSTALL_USER@|$(id -un)|g' -e 's|@INSTALL_DIR@|$DEPLOY_ROOT|g' $DEPLOY_ROOT/scripts/directory-backup.service | sudo tee /etc/systemd/system/directory-backup.service >/dev/null"
     echo "  sudo chmod 644 /etc/systemd/system/directory-backup.service"
     echo "  sudo install -D -m 644 $DEPLOY_ROOT/scripts/directory-backup.timer /etc/systemd/system/directory-backup.timer"
+    echo "  sudo install -D -m 755 $DEPLOY_ROOT/scripts/kiosk-guard /usr/local/sbin/kiosk-guard"
+    echo "  sudo install -D -m 644 $DEPLOY_ROOT/scripts/kiosk-guard.service /etc/systemd/system/kiosk-guard.service"
     echo "  sudo systemctl daemon-reload"
     echo "  sudo systemctl enable directory-backup.timer"
     echo "  sudo systemctl start directory-backup.timer"
+    echo "  sudo systemctl enable kiosk-guard.service"
+    echo "  sudo systemctl restart kiosk-guard.service"
   fi
 fi
 

@@ -163,8 +163,11 @@ sudo vi /etc/overlayroot.conf
 
 Set:
 \begin{lstlisting}
-overlayroot="tmpfs"
+overlayroot="tmpfs:swap=1,recurse=0"
 \end{lstlisting}
+
+The \texttt{recurse=0} flag is required so the persistent \texttt{/data}
+partition remains outside the overlay and retains database writes across reboot.
 
 Reboot and verify:
 \begin{lstlisting}[language=bash]
@@ -251,13 +254,22 @@ curl -fsS http://127.0.0.1:3000/api/data-version
 
 \subsection{Production Mode}
 
-Server hosted on one kiosk node:
+Primary server hosted on the production kiosk node:
 \begin{lstlisting}
 http://192.168.1.80/
 http://192.168.1.80/admin
 \end{lstlisting}
 
-Other kiosks connect via LAN.
+Standby server:
+\begin{lstlisting}
+http://192.168.1.81/
+http://192.168.1.81/admin
+\end{lstlisting}
+
+Kiosks are deployed with a primary URL of \texttt{http://192.168.1.80} and a
+standby URL of \texttt{http://192.168.1.81}. On startup they try the primary
+first and fall back to the standby if the primary is unreachable. They do not
+automatically fail back to the primary until the kiosk session is restarted.
 
 \subsection{Do Not Host Server On All Displays}
 

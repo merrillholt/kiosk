@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# If cage is running but Chromium has died, kill cage so the tty1 autologin
+# loop restarts the kiosk session cleanly.
+CHECK_INTERVAL="${CHECK_INTERVAL:-30}"
+
+chromium_running() {
+  pgrep -a chromium >/dev/null 2>&1 || pgrep -a chromium-browser >/dev/null 2>&1
+}
+
+cage_running() {
+  pgrep -x cage >/dev/null 2>&1
+}
+
+restart_kiosk() {
+  echo "kiosk-guard: restarting kiosk (killing cage)"
+  pkill -x cage 2>/dev/null || true
+}
+
+while true; do
+  if ! cage_running; then
+    sleep "$CHECK_INTERVAL"
+    continue
+  fi
+
+  if ! chromium_running; then
+    echo "kiosk-guard: chromium not running"
+    restart_kiosk
+    sleep "$CHECK_INTERVAL"
+    continue
+  fi
+
+  sleep "$CHECK_INTERVAL"
+done

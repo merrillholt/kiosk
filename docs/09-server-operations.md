@@ -10,7 +10,7 @@ This document covers the building-directory server lifecycle: install, deploy, a
 - Service and nginx checks
 
 Related docs:
-- Client setup: `docs/Debian 13 Configuration.tex`
+- Client setup: `docs/10-new-host-installation.md`, `docs/06-desktop-environment.md`, `docs/07-touchscreen-setup.md`
 - Packaging/deploy pipeline: `docs/08-packaging-and-deploy.md`
 - Read-only filesystem: `docs/03-read-only-filesystem.md`
 

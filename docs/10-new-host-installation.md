@@ -177,7 +177,7 @@ mount | grep overlayroot
 # Expected: overlayroot on / type overlay ...
 
 mount | grep root-ro
-# Expected: /dev/sda1 on /media/root-ro type ext4 (ro,relatime)
+# Expected: /dev/sda2 on /media/root-ro type ext4 (ro,relatime)
 
 mount | grep ' on /data '
 # Expected: /dev/sda4 on /data type ext4 (rw,relatime)
@@ -322,6 +322,7 @@ overlayroot=1
 root_ro_lower=ro
 ssh=active
 getty@tty1=active
+kiosk-guard=active
 cage=running
 chromium=running
 fan=none          # Qotom (fanless)
@@ -330,6 +331,13 @@ failed_units_unexpected:
   none
 recent_log_errors_unexpected:
   none
+```
+
+On the host directly, you can also confirm the watchdog is enabled:
+
+```bash
+systemctl is-enabled kiosk-guard.service
+systemctl status kiosk-guard.service --no-pager
 ```
 
 ### 4.6 Touch verification

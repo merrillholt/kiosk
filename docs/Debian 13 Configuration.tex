@@ -125,8 +125,12 @@ sudo vi /etc/overlayroot.conf
 Set:
 
 \begin{lstlisting}
-overlayroot="tmpfs"
+overlayroot="tmpfs:swap=1,recurse=0"
 \end{lstlisting}
+
+The \texttt{recurse=0} flag is required so the persistent \texttt{/data}
+partition remains outside the overlay. Without it, database writes stored under
+\texttt{/data} will not persist across reboot.
 
 Reboot.
 
@@ -232,7 +236,11 @@ exec chromium \
 '
 \end{lstlisting}
 
-\textbf{Note:} In client-only installs, installer/deploy scripts patch \texttt{SERVER\_URL} to point at the central server.
+\textbf{Note:} \texttt{localhost} is only the installer-time default for a host
+installed in both server+client mode. In deployed production, installer/deploy
+scripts patch \texttt{SERVER\_URL} and \texttt{SERVER\_URL\_STANDBY} to the
+network primary and standby servers. A client-only host should use network
+server URLs, not \texttt{localhost}.
 
 \section{USB Keyboard Admin Mode}
 

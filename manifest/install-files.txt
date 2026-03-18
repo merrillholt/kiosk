@@ -23,6 +23,8 @@ kiosk/cushman-wakefield-logo.png
 # Runtime scripts
 scripts/start-kiosk.sh
 scripts/restart-kiosk.sh
+scripts/kiosk-guard
+scripts/kiosk-guard.service
 scripts/backup.sh
 scripts/restore-db.sh
 scripts/production-ops.sh
