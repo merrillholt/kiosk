@@ -59,10 +59,11 @@ At the Debian installer partitioning step, set up partitions manually:
 | sda1 | ~1 GB | EFI | vfat |
 | sda2 | ~20 GB | `/` | ext4 |
 | sda3 | ~1.5 GB | swap | swap |
-| sda4 | remainder (~7 GB) | `/data` | ext4 |
+| sda4 | remainder | `/data` | ext4 |
 
-The Qotom has a 2.5" SATA bay but .80 uses the mSATA drive for all partitions.
-The 2.5" bay can hold a second drive if additional `/data` capacity is needed.
+The Qotom has a 2.5" SATA bay but both .80 and .82 use the mSATA drive for all
+partitions. The 2.5" bay can hold a second drive if additional `/data` capacity
+is needed, but this has not been used in practice.
 
 **Intel NUC DC3217IYE (.81) — mSATA only:**
 
@@ -88,6 +89,17 @@ Do not install a desktop environment — the kiosk session is configured separat
 ### 1.5 Post-install user
 
 The installer creates a user during setup. Use `kiosk` as the username.
+
+The Debian installer does not add `kiosk` to the sudo group automatically.
+After first boot, add it via `su`:
+
+```bash
+su -
+adduser kiosk sudo
+exit
+```
+
+Then log out and back in as `kiosk` for the group membership to take effect.
 
 After first boot, verify SSH access from the dev machine:
 
@@ -127,14 +139,50 @@ When prompted:
 
 | Prompt | Answer |
 |--------|--------|
-| Installation type | `3` (Both Server and Client) |
+| Installation type | `3` (Both Server and Client) for `.80`; `2` (Client only) for `.82` |
 | Load sample data | `n` |
 | Enable HTTP Basic Auth | `n` (systems are physically secure) |
 | Restrict to IP/CIDR | `n` |
 | Install optional Elo legacy touchscreen driver bundle | `y` — required for the Elo 3239L; installs `elomtusbd` userspace daemon and `uinput` module |
 | Reboot now | `n` — complete Phase 2 steps first |
 
-### 2.3 Fix overlayroot configuration
+### 2.3 Add GRUB maintenance entry
+
+Add a GRUB menu entry that boots with `overlayroot=disabled` (writable root).
+This must be done before the first reboot into overlayroot — once overlayroot
+is active, GRUB changes must go through `overlayroot-chroot`.
+
+On the target host:
+
+```bash
+# Get the root partition UUID and current kernel version
+ROOT_UUID=$(sudo blkid -s UUID -o value $(findmnt -n -o SOURCE /))
+KERNEL=$(ls /boot/vmlinuz-* | sort -V | tail -1 | sed 's|/boot/vmlinuz-||')
+
+sudo tee /etc/grub.d/40_custom > /dev/null <<EOF
+#!/bin/sh
+exec tail -n +3 \$0
+menuentry "Debian Kiosk — MAINTENANCE (writable root)" {
+    insmod gzio
+    insmod part_gpt
+    insmod ext2
+    search --no-floppy --fs-uuid --set=root ${ROOT_UUID}
+    linux /boot/vmlinuz-${KERNEL} root=UUID=${ROOT_UUID} ro overlayroot=disabled quiet
+    initrd /boot/initrd.img-${KERNEL}
+}
+EOF
+
+sudo chmod +x /etc/grub.d/40_custom
+sudo update-grub
+```
+
+Confirm the entry appears in the GRUB menu output:
+
+```bash
+grep -A1 "MAINTENANCE" /boot/grub/grub.cfg
+```
+
+### 2.4 Fix overlayroot configuration
 
 The install script writes a minimal `overlayroot.conf`. Replace it with the
 correct value that prevents `/data` from being overlaid:
@@ -146,13 +194,13 @@ echo 'overlayroot="tmpfs:swap=1,recurse=0"' | sudo tee /etc/overlayroot.conf
 > `recurse=0` is critical. Without it, database writes on `/data` are lost on
 > reboot. See `docs/03-read-only-filesystem.md` for details.
 
-### 2.4 Verify /data mounts correctly
+### 2.5 Verify /data mounts correctly
 
 ```bash
 grep /data /etc/fstab
 # Expected: an entry for the /data partition
 mount | grep ' on /data '
-# Expected: /dev/sda4 (or sdb1) on /data type ext4 (rw,relatime)
+# Expected: /dev/sda4 on /data type ext4 (rw,relatime)
 ```
 
 If `/data` is not in `fstab`, add it:
@@ -164,7 +212,18 @@ sudo blkid | grep /data-device
 # UUID=xxxx  /data  ext4  defaults  0  2
 ```
 
-### 2.5 Reboot and verify overlayroot
+### 2.6 Install SSH key for passwordless access
+
+This must be done before the overlayroot reboot — once overlayroot is active,
+writes to the home directory are lost on reboot.
+
+From the dev machine:
+
+```bash
+ssh-copy-id kiosk@192.168.1.XX
+```
+
+### 2.7 Reboot and verify overlayroot
 
 ```bash
 sudo reboot

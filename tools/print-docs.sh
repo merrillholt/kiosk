@@ -103,6 +103,12 @@ build_all() {
     "${paths[@]}" \
     -o "$out"
   echo "Done: $out"
+
+  # Also build individual PDFs for each doc
+  for f in "${ALL_DOCS[@]}"; do
+    local p="$DOCS_DIR/$f"
+    [[ -f "$p" ]] && build_one "$p"
+  done
 }
 
 build_one() {
