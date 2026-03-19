@@ -533,7 +533,7 @@ EOF
 # Auto-start kiosk on tty1.
 # Use $(tty) rather than XDG_VTNR — agetty --autologin does not
 # reliably set XDG_VTNR via PAM.
-if [[ "\$(tty 2>/dev/null)" == "/dev/tty1" ]]; then
+if [[ "\$(tty 2>/dev/null)" == "/dev/tty1" ]] && ! grep -q 'overlayroot=disabled' /proc/cmdline; then
     export XDG_RUNTIME_DIR="\${XDG_RUNTIME_DIR:-/run/user/\$(id -u)}"
     mkdir -p "\${XDG_RUNTIME_DIR}"
     chmod 700 "\${XDG_RUNTIME_DIR}"
