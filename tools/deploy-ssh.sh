@@ -379,7 +379,7 @@ if [[ "$EFFECTIVE_OVERLAY" -eq 1 ]]; then
 else
   echo "==> Normalizing server directory ownership for dependency install..."
   ssh "$HOST" "set -e; if [[ -d '$DEPLOY_ROOT/server/node_modules' ]]; then sudo -n chown -R \$(id -un):\$(id -gn) '$DEPLOY_ROOT/server/node_modules'; fi; sudo -n chown \$(id -un):\$(id -gn) '$DEPLOY_ROOT/server' '$DEPLOY_ROOT/server/package.json' '$DEPLOY_ROOT/server/package-lock.json' 2>/dev/null || true"
-  ssh "$HOST" "if [[ -f '$DEPLOY_ROOT/server/package-lock.json' ]]; then npm ci --omit=dev --no-audit --no-fund --loglevel=error --prefix '$DEPLOY_ROOT/server'; else npm install --omit=dev --no-audit --no-fund --loglevel=error --prefix '$DEPLOY_ROOT/server'; fi"
+  ssh "$HOST" "if ! command -v npm &>/dev/null; then echo 'npm not found — skipping (client-only host)'; elif [[ -f '$DEPLOY_ROOT/server/package-lock.json' ]]; then npm ci --omit=dev --no-audit --no-fund --loglevel=error --prefix '$DEPLOY_ROOT/server'; else npm install --omit=dev --no-audit --no-fund --loglevel=error --prefix '$DEPLOY_ROOT/server'; fi"
 fi
 
 echo "==> Installing persist-upload helper on remote..."
