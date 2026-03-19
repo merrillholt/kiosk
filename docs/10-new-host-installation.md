@@ -91,11 +91,13 @@ Do not install a desktop environment — the kiosk session is configured separat
 The installer creates a user during setup. Use `kiosk` as the username.
 
 The Debian installer does not add `kiosk` to the sudo group automatically.
-After first boot, add it via `su`:
+After first boot, add it via `su` and configure passwordless sudo:
 
 ```bash
 su -
 adduser kiosk sudo
+echo 'kiosk ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/kiosk-nopasswd
+chmod 440 /etc/sudoers.d/kiosk-nopasswd
 exit
 ```
 

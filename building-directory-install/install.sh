@@ -116,7 +116,7 @@ sudo apt upgrade -y
 
 # Install common dependencies
 print_header "Installing Common Dependencies"
-sudo apt install -y git curl wget unzip sqlite3 openssl
+sudo apt install -y git curl wget unzip sqlite3 openssl rsync
 
 # ── Server components ─────────────────────────────────────────────────────────
 if [ "$INSTALL_MODE" = "server" ] || [ "$INSTALL_MODE" = "both" ]; then
