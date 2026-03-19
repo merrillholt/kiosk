@@ -262,8 +262,13 @@ All steps run **from the dev machine** unless noted.
 
 ```bash
 cd /home/security/Public-Kiosk
-tools/deploy-ssh.sh --full --host kiosk@192.168.1.XX
+tools/deploy-ssh.sh --full --overlay --host kiosk@192.168.1.XX
 ```
+
+The `--overlay` flag is required on a new host — the deploy script's
+auto-detection of overlayroot can fail on first deploy, causing files to be
+written to the tmpfs upper layer and lost on reboot. Passing `--overlay`
+forces writes through `overlayroot-chroot` to the persistent lower layer.
 
 This syncs server, kiosk, and scripts into the overlayroot lower layer and
 restarts `directory-server`. Smoke tests run automatically at the end.
@@ -284,6 +289,9 @@ tools/deploy-ssh.sh --full --host kiosk@192.168.1.XX \
 ```
 
 ### 3.3 Verify the server
+
+> Skip this step for client-only hosts (`.82`) — `directory-server` is not
+> installed and smoke tests are automatically skipped by the deploy script.
 
 ```bash
 tools/smoke-test.sh --url http://192.168.1.XX
