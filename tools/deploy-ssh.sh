@@ -442,15 +442,12 @@ if ssh "$HOST" "command -v systemctl >/dev/null 2>&1 && (test -f /etc/systemd/sy
     echo "  sudo systemctl restart directory-server" >&2
     exit 1
   fi
+  echo "==> Running remote smoke tests..."
+  sleep 2
+  ssh "$HOST" "bash -s -- --url http://127.0.0.1:3000 --no-color" < "$SCRIPT_DIR/smoke-test.sh"
 else
-  echo "WARN: directory-server systemd service not found on remote host." >&2
-  echo "Manual restart may be required." >&2
-  exit 1
+  echo "==> No directory-server on remote host (client-only) — skipping restart and smoke tests."
 fi
-
-echo "==> Running remote smoke tests..."
-sleep 2
-ssh "$HOST" "bash -s -- --url http://127.0.0.1:3000 --no-color" < "$SCRIPT_DIR/smoke-test.sh"
 
 if [[ "$FULL" -eq 1 ]]; then
   echo "==> Waiting briefly before restarting kiosk session..."
