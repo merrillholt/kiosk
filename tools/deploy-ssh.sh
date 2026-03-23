@@ -32,8 +32,9 @@ SSH_BASE_ARGS=(
 
 run_overlay_lowerdir_write() {
   local remote_body="$1"
-  ssh "${SSH_BASE_ARGS[@]}" "$HOST" REMOTE_BODY="$remote_body" 'bash -s' <<'REMOTE_SCRIPT'
+  ssh "${SSH_BASE_ARGS[@]}" "$HOST" "bash -s -- $(printf '%q' "$remote_body")" <<'REMOTE_SCRIPT'
 set -euo pipefail
+REMOTE_BODY="${1:-}"
 sudo -n mount -o remount,rw /media/root-ro
 cleanup() {
   sudo -n mount -o remount,ro /media/root-ro || true
