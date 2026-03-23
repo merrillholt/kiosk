@@ -22,14 +22,7 @@ if [[ -z "$KIOSK_IP" || -z "$KIOSK_USER" || -z "$SSH_KEY" ]]; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-if [[ -d "$SCRIPT_DIR/../../scripts" ]]; then
-    SCRIPTS_SRC="$(realpath "$SCRIPT_DIR/../../scripts")"
-else
-    SCRIPTS_SRC="$(realpath "$SCRIPT_DIR/../scripts")"
-fi
-if [[ -x "$SCRIPT_DIR/../../tools/verify-kiosk-runtime-files.sh" ]]; then
-    "$SCRIPT_DIR/../../tools/verify-kiosk-runtime-files.sh"
-fi
+SCRIPTS_SRC="$(realpath "$SCRIPT_DIR/../scripts")"
 SSH_OPTS="-i $SSH_KEY -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 -o BatchMode=yes"
 
 is_local_target() {
@@ -49,8 +42,6 @@ write_files_overlay_local() {
 
     sudo overlayroot-chroot cp    "$chroot_stage/start-kiosk.sh"             /home/${KIOSK_USER}/building-directory/scripts/start-kiosk.sh
     sudo overlayroot-chroot chmod 755                                         /home/${KIOSK_USER}/building-directory/scripts/start-kiosk.sh
-    sudo overlayroot-chroot cp    "$chroot_stage/start-kiosk-lib.sh"         /home/${KIOSK_USER}/building-directory/scripts/start-kiosk-lib.sh
-    sudo overlayroot-chroot chmod 755                                         /home/${KIOSK_USER}/building-directory/scripts/start-kiosk-lib.sh
     sudo overlayroot-chroot cp    "$chroot_stage/restart-kiosk.sh"           /home/${KIOSK_USER}/building-directory/scripts/restart-kiosk.sh
     sudo overlayroot-chroot chmod 755                                         /home/${KIOSK_USER}/building-directory/scripts/restart-kiosk.sh
     sudo overlayroot-chroot cp    "$chroot_stage/kiosk-keyboard-added.sh"    /usr/local/bin/kiosk-keyboard-added.sh
@@ -69,7 +60,6 @@ write_files_overlay_local() {
 write_files_lowerdir_local() {
     local stage="$1"
     sudo install -D -m 755 "$stage/start-kiosk.sh"             /media/root-ro/home/${KIOSK_USER}/building-directory/scripts/start-kiosk.sh
-    sudo install -D -m 755 "$stage/start-kiosk-lib.sh"         /media/root-ro/home/${KIOSK_USER}/building-directory/scripts/start-kiosk-lib.sh
     sudo install -D -m 755 "$stage/restart-kiosk.sh"           /media/root-ro/home/${KIOSK_USER}/building-directory/scripts/restart-kiosk.sh
     sudo install -D -m 755 "$stage/kiosk-keyboard-added.sh"    /media/root-ro/usr/local/bin/kiosk-keyboard-added.sh
     sudo install -D -m 644 "$stage/99-kiosk-keyboard.rules"    /media/root-ro/etc/udev/rules.d/99-kiosk-keyboard.rules
@@ -85,7 +75,6 @@ write_files_lowerdir_local() {
 write_files_direct_local() {
     local stage="$1"
     sudo install -D -m 755 "$stage/start-kiosk.sh"             /home/${KIOSK_USER}/building-directory/scripts/start-kiosk.sh
-    sudo install -D -m 755 "$stage/start-kiosk-lib.sh"         /home/${KIOSK_USER}/building-directory/scripts/start-kiosk-lib.sh
     sudo install -D -m 755 "$stage/restart-kiosk.sh"           /home/${KIOSK_USER}/building-directory/scripts/restart-kiosk.sh
     sudo install -D -m 755 "$stage/kiosk-keyboard-added.sh"    /usr/local/bin/kiosk-keyboard-added.sh
     sudo install -D -m 644 "$stage/99-kiosk-keyboard.rules"    /etc/udev/rules.d/99-kiosk-keyboard.rules
@@ -105,7 +94,6 @@ if is_local_target "$KIOSK_IP"; then
     rm -rf "$STAGE"
     mkdir -p "$STAGE"
     cp "$SCRIPTS_SRC/start-kiosk.sh" "$STAGE/"
-    cp "$SCRIPTS_SRC/start-kiosk-lib.sh" "$STAGE/"
     cp "$SCRIPTS_SRC/restart-kiosk.sh" "$STAGE/"
     cp "$SCRIPTS_SRC/kiosk-keyboard-added.sh" "$STAGE/"
     cp "$SCRIPTS_SRC/99-kiosk-keyboard.rules" "$STAGE/"
@@ -113,7 +101,7 @@ if is_local_target "$KIOSK_IP"; then
     cp "$SCRIPTS_SRC/80-kiosk-power-button.conf" "$STAGE/"
     cp "$SCRIPTS_SRC/bash_profile" "$STAGE/"
 
-    sed -i "s|KIOSK_SERVER_URL:-http://.*}|KIOSK_SERVER_URL:-${SERVER_URL}}|; s|KIOSK_SERVER_URL_STANDBY:-http://.*}|KIOSK_SERVER_URL_STANDBY:-${SERVER_URL_STANDBY}}|" "$STAGE/start-kiosk-lib.sh"
+    sed -i "s|^SERVER_URL=.*|SERVER_URL=\"${SERVER_URL}\"|; s|^SERVER_URL_STANDBY=.*|SERVER_URL_STANDBY=\"${SERVER_URL_STANDBY}\"|" "$STAGE/start-kiosk.sh"
 
     if mount | grep -q '^overlayroot on / type overlay'; then
         echo "==> Writing to overlayroot lower layer..."
@@ -149,7 +137,6 @@ ssh $SSH_OPTS "${KIOSK_USER}@${KIOSK_IP}" \
 
 scp $SSH_OPTS \
     "$SCRIPTS_SRC/start-kiosk.sh" \
-    "$SCRIPTS_SRC/start-kiosk-lib.sh" \
     "$SCRIPTS_SRC/restart-kiosk.sh" \
     "$SCRIPTS_SRC/kiosk-keyboard-added.sh" \
     "$SCRIPTS_SRC/99-kiosk-keyboard.rules" \
@@ -158,9 +145,9 @@ scp $SSH_OPTS \
     "$SCRIPTS_SRC/bash_profile" \
     "${KIOSK_USER}@${KIOSK_IP}:/tmp/kiosk-deploy-staging/"
 
-# Patch primary + standby server URLs into start-kiosk-lib.sh before deploying
+# Patch primary + standby server URLs into start-kiosk.sh before deploying
 ssh $SSH_OPTS "${KIOSK_USER}@${KIOSK_IP}" \
-    "sed -i 's|KIOSK_SERVER_URL:-http://.*}|KIOSK_SERVER_URL:-${SERVER_URL}}|; s|KIOSK_SERVER_URL_STANDBY:-http://.*}|KIOSK_SERVER_URL_STANDBY:-${SERVER_URL_STANDBY}}|' /tmp/kiosk-deploy-staging/start-kiosk-lib.sh"
+    "sed -i 's|^SERVER_URL=.*|SERVER_URL=\"${SERVER_URL}\"|; s|^SERVER_URL_STANDBY=.*|SERVER_URL_STANDBY=\"${SERVER_URL_STANDBY}\"|' /tmp/kiosk-deploy-staging/start-kiosk.sh"
 
 # Move to /run (bind-mounted inside overlayroot-chroot), then write lower layer
 echo "==> Writing to overlayroot lower layer..."
@@ -172,8 +159,6 @@ sudo cp /tmp/kiosk-deploy-staging/* "\$STAGE/"
 rm -rf /tmp/kiosk-deploy-staging
 if ! sudo overlayroot-chroot cp    "\$STAGE/start-kiosk.sh"          /home/${KIOSK_USER}/building-directory/scripts/start-kiosk.sh ||
    ! sudo overlayroot-chroot chmod 755                                /home/${KIOSK_USER}/building-directory/scripts/start-kiosk.sh ||
-   ! sudo overlayroot-chroot cp    "\$STAGE/start-kiosk-lib.sh"      /home/${KIOSK_USER}/building-directory/scripts/start-kiosk-lib.sh ||
-   ! sudo overlayroot-chroot chmod 755                                /home/${KIOSK_USER}/building-directory/scripts/start-kiosk-lib.sh ||
    ! sudo overlayroot-chroot cp    "\$STAGE/restart-kiosk.sh"        /home/${KIOSK_USER}/building-directory/scripts/restart-kiosk.sh ||
    ! sudo overlayroot-chroot chmod 755                                /home/${KIOSK_USER}/building-directory/scripts/restart-kiosk.sh ||
    ! sudo overlayroot-chroot cp    "\$STAGE/kiosk-keyboard-added.sh" /usr/local/bin/kiosk-keyboard-added.sh ||
@@ -188,7 +173,6 @@ if ! sudo overlayroot-chroot cp    "\$STAGE/start-kiosk.sh"          /home/${KIO
     if mount | grep -Eq '^/dev/.+ on /media/root-ro type .+ \(rw,'; then
         echo "WARN: overlayroot-chroot cleanup failed; applying direct lower-layer fallback."
         sudo install -D -m 755 "\$STAGE/start-kiosk.sh"             /media/root-ro/home/${KIOSK_USER}/building-directory/scripts/start-kiosk.sh
-        sudo install -D -m 755 "\$STAGE/start-kiosk-lib.sh"         /media/root-ro/home/${KIOSK_USER}/building-directory/scripts/start-kiosk-lib.sh
         sudo install -D -m 755 "\$STAGE/restart-kiosk.sh"           /media/root-ro/home/${KIOSK_USER}/building-directory/scripts/restart-kiosk.sh
         sudo install -D -m 755 "\$STAGE/kiosk-keyboard-added.sh"    /media/root-ro/usr/local/bin/kiosk-keyboard-added.sh
         sudo install -D -m 644 "\$STAGE/99-kiosk-keyboard.rules"    /media/root-ro/etc/udev/rules.d/99-kiosk-keyboard.rules
