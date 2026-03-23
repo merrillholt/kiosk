@@ -1650,6 +1650,7 @@ app.post('/api/kiosks/:id/deploy', (req, res) => {
             ...process.env,
             KIOSK_PRIMARY_URL: KIOSK_SERVER_URL,
             KIOSK_STANDBY_URL: KIOSK_SERVER_URL_STANDBY,
+            KIOSK_SSH_KEY,
         },
     });
     const output = ((result.stdout || '') + (result.stderr || '')).trim();

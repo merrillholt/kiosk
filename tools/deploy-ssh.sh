@@ -22,6 +22,7 @@ OVERLAY_INSTALL_DEPS="${OVERLAY_INSTALL_DEPS:-0}"
 REQUIRE_MAINTENANCE=0
 KIOSK_PRIMARY_URL="${KIOSK_PRIMARY_URL:-http://192.168.1.80}"
 KIOSK_STANDBY_URL="${KIOSK_STANDBY_URL:-http://192.168.1.81}"
+SSH_IDENTITY_FILE="${SSH_IDENTITY_FILE:-${KIOSK_SSH_KEY:-}}"
 KNOWN_HOSTS_FILE="${KIOSK_KNOWN_HOSTS_FILE:-/tmp/kiosk_deploy_known_hosts}"
 SSH_BASE_ARGS=(
   -o BatchMode=yes
@@ -29,6 +30,9 @@ SSH_BASE_ARGS=(
   -o StrictHostKeyChecking=accept-new
   -o UserKnownHostsFile="$KNOWN_HOSTS_FILE"
 )
+if [[ -n "$SSH_IDENTITY_FILE" ]]; then
+  SSH_BASE_ARGS+=(-i "$SSH_IDENTITY_FILE")
+fi
 
 run_overlay_lowerdir_write() {
   local remote_body="$1"
