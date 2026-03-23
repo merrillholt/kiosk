@@ -37,14 +37,17 @@ remote() {
 }
 
 SCRIPT_PATH="/home/kiosk/building-directory/scripts/start-kiosk.sh"
+LIB_PATH="/home/kiosk/building-directory/scripts/start-kiosk-lib.sh"
 OFFLINE_PATH="/home/kiosk/building-directory/kiosk/unavailable.html"
 
 check "deployed script exists" "yes" "$(remote "test -f '$SCRIPT_PATH' && echo yes || echo no")"
+check "shared library exists" "yes" "$(remote "test -f '$LIB_PATH' && echo yes || echo no")"
 check "offline page exists" "yes" "$(remote "test -f '$OFFLINE_PATH' && echo yes || echo no")"
-check "script exposes unavailable page support" "yes" "$(remote "grep -q '^UNAVAILABLE_PAGE=' '$SCRIPT_PATH' && echo yes || echo no")"
-check "script exposes recovery interval support" "yes" "$(remote "grep -q '^RECOVERY_CHECK_INTERVAL_SEC=' '$SCRIPT_PATH' && echo yes || echo no")"
-check "primary URL patched" 'SERVER_URL="http://192.168.1.80"' "$(remote "grep '^SERVER_URL=' '$SCRIPT_PATH'")"
-check "standby URL patched" 'SERVER_URL_STANDBY="http://192.168.1.81"' "$(remote "grep '^SERVER_URL_STANDBY=' '$SCRIPT_PATH'")"
+check "script uses shared library" "yes" "$(remote "grep -q 'start-kiosk-lib.sh' '$SCRIPT_PATH' && echo yes || echo no")"
+check "library exposes unavailable page support" "yes" "$(remote "grep -q '^    UNAVAILABLE_PAGE=' '$LIB_PATH' && echo yes || echo no")"
+check "library exposes recovery interval support" "yes" "$(remote "grep -q '^    RECOVERY_CHECK_INTERVAL_SEC=' '$LIB_PATH' && echo yes || echo no")"
+check "primary URL patched" '    SERVER_URL="${KIOSK_SERVER_URL:-http://192.168.1.80}"' "$(remote "grep '^    SERVER_URL=' '$LIB_PATH'")"
+check "standby URL patched" '    SERVER_URL_STANDBY="${KIOSK_SERVER_URL_STANDBY:-http://192.168.1.81}"' "$(remote "grep '^    SERVER_URL_STANDBY=' '$LIB_PATH'")"
 check "overlayroot active" "yes" "$(remote "mount | grep -q '^overlayroot on / type overlay' && echo yes || echo no")"
 check "/media/root-ro mounted" "yes" "$(remote "mount | grep -q ' on /media/root-ro ' && echo yes || echo no")"
 check "getty@tty1 active" "active" "$(remote "systemctl is-active getty@tty1 2>/dev/null || echo inactive")"
