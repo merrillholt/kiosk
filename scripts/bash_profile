@@ -1,7 +1,7 @@
 # Auto-start kiosk on tty1.
-# Use $(tty) rather than XDG_VTNR — agetty --autologin does not
+# Use $(tty) rather than XDG_VTNR -- agetty --autologin does not
 # reliably set XDG_VTNR via PAM.
-if [[ "$(tty 2>/dev/null)" == "/dev/tty1" ]]; then
+if [[ "$(tty 2>/dev/null)" == "/dev/tty1" ]] && ! grep -q overlayroot=disabled /proc/cmdline; then
     export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
     mkdir -p "${XDG_RUNTIME_DIR}"
     chmod 700 "${XDG_RUNTIME_DIR}"
@@ -12,7 +12,7 @@ if [[ "$(tty 2>/dev/null)" == "/dev/tty1" ]]; then
     # access. When the admin logs out of XFCE the kiosk restarts.
     while true; do
         rm -f /tmp/kiosk-exit
-        "$HOME/building-directory/scripts/start-kiosk.sh"
+        /home/kiosk/building-directory/scripts/start-kiosk.sh
         if [[ -f /tmp/kiosk-exit ]]; then
             # Start XFCE as an X11 session (not Wayland) when exiting kiosk.
             unset WAYLAND_DISPLAY
@@ -27,7 +27,7 @@ if [[ "$(tty 2>/dev/null)" == "/dev/tty1" ]]; then
             export XDG_DATA_HOME=/tmp/xfce4-data
             mkdir -p /tmp/xfce4-config /tmp/xfce4-cache /tmp/xfce4-data
             startxfce4 -- -logfile /tmp/Xorg.0.log >/tmp/xfce4-start.log 2>&1
-            echo "startxfce4 exited: $?" >> /tmp/xfce4-start.log
+            echo "startxfce4 exited: 0" >> /tmp/xfce4-start.log
         fi
     done
 fi

@@ -9,6 +9,8 @@ DIST_DIR="$ROOT_DIR/dist/install"
 OUT_DIR="$DIST_DIR/building-directory-install"
 ZIP_PATH="$ROOT_DIR/dist/building-directory-install.zip"
 COMPUTE_REVISION="$SCRIPT_DIR/compute-revision.sh"
+SYNC_INSTALL_TREE="$SCRIPT_DIR/sync-install-tree.sh"
+CHECK_INSTALL_DRIFT="$SCRIPT_DIR/check-install-drift.sh"
 
 if [[ ! -d "$SRC_INSTALL_DIR" ]]; then
   echo "Missing source install directory: $SRC_INSTALL_DIR" >&2
@@ -19,29 +21,20 @@ if [[ ! -f "$MANIFEST" ]]; then
   exit 1
 fi
 
+if [[ ! -x "$SYNC_INSTALL_TREE" || ! -x "$CHECK_INSTALL_DRIFT" ]]; then
+  echo "Missing install-tree tooling in $SCRIPT_DIR" >&2
+  exit 1
+fi
+
+echo "Refreshing generated install tree from canonical sources..."
+"$SYNC_INSTALL_TREE"
+"$CHECK_INSTALL_DRIFT"
+
 mkdir -p "$DIST_DIR"
 rm -rf "$OUT_DIR"
 cp -a "$SRC_INSTALL_DIR" "$OUT_DIR"
 
 missing=0
-while IFS= read -r rel; do
-  [[ -z "$rel" || "$rel" =~ ^# ]] && continue
-  src="$ROOT_DIR/$rel"
-  dst="$OUT_DIR/$rel"
-  if [[ ! -e "$src" ]]; then
-    echo "Missing source file from manifest: $rel" >&2
-    missing=1
-    continue
-  fi
-  mkdir -p "$(dirname "$dst")"
-  cp -a "$src" "$dst"
-done < "$MANIFEST"
-
-if [[ "$missing" -ne 0 ]]; then
-  echo "Packaging aborted due to missing manifest files." >&2
-  exit 1
-fi
-
 REVISION_VALUE="$("$COMPUTE_REVISION")"
 printf '%s\n' "$REVISION_VALUE" > "$OUT_DIR/REVISION"
 echo "Wrote computed revision: $REVISION_VALUE"

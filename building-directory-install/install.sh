@@ -529,41 +529,13 @@ EOF
 
     # .bash_profile: kiosk loop with XFCE fallback on keyboard insertion
     print_info "Creating .bash_profile for kiosk autostart..."
-    cat > "$HOME/.bash_profile" <<EOF
-# Auto-start kiosk on tty1.
-# Use $(tty) rather than XDG_VTNR — agetty --autologin does not
-# reliably set XDG_VTNR via PAM.
-if [[ "\$(tty 2>/dev/null)" == "/dev/tty1" ]] && ! grep -q 'overlayroot=disabled' /proc/cmdline; then
-    export XDG_RUNTIME_DIR="\${XDG_RUNTIME_DIR:-/run/user/\$(id -u)}"
-    mkdir -p "\${XDG_RUNTIME_DIR}"
-    chmod 700 "\${XDG_RUNTIME_DIR}"
+    install -D -m 644 "$INSTALL_DIR/scripts/bash_profile" "$HOME/.bash_profile"
 
-    # Loop: restart kiosk automatically after a crash or manual restart.
-    # When a USB keyboard is plugged in, udev writes /tmp/kiosk-exit and
-    # kills cage. The loop then starts XFCE on the touchscreen for admin
-    # access. When the admin logs out of XFCE the kiosk restarts.
-    while true; do
-        rm -f /tmp/kiosk-exit
-        $INSTALL_DIR/scripts/start-kiosk.sh
-        if [[ -f /tmp/kiosk-exit ]]; then
-            # Start XFCE as an X11 session (not Wayland) when exiting kiosk.
-            unset WAYLAND_DISPLAY
-            export XDG_SESSION_TYPE=x11
-            export DESKTOP_SESSION=xfce
-
-            # overlayroot mounts / as ro; redirect all XFCE/Xorg state to /tmp.
-            export XAUTHORITY=/tmp/.Xauthority
-            export ICEAUTHORITY=/tmp/.ICEauthority
-            export XDG_CONFIG_HOME=/tmp/xfce4-config
-            export XDG_CACHE_HOME=/tmp/xfce4-cache
-            export XDG_DATA_HOME=/tmp/xfce4-data
-            mkdir -p /tmp/xfce4-config /tmp/xfce4-cache /tmp/xfce4-data
-            startxfce4 -- -logfile /tmp/Xorg.0.log >/tmp/xfce4-start.log 2>&1
-            echo "startxfce4 exited: $?" >> /tmp/xfce4-start.log
-        fi
-    done
-fi
-EOF
+    # pam_wtmpdb writes to the readonly root and breaks tty1 autologin on kiosk
+    # hosts after reboot. Remove it from the common session stack.
+    if grep -q 'pam_wtmpdb\.so' /etc/pam.d/common-session 2>/dev/null; then
+        sudo sed -i '/pam_wtmpdb\.so/d' /etc/pam.d/common-session
+    fi
 
     sudo systemctl set-default multi-user.target
     sudo systemctl daemon-reload

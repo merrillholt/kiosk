@@ -1,0 +1,10 @@
+This directory contains generated install-tree copies of manifest-managed files.
+
+Do not hand-edit duplicated runtime files under building-directory-install/scripts.
+Edit the canonical sources in the repository root and regenerate with:
+
+  ./tools/sync-install-tree.sh
+
+Drift can be checked with:
+
+  ./tools/check-install-drift.sh

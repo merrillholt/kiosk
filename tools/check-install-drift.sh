@@ -50,6 +50,7 @@ if [[ "$status" -eq 0 ]]; then
   echo "OK: install tree matches manifest files"
 else
   echo "Drift detected between root and building-directory-install" >&2
+  echo "Run ./tools/sync-install-tree.sh to regenerate the install tree." >&2
 fi
 
 exit "$status"

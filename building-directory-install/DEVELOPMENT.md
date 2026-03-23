@@ -48,6 +48,17 @@ power-failure resilience.
 
 ## Source Tree
 
+`building-directory-install/scripts/` is a generated install-tree copy of
+canonical files from the repository root. Edit the root `scripts/` files, then
+regenerate the install tree with:
+
+```bash
+./tools/sync-install-tree.sh
+./tools/check-install-drift.sh
+```
+
+Do not hand-edit duplicated files under `building-directory-install/scripts/`.
+
 ```
 building-directory-install/
 ├── deploy.sh                       # Deploy server files to a remote machine
@@ -66,12 +77,12 @@ building-directory-install/
 │   ├── index.html                  # Kiosk display page
 │   ├── app.js                      # Kiosk logic (search, idle timeout, data-version polling)
 │   └── styles.css
-└── scripts/
-    ├── bash_profile                # .bash_profile template for kiosk machines
-    ├── start-kiosk.sh              # Launches cage + Chromium (SERVER_URL configured here)
-    ├── restart-kiosk.sh            # pkill cage (triggers loop restart)
-    ├── kiosk-keyboard-added.sh     # udev fires this when a USB keyboard is plugged in
-    └── 99-kiosk-keyboard.rules     # udev rule: USB keyboard add → stop kiosk
+└── scripts/                        # Generated copies from ../scripts/ for packaging/install
+    ├── bash_profile
+    ├── start-kiosk.sh
+    ├── restart-kiosk.sh
+    ├── kiosk-keyboard-added.sh
+    └── 99-kiosk-keyboard.rules
 ```
 
 ---

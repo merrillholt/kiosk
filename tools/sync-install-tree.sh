@@ -6,6 +6,7 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 MANIFEST="$ROOT_DIR/manifest/install-files.txt"
 INSTALL_DIR="$ROOT_DIR/building-directory-install"
 COMPUTE_REVISION="$SCRIPT_DIR/compute-revision.sh"
+GENERATED_MARKER="$INSTALL_DIR/.generated-from-root"
 
 if [[ ! -f "$MANIFEST" ]]; then
   echo "Missing manifest: $MANIFEST" >&2
@@ -39,5 +40,19 @@ fi
 REVISION_VALUE="$("$COMPUTE_REVISION")"
 printf '%s\n' "$REVISION_VALUE" > "$INSTALL_DIR/REVISION"
 echo "synced: REVISION (computed)"
+
+cat > "$GENERATED_MARKER" <<'EOF'
+This directory contains generated install-tree copies of manifest-managed files.
+
+Do not hand-edit duplicated runtime files under building-directory-install/scripts.
+Edit the canonical sources in the repository root and regenerate with:
+
+  ./tools/sync-install-tree.sh
+
+Drift can be checked with:
+
+  ./tools/check-install-drift.sh
+EOF
+echo "synced: .generated-from-root"
 
 echo "Install tree synced from canonical sources."
