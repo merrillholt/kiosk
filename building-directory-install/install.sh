@@ -546,6 +546,9 @@ if [ "$INSTALL_MODE" = "client" ] || [ "$INSTALL_MODE" = "both" ]; then
     # Disable xfce4-notifyd in kiosk mode (cage Wayland) to avoid
     # notification daemon errors on the display.
     sudo systemctl --global mask xfce4-notifyd.service
+    # Sound is not used on kiosk hosts. Mask PulseAudio user units to avoid
+    # repeated session startup failures on the read-only home directory.
+    sudo systemctl --global mask pulseaudio.service pulseaudio.socket
 
     sudo udevadm control --reload-rules
 
