@@ -52,8 +52,6 @@ write_files_overlay_local() {
     sudo overlayroot-chroot cp    "$chroot_stage/80-kiosk-power-button.conf" /etc/systemd/logind.conf.d/80-kiosk-power-button.conf
     sudo overlayroot-chroot mkdir -p                                          /etc/systemd/user
     sudo overlayroot-chroot ln -sfn                                           /dev/null /etc/systemd/user/xfce4-notifyd.service
-    sudo overlayroot-chroot ln -sfn                                           /dev/null /etc/systemd/user/pulseaudio.service
-    sudo overlayroot-chroot ln -sfn                                           /dev/null /etc/systemd/user/pulseaudio.socket
     sudo overlayroot-chroot cp    "$chroot_stage/bash_profile"                /home/${KIOSK_USER}/.bash_profile
     echo 3 | sudo tee /proc/sys/vm/drop_caches > /dev/null
     sudo rm -rf "$chroot_stage"
@@ -70,8 +68,6 @@ write_files_lowerdir_local() {
     sudo install -D -m 644 "$stage/80-kiosk-power-button.conf" /media/root-ro/etc/systemd/logind.conf.d/80-kiosk-power-button.conf
     sudo install -d -m 755                                      /media/root-ro/etc/systemd/user
     sudo ln -sfn                                                /dev/null /media/root-ro/etc/systemd/user/xfce4-notifyd.service
-    sudo ln -sfn                                                /dev/null /media/root-ro/etc/systemd/user/pulseaudio.service
-    sudo ln -sfn                                                /dev/null /media/root-ro/etc/systemd/user/pulseaudio.socket
     sudo install -D -m 644 "$stage/bash_profile"               /media/root-ro/home/${KIOSK_USER}/.bash_profile
     echo 3 | sudo tee /proc/sys/vm/drop_caches > /dev/null
 }
@@ -87,8 +83,6 @@ write_files_direct_local() {
     sudo install -D -m 644 "$stage/80-kiosk-power-button.conf" /etc/systemd/logind.conf.d/80-kiosk-power-button.conf
     sudo install -d -m 755                                      /etc/systemd/user
     sudo ln -sfn                                                /dev/null /etc/systemd/user/xfce4-notifyd.service
-    sudo ln -sfn                                                /dev/null /etc/systemd/user/pulseaudio.service
-    sudo ln -sfn                                                /dev/null /etc/systemd/user/pulseaudio.socket
     sudo install -D -m 644 "$stage/bash_profile"               /home/${KIOSK_USER}/.bash_profile
 }
 
