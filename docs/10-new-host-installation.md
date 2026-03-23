@@ -86,6 +86,10 @@ At the "Software selection" step, deselect everything except:
 
 Do not install a desktop environment — the kiosk session is configured separately.
 
+The canonical installer disables CUPS/printing services if they are present.
+Printing is not used by the kiosk stack, and leaving CUPS enabled on an
+overlayroot host causes avoidable `/var/log/cups` read-only-filesystem log spam.
+
 ### 1.5 Post-install user
 
 The installer creates a user during setup. Use `kiosk` as the username.

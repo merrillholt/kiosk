@@ -53,6 +53,31 @@ wait_for_http_ok() {
     return 1
 }
 
+disable_print_stack() {
+    local units=(
+        cups.service
+        cups.socket
+        cups.path
+        cups-browsed.service
+    )
+    local present=()
+    local unit
+
+    for unit in "${units[@]}"; do
+        if systemctl list-unit-files --full --no-legend "$unit" 2>/dev/null | grep -q "^$unit"; then
+            present+=("$unit")
+        fi
+    done
+
+    if [ "${#present[@]}" -eq 0 ]; then
+        print_info "No CUPS services installed; skipping print stack disable."
+        return 0
+    fi
+
+    print_info "Disabling CUPS services to avoid read-only filesystem log spam..."
+    sudo systemctl disable --now "${present[@]}" >/dev/null 2>&1 || true
+}
+
 # Check if running as root
 if [ "$EUID" -eq 0 ]; then
     print_error "Please do not run this script as root or with sudo"
@@ -536,6 +561,11 @@ EOF
     if grep -q 'pam_wtmpdb\.so' /etc/pam.d/common-session 2>/dev/null; then
         sudo sed -i '/pam_wtmpdb\.so/d' /etc/pam.d/common-session
     fi
+
+    # Printing is not part of the kiosk/server runtime. If installed directly or as
+    # a dependency (for example through desktop packages), it writes to /var/log/cups
+    # on overlayroot hosts and creates avoidable read-only-filesystem error spam.
+    disable_print_stack
 
     sudo systemctl set-default multi-user.target
     sudo systemctl daemon-reload
