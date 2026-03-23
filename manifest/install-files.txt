@@ -15,6 +15,7 @@ server/admin/admin.css
 
 # Kiosk client app
 kiosk/index.html
+kiosk/unavailable.html
 kiosk/app.js
 kiosk/styles.css
 kiosk/18.jpg
