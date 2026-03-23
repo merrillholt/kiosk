@@ -172,13 +172,30 @@ END_REMOTE
     [[ -z "$overlay" ]] && overlay="0"
 
     local failed_block logs_block line unit
-    local -a failed_expected failed_unexpected logs_expected logs_unexpected
+    local -a runtime_unexpected failed_expected failed_unexpected logs_expected logs_unexpected
+    runtime_unexpected=()
     failed_expected=()
     failed_unexpected=()
     logs_expected=()
     logs_unexpected=()
     failed_block="$(printf '%s\n' "$out" | sed -n '/^__FAILED_UNITS_BEGIN__$/,/^__FAILED_UNITS_END__$/p' | sed '1d;$d')"
     logs_block="$(printf '%s\n' "$out" | sed -n '/^__RECENT_ERRORS_BEGIN__$/,/^__RECENT_ERRORS_END__$/p' | sed '1d;$d')"
+
+    while IFS= read -r line; do
+      case "$line" in
+        kiosk-guard=active|cage=running|chromium=running)
+          ;;
+        kiosk-guard=*)
+          runtime_unexpected+=("$line")
+          ;;
+        cage=*)
+          runtime_unexpected+=("$line")
+          ;;
+        chromium=*)
+          runtime_unexpected+=("$line")
+          ;;
+      esac
+    done <<< "$header"
 
     while IFS= read -r line; do
       [[ -z "${line// }" ]] && continue
@@ -200,6 +217,12 @@ END_REMOTE
     done <<< "$logs_block"
 
     if [[ "$RAW" -eq 1 ]]; then
+      echo "runtime_checks_unexpected:"
+      if [[ "${#runtime_unexpected[@]}" -eq 0 ]]; then
+        echo "  none"
+      else
+        print_lines "$C_DIM" "${runtime_unexpected[@]}"
+      fi
       echo "failed_units:"
       if [[ "${#failed_expected[@]}" -eq 0 && "${#failed_unexpected[@]}" -eq 0 ]]; then
         echo "  none"
@@ -213,6 +236,12 @@ END_REMOTE
         print_lines "$C_DIM" "${logs_expected[@]}" "${logs_unexpected[@]}"
       fi
     else
+      echo "runtime_checks_unexpected:"
+      if [[ "${#runtime_unexpected[@]}" -eq 0 ]]; then
+        echo "  ${C_GRN}none${C_RESET}"
+      else
+        print_lines "$C_RED" "${runtime_unexpected[@]}"
+      fi
       echo "failed_units_expected:"
       if [[ "${#failed_expected[@]}" -eq 0 ]]; then
         echo "  none"
@@ -239,7 +268,7 @@ END_REMOTE
       fi
     fi
 
-    unexpected_count=$((unexpected_count + ${#failed_unexpected[@]} + ${#logs_unexpected[@]}))
+    unexpected_count=$((unexpected_count + ${#runtime_unexpected[@]} + ${#failed_unexpected[@]} + ${#logs_unexpected[@]}))
   done 3< <(hosts)
 
   if [[ "$host_fail_count" -gt 0 ]]; then
