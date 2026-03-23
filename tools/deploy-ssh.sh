@@ -361,6 +361,12 @@ if [[ "$DEPLOY_SERVER" -eq 1 ]]; then
     ssh "$HOST" "sudo -n install -m 755 '$DEPLOY_ROOT/server/persist-upload.sh' /usr/local/bin/persist-upload.sh"
   fi
 
+HAS_DIRECTORY_SERVER=0
+if ssh "$HOST" "command -v systemctl >/dev/null 2>&1 && (test -f /etc/systemd/system/directory-server.service || test -f /lib/systemd/system/directory-server.service)"; then
+  HAS_DIRECTORY_SERVER=1
+fi
+
+if [[ "$HAS_DIRECTORY_SERVER" -eq 1 ]]; then
   echo "==> Installing backup timer units on remote..."
   if [[ "$EFFECTIVE_OVERLAY" -eq 1 ]]; then
     ssh "$HOST" "set -e; install_user=\$(stat -c %U '$DEPLOY_ROOT'); sed -e \"s|@INSTALL_USER@|\$install_user|g\" -e \"s|@INSTALL_DIR@|$DEPLOY_ROOT|g\" '$DEPLOY_ROOT/scripts/directory-backup.service' | sudo -n tee /media/root-ro/etc/systemd/system/directory-backup.service >/dev/null; sudo -n chmod 644 /media/root-ro/etc/systemd/system/directory-backup.service"
@@ -372,6 +378,9 @@ if [[ "$DEPLOY_SERVER" -eq 1 ]]; then
     ssh "$HOST" "sudo -n systemctl enable directory-backup.timer"
   fi
   ssh "$HOST" "sudo -n systemctl daemon-reload && sudo -n systemctl start directory-backup.timer"
+else
+  echo "==> Client-only host detected; ensuring backup timer is disabled."
+  ssh "$HOST" "sudo -n systemctl disable --now directory-backup.timer directory-backup.service >/dev/null 2>&1 || true"
 fi
 
 if [[ "$DEPLOY_CLIENT" -eq 1 || "$DEPLOY_SERVER" -eq 1 ]]; then

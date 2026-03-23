@@ -161,7 +161,10 @@ chmod +x /usr/local/bin/kiosk-status
 print_info "Disabling unnecessary services..."
 systemctl disable apt-daily.timer 2>/dev/null || true
 systemctl disable apt-daily-upgrade.timer 2>/dev/null || true
+systemctl disable logrotate.timer 2>/dev/null || true
 systemctl disable man-db.timer 2>/dev/null || true
+systemctl disable dpkg-db-backup.timer 2>/dev/null || true
+systemctl disable wtmpdb-update-boot.service 2>/dev/null || true
 
 # Configure journal to volatile
 mkdir -p /etc/systemd/journald.conf.d
