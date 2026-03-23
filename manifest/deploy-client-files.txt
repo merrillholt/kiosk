@@ -2,6 +2,7 @@
 # Paths are relative to project root.
 
 scripts/start-kiosk.sh
+scripts/start-kiosk-lib.sh
 scripts/restart-kiosk.sh
 scripts/kiosk-guard
 scripts/kiosk-guard.service
