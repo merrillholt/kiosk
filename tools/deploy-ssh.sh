@@ -382,6 +382,7 @@ else
   echo "==> Client-only host detected; ensuring backup timer is disabled."
   ssh "$HOST" "sudo -n systemctl disable --now directory-backup.timer directory-backup.service >/dev/null 2>&1 || true"
 fi
+fi
 
 if [[ "$DEPLOY_CLIENT" -eq 1 || "$DEPLOY_SERVER" -eq 1 ]]; then
   echo "==> Installing kiosk-guard on remote..."
