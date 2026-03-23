@@ -30,6 +30,20 @@ SSH_BASE_ARGS=(
   -o UserKnownHostsFile="$KNOWN_HOSTS_FILE"
 )
 
+run_overlay_lowerdir_write() {
+  local remote_body="$1"
+  ssh "${SSH_BASE_ARGS[@]}" "$HOST" REMOTE_BODY="$remote_body" 'bash -s' <<'REMOTE_SCRIPT'
+set -euo pipefail
+sudo -n mount -o remount,rw /media/root-ro
+cleanup() {
+  sudo -n mount -o remount,ro /media/root-ro || true
+}
+trap cleanup EXIT
+eval "$REMOTE_BODY"
+echo 3 | sudo -n tee /proc/sys/vm/drop_caches >/dev/null
+REMOTE_SCRIPT
+}
+
 host_ip() {
   local target="$1"
   if [[ "$target" == *"@"* ]]; then
@@ -368,7 +382,7 @@ if [[ "$DEPLOY_SERVER" -eq 1 ]]; then
   fi
   echo "==> Installing persist-upload helper on remote..."
   if [[ "$EFFECTIVE_OVERLAY" -eq 1 ]]; then
-    ssh "${SSH_BASE_ARGS[@]}" "$HOST" "sudo -n install -D -m 755 '$DEPLOY_ROOT/server/persist-upload.sh' /media/root-ro/usr/local/bin/persist-upload.sh"
+    run_overlay_lowerdir_write "sudo -n install -D -m 755 '$DEPLOY_ROOT/server/persist-upload.sh' /media/root-ro/usr/local/bin/persist-upload.sh"
   else
     ssh "${SSH_BASE_ARGS[@]}" "$HOST" "sudo -n install -m 755 '$DEPLOY_ROOT/server/persist-upload.sh' /usr/local/bin/persist-upload.sh"
   fi
@@ -381,9 +395,7 @@ fi
 if [[ "$HAS_DIRECTORY_SERVER" -eq 1 ]]; then
   echo "==> Installing backup timer units on remote..."
   if [[ "$EFFECTIVE_OVERLAY" -eq 1 ]]; then
-    ssh "${SSH_BASE_ARGS[@]}" "$HOST" "set -e; install_user=\$(stat -c %U '$DEPLOY_ROOT'); sed -e \"s|@INSTALL_USER@|\$install_user|g\" -e \"s|@INSTALL_DIR@|$DEPLOY_ROOT|g\" '$DEPLOY_ROOT/scripts/directory-backup.service' | sudo -n tee /media/root-ro/etc/systemd/system/directory-backup.service >/dev/null; sudo -n chmod 644 /media/root-ro/etc/systemd/system/directory-backup.service"
-    ssh "${SSH_BASE_ARGS[@]}" "$HOST" "sudo -n install -D -m 644 '$DEPLOY_ROOT/scripts/directory-backup.timer' /media/root-ro/etc/systemd/system/directory-backup.timer"
-    ssh "${SSH_BASE_ARGS[@]}" "$HOST" "sudo -n mkdir -p /media/root-ro/etc/systemd/system/timers.target.wants && sudo -n ln -sfn /etc/systemd/system/directory-backup.timer /media/root-ro/etc/systemd/system/timers.target.wants/directory-backup.timer"
+    run_overlay_lowerdir_write "install_user=\$(stat -c %U '$DEPLOY_ROOT'); sed -e \"s|@INSTALL_USER@|\$install_user|g\" -e \"s|@INSTALL_DIR@|$DEPLOY_ROOT|g\" '$DEPLOY_ROOT/scripts/directory-backup.service' | sudo -n tee /media/root-ro/etc/systemd/system/directory-backup.service >/dev/null; sudo -n chmod 644 /media/root-ro/etc/systemd/system/directory-backup.service; sudo -n install -D -m 644 '$DEPLOY_ROOT/scripts/directory-backup.timer' /media/root-ro/etc/systemd/system/directory-backup.timer; sudo -n mkdir -p /media/root-ro/etc/systemd/system/timers.target.wants; sudo -n ln -sfn /etc/systemd/system/directory-backup.timer /media/root-ro/etc/systemd/system/timers.target.wants/directory-backup.timer"
   else
     ssh "${SSH_BASE_ARGS[@]}" "$HOST" "set -e; install_user=\$(stat -c %U '$DEPLOY_ROOT'); sed -e \"s|@INSTALL_USER@|\$install_user|g\" -e \"s|@INSTALL_DIR@|$DEPLOY_ROOT|g\" '$DEPLOY_ROOT/scripts/directory-backup.service' | sudo -n tee /etc/systemd/system/directory-backup.service >/dev/null; sudo -n chmod 644 /etc/systemd/system/directory-backup.service"
     ssh "${SSH_BASE_ARGS[@]}" "$HOST" "sudo -n install -D -m 644 '$DEPLOY_ROOT/scripts/directory-backup.timer' /etc/systemd/system/directory-backup.timer"
@@ -399,9 +411,7 @@ fi
 if [[ "$DEPLOY_CLIENT" -eq 1 || "$DEPLOY_SERVER" -eq 1 ]]; then
   echo "==> Installing kiosk-guard on remote..."
   if [[ "$EFFECTIVE_OVERLAY" -eq 1 ]]; then
-    ssh "${SSH_BASE_ARGS[@]}" "$HOST" "sudo -n install -D -m 755 '$DEPLOY_ROOT/scripts/kiosk-guard' /media/root-ro/usr/local/sbin/kiosk-guard"
-    ssh "${SSH_BASE_ARGS[@]}" "$HOST" "sudo -n install -D -m 644 '$DEPLOY_ROOT/scripts/kiosk-guard.service' /media/root-ro/etc/systemd/system/kiosk-guard.service"
-    ssh "${SSH_BASE_ARGS[@]}" "$HOST" "sudo -n mkdir -p /media/root-ro/etc/systemd/system/multi-user.target.wants && sudo -n ln -sfn /etc/systemd/system/kiosk-guard.service /media/root-ro/etc/systemd/system/multi-user.target.wants/kiosk-guard.service"
+    run_overlay_lowerdir_write "sudo -n install -D -m 755 '$DEPLOY_ROOT/scripts/kiosk-guard' /media/root-ro/usr/local/sbin/kiosk-guard; sudo -n install -D -m 644 '$DEPLOY_ROOT/scripts/kiosk-guard.service' /media/root-ro/etc/systemd/system/kiosk-guard.service; sudo -n mkdir -p /media/root-ro/etc/systemd/system/multi-user.target.wants; sudo -n ln -sfn /etc/systemd/system/kiosk-guard.service /media/root-ro/etc/systemd/system/multi-user.target.wants/kiosk-guard.service"
   else
     ssh "${SSH_BASE_ARGS[@]}" "$HOST" "sudo -n install -D -m 755 '$DEPLOY_ROOT/scripts/kiosk-guard' /usr/local/sbin/kiosk-guard"
     ssh "${SSH_BASE_ARGS[@]}" "$HOST" "sudo -n install -D -m 644 '$DEPLOY_ROOT/scripts/kiosk-guard.service' /etc/systemd/system/kiosk-guard.service"
