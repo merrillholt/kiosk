@@ -319,7 +319,7 @@ This preserves home privacy while allowing nginx path traversal.
 \item \textbf{Dev machine == deployed server:} use \texttt{tools/deploy-local.sh}
 \item \textbf{Deploy server code to target machine:} use \texttt{building-directory-install/deploy.sh}
 \item \textbf{Deploy kiosk system scripts to display clients:}
-  use Admin Deploy tab (\texttt{POST /api/kiosks/:id/deploy}) or \texttt{server/kiosk-deploy.sh}
+  use Admin Deploy tab (\texttt{POST /api/kiosks/:id/deploy}) or \texttt{tools/deploy-ssh.sh --client}
 \end{itemize}
 
 \subsection{Current Health/Verification Commands}
@@ -476,7 +476,7 @@ This section documents the update process that is currently implemented in the r
 \item Local deploy script: \texttt{tools/deploy-local.sh}
 \item Remote SSH deploy script: \texttt{tools/deploy-ssh.sh}
 \item Remote/full deploy script: \texttt{building-directory-install/deploy.sh}
-\item Kiosk script deploy script: \texttt{server/kiosk-deploy.sh}
+\item Kiosk script deploy command: \texttt{tools/deploy-ssh.sh --client}
 \item Admin UI deploy endpoints:
 \begin{itemize}
 \item \texttt{GET /api/kiosks}
@@ -513,7 +513,7 @@ tools/deploy-local.sh
 \begin{lstlisting}[language=bash]
 sudo systemctl restart directory-server
 \end{lstlisting}
-\item Deploy kiosk script updates from Admin Deploy tab (or \texttt{kiosk-deploy.sh})
+\item Deploy kiosk script updates from Admin Deploy tab (or \texttt{tools/deploy-ssh.sh --client})
 \item Validate health:
 \begin{lstlisting}[language=bash]
 curl -fsS http://127.0.0.1:3000/api/data-version

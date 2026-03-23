@@ -19,7 +19,9 @@ scp "$SERVER_DIR/admin/index.html"                   "$VM:/tmp/deploy-staging/in
 scp "$SERVER_DIR/admin/admin.js"                     "$VM:/tmp/deploy-staging/admin.js"
 scp "$SERVER_DIR/admin/admin.css"                    "$VM:/tmp/deploy-staging/admin.css"
 scp "$SERVER_DIR/persist-upload.sh"                  "$VM:/tmp/deploy-staging/persist-upload.sh"
-scp "$SERVER_DIR/kiosk-deploy.sh"                    "$VM:/tmp/deploy-staging/kiosk-deploy.sh"
+scp "$SCRIPT_DIR/../tools/deploy-ssh.sh"             "$VM:/tmp/deploy-staging/deploy-ssh.sh"
+scp "$SCRIPT_DIR/../tools/compute-revision.sh"       "$VM:/tmp/deploy-staging/compute-revision.sh"
+scp "$SCRIPT_DIR/../manifest/deploy-client-files.txt" "$VM:/tmp/deploy-staging/deploy-client-files.txt"
 scp "$SCRIPT_DIR/scripts/start-kiosk.sh"             "$VM:/tmp/deploy-staging/start-kiosk.sh"
 scp "$SCRIPT_DIR/scripts/kiosk-keyboard-added.sh"    "$VM:/tmp/deploy-staging/kiosk-keyboard-added.sh"
 scp "$SCRIPT_DIR/scripts/99-kiosk-keyboard.rules"    "$VM:/tmp/deploy-staging/99-kiosk-keyboard.rules"
@@ -36,7 +38,9 @@ sudo mkdir -p "$STAGE"
 
 # Copy from /tmp (overlay tmpfs) into /run (bind-mounted inside chroot)
 sudo cp /tmp/deploy-staging/persist-upload.sh        "$STAGE/persist-upload.sh"
-sudo cp /tmp/deploy-staging/kiosk-deploy.sh          "$STAGE/kiosk-deploy.sh"
+sudo cp /tmp/deploy-staging/deploy-ssh.sh            "$STAGE/deploy-ssh.sh"
+sudo cp /tmp/deploy-staging/compute-revision.sh      "$STAGE/compute-revision.sh"
+sudo cp /tmp/deploy-staging/deploy-client-files.txt  "$STAGE/deploy-client-files.txt"
 sudo cp /tmp/deploy-staging/server.js                "$STAGE/server.js"
 sudo cp /tmp/deploy-staging/index.html               "$STAGE/index.html"
 sudo cp /tmp/deploy-staging/admin.js                 "$STAGE/admin.js"
@@ -119,10 +123,15 @@ sudo overlayroot-chroot cp "$STAGE/server.js"      /home/${KIOSK_USER}/building-
 sudo overlayroot-chroot cp "$STAGE/index.html"     /home/${KIOSK_USER}/building-directory/server/admin/index.html
 sudo overlayroot-chroot cp "$STAGE/admin.js"       /home/${KIOSK_USER}/building-directory/server/admin/admin.js
 sudo overlayroot-chroot cp "$STAGE/admin.css"      /home/${KIOSK_USER}/building-directory/server/admin/admin.css
-sudo overlayroot-chroot cp "$STAGE/kiosk-deploy.sh" /home/${KIOSK_USER}/building-directory/server/kiosk-deploy.sh
-sudo overlayroot-chroot chmod 755                   /home/${KIOSK_USER}/building-directory/server/kiosk-deploy.sh
+sudo overlayroot-chroot mkdir -p                    /home/${KIOSK_USER}/building-directory/tools
+sudo overlayroot-chroot mkdir -p                    /home/${KIOSK_USER}/building-directory/manifest
+sudo overlayroot-chroot cp "$STAGE/deploy-ssh.sh"   /home/${KIOSK_USER}/building-directory/tools/deploy-ssh.sh
+sudo overlayroot-chroot chmod 755                   /home/${KIOSK_USER}/building-directory/tools/deploy-ssh.sh
+sudo overlayroot-chroot cp "$STAGE/compute-revision.sh" /home/${KIOSK_USER}/building-directory/tools/compute-revision.sh
+sudo overlayroot-chroot chmod 755                       /home/${KIOSK_USER}/building-directory/tools/compute-revision.sh
+sudo overlayroot-chroot cp "$STAGE/deploy-client-files.txt" /home/${KIOSK_USER}/building-directory/manifest/deploy-client-files.txt
 
-# kiosk-deploy.sh references ../scripts/bash_profile — install the template
+# The admin deploy path uses tools/deploy-ssh.sh --client and still needs the template.
 sudo overlayroot-chroot cp "$STAGE/bash_profile_template" /home/${KIOSK_USER}/building-directory/scripts/bash_profile
 
 # Kiosk scripts

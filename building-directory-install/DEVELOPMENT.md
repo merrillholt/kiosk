@@ -65,7 +65,7 @@ building-directory-install/
 ├── install.sh                      # First-time installation (server / client / both)
 ├── server/
 │   ├── server.js                   # Express API + kiosk deploy endpoints
-│   ├── kiosk-deploy.sh             # SSH deploy script: pushes system scripts to one kiosk
+│   ├── server.js                   # Express API + kiosk deploy endpoints
 │   ├── persist-upload.sh           # Privileged helper: copy/delete uploads in lower layer
 │   ├── test.js                     # API integration tests (run locally)
 │   ├── admin/
@@ -104,7 +104,7 @@ The installer:
 - Copies server files to `~/building-directory/`
 - Runs `npm install`
 - Installs `persist-upload.sh` to `/usr/local/bin/` with sudoers entry
-- Installs `kiosk-deploy.sh` to `~/building-directory/server/`
+- Installs `tools/deploy-ssh.sh` and `manifest/deploy-client-files.txt`
 - Creates and enables the `directory-server` systemd service
 - Configures nginx as a reverse proxy on port 80
 - Starts the server
@@ -252,7 +252,7 @@ machines never hold the source of truth.
 | `server/admin/admin.js` | Admin page behaviour |
 | `server/admin/admin.css` | Admin page styles |
 | `server/persist-upload.sh` | Privileged helper for writing images to overlayroot lower layer |
-| `server/kiosk-deploy.sh` | SSH deploy logic for pushing scripts to kiosk machines |
+| `tools/deploy-ssh.sh` | Explicit `--client/--server/--full` SSH deploy tool |
 
 **Kiosk browser app** (served from server, auto-updates to all clients):
 
@@ -318,7 +318,7 @@ cp server/server.js            "$INSTALL/server/"
 cp server/admin/index.html     "$INSTALL/server/admin/"
 cp server/admin/admin.js       "$INSTALL/server/admin/"
 cp server/admin/admin.css      "$INSTALL/server/admin/"
-cp server/kiosk-deploy.sh      "$INSTALL/server/"
+cp tools/deploy-ssh.sh         "$INSTALL/tools/"
 cp kiosk/index.html            "$INSTALL/kiosk/"
 cp kiosk/app.js                "$INSTALL/kiosk/"
 cp kiosk/styles.css            "$INSTALL/kiosk/"
@@ -382,19 +382,19 @@ these files.
 4. Watch the output log for progress and any errors.
 
 The deploy tab calls `POST /api/kiosks/:id/deploy` on the server, which
-runs `server/kiosk-deploy.sh` via SSH.
+runs `tools/deploy-ssh.sh --client` via SSH.
 
 ### Via command line
 
 ```bash
 cd building-directory-install/server
-bash kiosk-deploy.sh <kiosk_ip> <kiosk_user> ~/.ssh/kiosk_deploy_key http://<server-ip>
+bash tools/deploy-ssh.sh --client --host <kiosk_user@kiosk_ip>
 
 # Example:
-bash kiosk-deploy.sh 192.168.1.127 merrill ~/.ssh/kiosk_deploy_key http://192.168.1.100
+bash tools/deploy-ssh.sh --client --host merrill@192.168.1.127
 ```
 
-### What kiosk-deploy.sh does
+### What `tools/deploy-ssh.sh --client` does
 
 1. Verifies SSH connectivity to the kiosk machine.
 2. SCPs scripts to `/tmp/kiosk-deploy-staging/` on the kiosk.
@@ -522,7 +522,7 @@ A documented template is at `server/.env.example`.
 | `KIOSK_UPLOADS_LOWER` | `/media/root-ro/…/uploads` | Persistent uploads directory on the overlayroot ext4 lower layer. Served as `/uploads`. |
 | `KIOSK_PERSIST_CMD` | `sudo /usr/local/bin/persist-upload.sh` | Space-separated command for copying/deleting files in the lower layer. Set to a mock script path for local development. |
 | `KIOSK_CLIENTS` | hardcoded array | JSON array of kiosk display machines: `[{"id":1,"name":"Kiosk 1","ip":"192.168.1.x","user":"merrill"},…]`. Update IPs when machines are provisioned. |
-| `KIOSK_SSH_KEY` | `~/.ssh/kiosk_deploy_key` | SSH private key used by `kiosk-deploy.sh`. Auto-generated (ed25519) on first Deploy tab load. |
+| `KIOSK_SSH_KEY` | `~/.ssh/kiosk_deploy_key` | SSH private key used by the admin Deploy tab. Auto-generated (ed25519) on first Deploy tab load. |
 | `KIOSK_SERVER_URL` | auto-detected LAN IP | URL kiosk machines use to reach this server. Override if the server has multiple NICs or uses a hostname. |
 
 ---
@@ -541,7 +541,7 @@ on reboot.
 | Write a file only needed until next reboot | Write directly to `/tmp` or `/run` (tmpfs) |
 | Stage a file for use inside overlayroot-chroot | Copy to `/run/` — it is bind-mounted; `/tmp` is not |
 
-`kiosk-deploy.sh` and `deploy.sh` handle all of this automatically.
+`tools/deploy-ssh.sh --client` and `deploy.sh` handle all of this automatically.
 
 ---
 

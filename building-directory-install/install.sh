@@ -246,10 +246,13 @@ if [ "$INSTALL_MODE" = "server" ] || [ "$INSTALL_MODE" = "both" ]; then
         | sudo tee /usr/local/bin/persist-upload.sh > /dev/null
     sudo chmod 755 /usr/local/bin/persist-upload.sh
 
-    # Install kiosk-deploy script (SSHes to kiosk display machines to push system scripts)
-    print_info "Installing kiosk-deploy script..."
-    cp server/kiosk-deploy.sh "$INSTALL_DIR/server/kiosk-deploy.sh"
-    chmod 755 "$INSTALL_DIR/server/kiosk-deploy.sh"
+    # Install deploy helper and client manifest used by the admin Deploy tab.
+    print_info "Installing deploy helper..."
+    mkdir -p "$INSTALL_DIR/tools" "$INSTALL_DIR/manifest"
+    cp tools/deploy-ssh.sh "$INSTALL_DIR/tools/deploy-ssh.sh"
+    cp tools/compute-revision.sh "$INSTALL_DIR/tools/compute-revision.sh"
+    cp manifest/deploy-client-files.txt "$INSTALL_DIR/manifest/deploy-client-files.txt"
+    chmod 755 "$INSTALL_DIR/tools/deploy-ssh.sh" "$INSTALL_DIR/tools/compute-revision.sh"
     echo "$USER ALL=(root) NOPASSWD: /usr/local/bin/persist-upload.sh" \
         | sudo tee /etc/sudoers.d/directory-server > /dev/null
     sudo chmod 440 /etc/sudoers.d/directory-server
@@ -589,7 +592,7 @@ if [ "$INSTALL_MODE" = "client" ] || [ "$INSTALL_MODE" = "both" ]; then
     fi
 
     # Allow kiosk deploys to run required root commands without a password.
-    # Used by server-side kiosk-deploy.sh.
+    # Used by the server admin Deploy tab via tools/deploy-ssh.sh --client.
     print_info "Configuring passwordless sudo for kiosk deploy..."
     sudo bash -c "cat > /etc/sudoers.d/kiosk-deploy" <<EOF
 $USER ALL=(root) NOPASSWD: /usr/sbin/overlayroot-chroot, /usr/bin/udevadm, /usr/bin/tee, /bin/mkdir, /bin/cp, /bin/rm

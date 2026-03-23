@@ -80,8 +80,8 @@ Current default kiosk browser URLs:
   - auth/session behavior
   - backup/restore endpoints
   - background upload handling
-- The admin Deploy tab uses `server/kiosk-deploy.sh` for kiosk script deployment; it is
-  not the same as a full application deploy from `tools/deploy-ssh.sh`.
+- The admin Deploy tab uses `tools/deploy-ssh.sh --client` for kiosk runtime deployment; it is
+  not the same as a full application deploy from `tools/deploy-ssh.sh --full`.
 
 ## Fleet Script Convenience Wrapper
 

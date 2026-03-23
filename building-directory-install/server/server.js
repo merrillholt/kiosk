@@ -72,7 +72,7 @@ const KIOSK_SSH_KEY = process.env.KIOSK_SSH_KEY ||
 const KIOSK_SERVER_URL = process.env.KIOSK_SERVER_URL || 'http://192.168.1.80';
 // Warm-standby URL kiosk machines will switch to if primary is unavailable.
 const KIOSK_SERVER_URL_STANDBY = process.env.KIOSK_SERVER_URL_STANDBY || 'http://192.168.1.81';
-const KIOSK_DEPLOY_SCRIPT = path.join(__dirname, 'kiosk-deploy.sh');
+const KIOSK_DEPLOY_SCRIPT = path.join(PROJECT_ROOT, 'tools', 'deploy-ssh.sh');
 let SERVER_PACKAGE_VERSION = 'unknown';
 try {
     const pkg = JSON.parse(fs.readFileSync(PACKAGE_JSON_FILE, 'utf8'));
@@ -1629,7 +1629,7 @@ app.get('/api/kiosks/deploy-pubkey', (req, res) => {
     }
 });
 
-// Deploy system scripts to one kiosk machine
+// Deploy client runtime scripts to one kiosk machine
 app.post('/api/kiosks/:id/deploy', (req, res) => {
     const id = parseInt(req.params.id);
     const kiosk = KIOSK_CLIENTS.find(k => k.id === id);
@@ -1640,8 +1640,18 @@ app.post('/api/kiosks/:id/deploy', (req, res) => {
         });
     }
     const result = spawnSync('bash', [
-        KIOSK_DEPLOY_SCRIPT, kiosk.ip, kiosk.user, KIOSK_SSH_KEY, KIOSK_SERVER_URL, KIOSK_SERVER_URL_STANDBY
-    ], { encoding: 'utf8', timeout: 90000 });
+        KIOSK_DEPLOY_SCRIPT,
+        '--client',
+        '--host', `${kiosk.user}@${kiosk.ip}`
+    ], {
+        encoding: 'utf8',
+        timeout: 90000,
+        env: {
+            ...process.env,
+            KIOSK_PRIMARY_URL: KIOSK_SERVER_URL,
+            KIOSK_STANDBY_URL: KIOSK_SERVER_URL_STANDBY,
+        },
+    });
     const output = ((result.stdout || '') + (result.stderr || '')).trim();
     if (result.status !== 0) {
         return res.status(500).json({ error: 'Deploy failed', output });

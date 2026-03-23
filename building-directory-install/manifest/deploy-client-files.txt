@@ -1,0 +1,13 @@
+# Client-only deploy manifest for kiosk runtime updates.
+# Paths are relative to project root.
+
+scripts/start-kiosk.sh
+scripts/start-kiosk-lib.sh
+scripts/restart-kiosk.sh
+scripts/kiosk-guard
+scripts/kiosk-guard.service
+scripts/bash_profile
+scripts/kiosk-keyboard-added.sh
+scripts/99-kiosk-keyboard.rules
+scripts/99-elo-usb-power.rules
+scripts/80-kiosk-power-button.conf
