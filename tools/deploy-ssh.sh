@@ -62,7 +62,7 @@ Options:
       --server           Deploy server-side files only
       --client           Deploy kiosk/client runtime files only
   -f, --full             Deploy both server and client files
-      --overlay          Force overlayroot-chroot write mode
+      --overlay          Force overlay deploy mode
       --no-overlay       Force direct write mode
       --maintenance      Require maintenance/writable mode and use direct writes
       --no-restart       Skip remote service restart and health checks
@@ -275,7 +275,6 @@ fi
 if [[ "$EFFECTIVE_OVERLAY" -eq 1 ]]; then
   echo "Overlay deploy mode: enabled"
   STAGE_DIR="/tmp/building-directory-deploy-$RANDOM-$(date +%s)"
-  CHROOT_STAGE="/run/deploy-stage"
   REMOTE_MANIFEST="/tmp/building-directory-deploy-manifest-$RANDOM-$(date +%s).txt"
   REVISION_STAGE="$STAGE_DIR/REVISION"
   echo "==> Staging manifest files on remote..."
@@ -288,86 +287,25 @@ if [[ "$EFFECTIVE_OVERLAY" -eq 1 ]]; then
   fi
   if [[ "$DRY_RUN" -eq 0 ]]; then
     echo "==> Writing files to overlay lower layer..."
-    set +e
-    REMOTE_OUTPUT="$(ssh "$HOST" CHROOT_STAGE="$CHROOT_STAGE" DEPLOY_ROOT="$DEPLOY_ROOT" REMOTE_MANIFEST="$REMOTE_MANIFEST" STAGE_DIR="$STAGE_DIR" 'bash -s' <<'REMOTE_SCRIPT'
+    ssh "$HOST" DEPLOY_ROOT="$DEPLOY_ROOT" STAGE_DIR="$STAGE_DIR" REMOTE_MANIFEST="$REMOTE_MANIFEST" 'bash -s' <<'REMOTE_SCRIPT'
 set -euo pipefail
-cleanup() {
-  sudo -n rm -rf "$CHROOT_STAGE"
-  rm -rf "$STAGE_DIR" "$REMOTE_MANIFEST"
-}
+cleanup() { rm -rf "$STAGE_DIR" "$REMOTE_MANIFEST"; }
 trap cleanup EXIT
-sudo -n mkdir -p "$CHROOT_STAGE"
-sudo -n cp -a "$STAGE_DIR"/. "$CHROOT_STAGE"/
-CHROOT_MANIFEST="$CHROOT_STAGE/.deploy-manifest.txt"
-sudo -n cp -f "$REMOTE_MANIFEST" "$CHROOT_MANIFEST"
-sudo -n chmod 644 "$CHROOT_MANIFEST"
-# Run a single chroot session to avoid repeated mount/unmount churn.
-run_overlay_write() {
-  local err_file="$1"
-  sudo -n overlayroot-chroot bash -s -- "$CHROOT_STAGE" "$DEPLOY_ROOT" "$CHROOT_MANIFEST" 2>"$err_file" <<'CHROOT_SCRIPT'
-set -euo pipefail
-CHROOT_STAGE="$1"
-DEPLOY_ROOT="$2"
-CHROOT_MANIFEST="$3"
-install -D -m 644 "$CHROOT_STAGE/REVISION" "$DEPLOY_ROOT/REVISION"
 while IFS= read -r rel; do
   [[ -z "$rel" ]] && continue
-  src="$CHROOT_STAGE/$rel"
-  dst="$DEPLOY_ROOT/$rel"
+  src="$STAGE_DIR/$rel"
+  dst="/media/root-ro$DEPLOY_ROOT/$rel"
   [[ -f "$src" ]] || { echo "Missing staged file: $src" >&2; exit 1; }
   mode=$(stat -c %a "$src")
-  install -D -m "$mode" "$src" "$dst"
-done < "$CHROOT_MANIFEST"
-CHROOT_SCRIPT
-}
-
-run_lowerdir_fallback() {
-  while IFS= read -r rel; do
-    [[ -z "$rel" ]] && continue
-    src="$CHROOT_STAGE/$rel"
-    dst="/media/root-ro$DEPLOY_ROOT/$rel"
-    [[ -f "$src" ]] || { echo "Missing staged file: $src" >&2; exit 1; }
-    mode=$(stat -c %a "$src")
-    sudo -n install -D -m "$mode" "$src" "$dst"
-  done < "$CHROOT_MANIFEST"
-}
-
-CHROOT_ERR="$(mktemp /tmp/overlayroot-chroot.XXXXXX)"
-if ! run_overlay_write "$CHROOT_ERR"; then
-  cat "$CHROOT_ERR" >&2
-  exit 1
-fi
-if grep -q "mount point is busy" "$CHROOT_ERR"; then
-  if mount | grep -Eq '^/dev/.+ on /media/root-ro type .+ \(ro,'; then
-    echo "INFO: overlayroot remount warning observed; /media/root-ro is read-only after file write."
-  elif mount | grep -Eq '^/dev/.+ on /media/root-ro type .+ \(rw,'; then
-    echo "WARN: overlayroot-chroot cleanup failed; falling back to direct lower-layer writes via /media/root-ro."
-    run_lowerdir_fallback
-    echo "__LOWERDIR_DIRECT_WRITE__"
-  else
-    cat "$CHROOT_ERR" >&2
-    echo "ERROR: /media/root-ro is not read-only after overlay write." >&2
-    exit 1
-  fi
-elif [[ -s "$CHROOT_ERR" ]]; then
-  cat "$CHROOT_ERR" >&2
-fi
-rm -f "$CHROOT_ERR"
+  sudo -n install -D -m "$mode" "$src" "$dst"
+done < "$REMOTE_MANIFEST"
+sudo -n install -D -m 644 "$STAGE_DIR/REVISION" "/media/root-ro$DEPLOY_ROOT/REVISION"
 echo 3 | sudo -n tee /proc/sys/vm/drop_caches >/dev/null
 REMOTE_SCRIPT
-)"
-    REMOTE_RC=$?
-    set -e
-    echo "$REMOTE_OUTPUT"
-    if [[ "$REMOTE_RC" -ne 0 ]]; then
-      exit 1
-    fi
-    if [[ "$REMOTE_OUTPUT" == *"__LOWERDIR_DIRECT_WRITE__"* ]]; then
-      LOWERDIR_DIRECT_WRITE=1
-    fi
+    LOWERDIR_DIRECT_WRITE=1
   else
     echo "==> [dry-run] Overlay lower-layer write step skipped."
-    ssh "$HOST" "sudo -n rm -rf '$CHROOT_STAGE'; rm -rf '$STAGE_DIR' '$REMOTE_MANIFEST'" || true
+    ssh "$HOST" "rm -rf '$STAGE_DIR' '$REMOTE_MANIFEST'" || true
   fi
 else
   echo "Overlay deploy mode: disabled"
@@ -386,11 +324,7 @@ if [[ "$WITH_DB" -eq 1 ]]; then
   else
     scp "$DB_SOURCE" "$HOST:/tmp/directory.db.new"
     if [[ "$EFFECTIVE_OVERLAY" -eq 1 ]]; then
-      if [[ "$LOWERDIR_DIRECT_WRITE" -eq 1 ]]; then
-        ssh "$HOST" "set -e; sudo -n systemctl stop directory-server; sudo -n install -D -m 644 /tmp/directory.db.new '/media/root-ro$DEPLOY_ROOT/server/directory.db'; rm -f /tmp/directory.db.new; echo 3 | sudo -n tee /proc/sys/vm/drop_caches >/dev/null; sudo -n systemctl start directory-server"
-      else
-        ssh "$HOST" "set -e; sudo -n systemctl stop directory-server; sudo -n overlayroot-chroot cp /tmp/directory.db.new '$DEPLOY_ROOT/server/directory.db'; rm -f /tmp/directory.db.new; echo 3 | sudo -n tee /proc/sys/vm/drop_caches >/dev/null; sudo -n systemctl start directory-server"
-      fi
+      ssh "$HOST" "set -e; sudo -n systemctl stop directory-server; sudo -n install -D -m 644 /tmp/directory.db.new '/media/root-ro$DEPLOY_ROOT/server/directory.db'; rm -f /tmp/directory.db.new; echo 3 | sudo -n tee /proc/sys/vm/drop_caches >/dev/null; sudo -n systemctl start directory-server"
     else
       ssh "$HOST" "set -e; sudo -n systemctl stop directory-server; cp /tmp/directory.db.new '$DEPLOY_ROOT/server/directory.db'; rm -f /tmp/directory.db.new; sudo -n systemctl start directory-server"
     fi
@@ -418,26 +352,16 @@ if [[ "$DEPLOY_SERVER" -eq 1 ]]; then
   fi
   echo "==> Installing persist-upload helper on remote..."
   if [[ "$EFFECTIVE_OVERLAY" -eq 1 ]]; then
-    if [[ "$LOWERDIR_DIRECT_WRITE" -eq 1 ]]; then
-      ssh "$HOST" "sudo -n install -D -m 755 '$DEPLOY_ROOT/server/persist-upload.sh' /media/root-ro/usr/local/bin/persist-upload.sh"
-    else
-      ssh "$HOST" "sudo -n overlayroot-chroot install -m 755 '$DEPLOY_ROOT/server/persist-upload.sh' /usr/local/bin/persist-upload.sh"
-    fi
+    ssh "$HOST" "sudo -n install -D -m 755 '$DEPLOY_ROOT/server/persist-upload.sh' /media/root-ro/usr/local/bin/persist-upload.sh"
   else
     ssh "$HOST" "sudo -n install -m 755 '$DEPLOY_ROOT/server/persist-upload.sh' /usr/local/bin/persist-upload.sh"
   fi
 
   echo "==> Installing backup timer units on remote..."
   if [[ "$EFFECTIVE_OVERLAY" -eq 1 ]]; then
-    if [[ "$LOWERDIR_DIRECT_WRITE" -eq 1 ]]; then
-      ssh "$HOST" "set -e; install_user=\$(stat -c %U '$DEPLOY_ROOT'); sed -e \"s|@INSTALL_USER@|\$install_user|g\" -e \"s|@INSTALL_DIR@|$DEPLOY_ROOT|g\" '$DEPLOY_ROOT/scripts/directory-backup.service' | sudo -n tee /media/root-ro/etc/systemd/system/directory-backup.service >/dev/null; sudo -n chmod 644 /media/root-ro/etc/systemd/system/directory-backup.service"
-      ssh "$HOST" "sudo -n install -D -m 644 '$DEPLOY_ROOT/scripts/directory-backup.timer' /media/root-ro/etc/systemd/system/directory-backup.timer"
-      ssh "$HOST" "sudo -n mkdir -p /media/root-ro/etc/systemd/system/timers.target.wants && sudo -n ln -sfn /etc/systemd/system/directory-backup.timer /media/root-ro/etc/systemd/system/timers.target.wants/directory-backup.timer"
-    else
-      ssh "$HOST" "set -e; install_user=\$(stat -c %U '$DEPLOY_ROOT'); tmp_unit=\$(mktemp /tmp/directory-backup.service.XXXXXX); sed -e \"s|@INSTALL_USER@|\$install_user|g\" -e \"s|@INSTALL_DIR@|$DEPLOY_ROOT|g\" '$DEPLOY_ROOT/scripts/directory-backup.service' > \"\$tmp_unit\"; sudo -n overlayroot-chroot install -D -m 644 \"\$tmp_unit\" /etc/systemd/system/directory-backup.service; rm -f \"\$tmp_unit\""
-      ssh "$HOST" "sudo -n overlayroot-chroot install -D -m 644 '$DEPLOY_ROOT/scripts/directory-backup.timer' /etc/systemd/system/directory-backup.timer"
-      ssh "$HOST" "sudo -n overlayroot-chroot mkdir -p /etc/systemd/system/timers.target.wants && sudo -n overlayroot-chroot ln -sfn /etc/systemd/system/directory-backup.timer /etc/systemd/system/timers.target.wants/directory-backup.timer"
-    fi
+    ssh "$HOST" "set -e; install_user=\$(stat -c %U '$DEPLOY_ROOT'); sed -e \"s|@INSTALL_USER@|\$install_user|g\" -e \"s|@INSTALL_DIR@|$DEPLOY_ROOT|g\" '$DEPLOY_ROOT/scripts/directory-backup.service' | sudo -n tee /media/root-ro/etc/systemd/system/directory-backup.service >/dev/null; sudo -n chmod 644 /media/root-ro/etc/systemd/system/directory-backup.service"
+    ssh "$HOST" "sudo -n install -D -m 644 '$DEPLOY_ROOT/scripts/directory-backup.timer' /media/root-ro/etc/systemd/system/directory-backup.timer"
+    ssh "$HOST" "sudo -n mkdir -p /media/root-ro/etc/systemd/system/timers.target.wants && sudo -n ln -sfn /etc/systemd/system/directory-backup.timer /media/root-ro/etc/systemd/system/timers.target.wants/directory-backup.timer"
   else
     ssh "$HOST" "set -e; install_user=\$(stat -c %U '$DEPLOY_ROOT'); sed -e \"s|@INSTALL_USER@|\$install_user|g\" -e \"s|@INSTALL_DIR@|$DEPLOY_ROOT|g\" '$DEPLOY_ROOT/scripts/directory-backup.service' | sudo -n tee /etc/systemd/system/directory-backup.service >/dev/null; sudo -n chmod 644 /etc/systemd/system/directory-backup.service"
     ssh "$HOST" "sudo -n install -D -m 644 '$DEPLOY_ROOT/scripts/directory-backup.timer' /etc/systemd/system/directory-backup.timer"
@@ -449,15 +373,9 @@ fi
 if [[ "$DEPLOY_CLIENT" -eq 1 || "$DEPLOY_SERVER" -eq 1 ]]; then
   echo "==> Installing kiosk-guard on remote..."
   if [[ "$EFFECTIVE_OVERLAY" -eq 1 ]]; then
-    if [[ "$LOWERDIR_DIRECT_WRITE" -eq 1 ]]; then
-      ssh "$HOST" "sudo -n install -D -m 755 '$DEPLOY_ROOT/scripts/kiosk-guard' /media/root-ro/usr/local/sbin/kiosk-guard"
-      ssh "$HOST" "sudo -n install -D -m 644 '$DEPLOY_ROOT/scripts/kiosk-guard.service' /media/root-ro/etc/systemd/system/kiosk-guard.service"
-      ssh "$HOST" "sudo -n mkdir -p /media/root-ro/etc/systemd/system/multi-user.target.wants && sudo -n ln -sfn /etc/systemd/system/kiosk-guard.service /media/root-ro/etc/systemd/system/multi-user.target.wants/kiosk-guard.service"
-    else
-      ssh "$HOST" "sudo -n overlayroot-chroot install -D -m 755 '$DEPLOY_ROOT/scripts/kiosk-guard' /usr/local/sbin/kiosk-guard"
-      ssh "$HOST" "sudo -n overlayroot-chroot install -D -m 644 '$DEPLOY_ROOT/scripts/kiosk-guard.service' /etc/systemd/system/kiosk-guard.service"
-      ssh "$HOST" "sudo -n overlayroot-chroot mkdir -p /etc/systemd/system/multi-user.target.wants && sudo -n overlayroot-chroot ln -sfn /etc/systemd/system/kiosk-guard.service /etc/systemd/system/multi-user.target.wants/kiosk-guard.service"
-    fi
+    ssh "$HOST" "sudo -n install -D -m 755 '$DEPLOY_ROOT/scripts/kiosk-guard' /media/root-ro/usr/local/sbin/kiosk-guard"
+    ssh "$HOST" "sudo -n install -D -m 644 '$DEPLOY_ROOT/scripts/kiosk-guard.service' /media/root-ro/etc/systemd/system/kiosk-guard.service"
+    ssh "$HOST" "sudo -n mkdir -p /media/root-ro/etc/systemd/system/multi-user.target.wants && sudo -n ln -sfn /etc/systemd/system/kiosk-guard.service /media/root-ro/etc/systemd/system/multi-user.target.wants/kiosk-guard.service"
   else
     ssh "$HOST" "sudo -n install -D -m 755 '$DEPLOY_ROOT/scripts/kiosk-guard' /usr/local/sbin/kiosk-guard"
     ssh "$HOST" "sudo -n install -D -m 644 '$DEPLOY_ROOT/scripts/kiosk-guard.service' /etc/systemd/system/kiosk-guard.service"
@@ -486,6 +404,13 @@ if [[ "$DEPLOY_SERVER" -eq 1 ]]; then
   else
     echo "==> No directory-server on remote host (client-only) — skipping restart and smoke tests."
   fi
+fi
+
+if [[ "$EFFECTIVE_OVERLAY" -eq 1 ]]; then
+  echo "==> Rebooting remote host to restore clean overlay state..."
+  ssh "$HOST" "sudo -n reboot" || true
+  echo "Remote deploy complete (reboot initiated)."
+  exit 0
 fi
 
 if [[ "$DEPLOY_CLIENT" -eq 1 ]]; then
