@@ -8,10 +8,11 @@ COMPUTE_REVISION="$SCRIPT_DIR/compute-revision.sh"
 HOST="${HOST:-kiosk@192.168.1.80}"
 DEPLOY_ROOT="${DEPLOY_ROOT:-/home/kiosk/building-directory}"
 SERVER_MANIFEST="$SRC_ROOT/manifest/deploy-server-files.txt"
+CLIENT_MANIFEST="$SRC_ROOT/manifest/deploy-client-files.txt"
 FULL_MANIFEST="$SRC_ROOT/manifest/install-files.txt"
-MANIFEST="${MANIFEST:-$SERVER_MANIFEST}"
+MANIFEST="${MANIFEST:-}"
 DRY_RUN=0
-FULL=0
+PROFILE="${PROFILE:-server}"
 NO_RESTART=0
 WITH_DB=0
 DB_SOURCE="${DB_SOURCE:-}"
@@ -53,12 +54,14 @@ usage() {
 Usage: tools/deploy-ssh.sh [options]
 
 Deploy canonical files from Public-Kiosk to a remote server host over SSH.
-Default profile deploys server-only files; use --full for server+kiosk+scripts.
+Profiles deploy server-only, client-only, or both.
 
 Options:
   -H, --host <user@ip>   Remote SSH target (default: kiosk@192.168.1.80)
   -n, --dry-run          Preview actions without modifying remote host
-  -f, --full             Deploy full manifest (server + kiosk + scripts)
+      --server           Deploy server-side files only
+      --client           Deploy kiosk/client runtime files only
+  -f, --full             Deploy both server and client files
       --overlay          Force overlayroot-chroot write mode
       --no-overlay       Force direct write mode
       --maintenance      Require maintenance/writable mode and use direct writes
@@ -70,7 +73,8 @@ Options:
 Environment:
   HOST                   Same as --host
   DEPLOY_ROOT            Remote deploy root (default: /home/kiosk/building-directory)
-  MANIFEST               Override manifest path (default: deploy-server-files.txt)
+  PROFILE                server|client|full (default: server)
+  MANIFEST               Override manifest path for custom deploys
   DB_SOURCE              Same as --db-source
   OVERLAY_MODE           auto|on|off (default: auto)
   OVERLAY_INSTALL_DEPS   1 to run npm install in overlay mode (default: 0)
@@ -87,8 +91,16 @@ while [[ $# -gt 0 ]]; do
       DRY_RUN=1
       shift
       ;;
+    --server)
+      PROFILE="server"
+      shift
+      ;;
+    --client)
+      PROFILE="client"
+      shift
+      ;;
     -f|--full)
-      FULL=1
+      PROFILE="full"
       shift
       ;;
     --overlay)
@@ -135,9 +147,27 @@ fi
 
 HOST_IP="$(host_ip "$HOST")"
 
-if [[ "$FULL" -eq 1 ]]; then
-  MANIFEST="$FULL_MANIFEST"
-fi
+case "$PROFILE" in
+  server)
+    [[ -n "$MANIFEST" ]] || MANIFEST="$SERVER_MANIFEST"
+    DEPLOY_SERVER=1
+    DEPLOY_CLIENT=0
+    ;;
+  client)
+    [[ -n "$MANIFEST" ]] || MANIFEST="$CLIENT_MANIFEST"
+    DEPLOY_SERVER=0
+    DEPLOY_CLIENT=1
+    ;;
+  full)
+    [[ -n "$MANIFEST" ]] || MANIFEST="$FULL_MANIFEST"
+    DEPLOY_SERVER=1
+    DEPLOY_CLIENT=1
+    ;;
+  *)
+    echo "Invalid PROFILE: $PROFILE (expected server|client|full)" >&2
+    exit 2
+    ;;
+esac
 
 if [[ ! -d "$SRC_ROOT" ]]; then
   echo "Missing source root: $SRC_ROOT" >&2
@@ -151,6 +181,10 @@ fi
 if [[ "$WITH_DB" -eq 1 && ! -f "$DB_SOURCE" ]]; then
   echo "DB source file not found: $DB_SOURCE" >&2
   exit 1
+fi
+if [[ "$WITH_DB" -eq 1 && "$DEPLOY_SERVER" -ne 1 ]]; then
+  echo "--with-db requires a server or full deploy profile." >&2
+  exit 2
 fi
 if [[ ! -f "$MANIFEST" ]]; then
   echo "Missing manifest: $MANIFEST" >&2
@@ -179,7 +213,7 @@ printf '%s\n' "$REVISION_VALUE" > "$TMP_REVISION"
 echo "Deploy source: $SRC_ROOT"
 echo "Deploy target: $HOST:$DEPLOY_ROOT"
 [[ "$DRY_RUN" -eq 1 ]] && echo "Mode: dry-run"
-[[ "$FULL" -eq 1 ]] && echo "Profile: full" || echo "Profile: server-only"
+echo "Profile: $PROFILE"
 echo "Revision: $REVISION_VALUE"
 [[ "$REQUIRE_MAINTENANCE" -eq 1 ]] && echo "Mode: maintenance (overlay disabled required)"
 if [[ "$WITH_DB" -eq 1 ]]; then
@@ -187,7 +221,7 @@ if [[ "$WITH_DB" -eq 1 ]]; then
 fi
 PATCH_PRIMARY="$(escape_sed_replacement "$KIOSK_PRIMARY_URL")"
 PATCH_STANDBY="$(escape_sed_replacement "$KIOSK_STANDBY_URL")"
-if [[ "$FULL" -eq 1 ]]; then
+if [[ "$DEPLOY_CLIENT" -eq 1 ]]; then
   echo "Kiosk browser URLs:"
   echo "  primary: $KIOSK_PRIMARY_URL"
   echo "  standby: $KIOSK_STANDBY_URL"
@@ -249,7 +283,7 @@ if [[ "$EFFECTIVE_OVERLAY" -eq 1 ]]; then
   rsync "${RSYNC_ARGS[@]}" "$SRC_ROOT/" "$HOST:$STAGE_DIR/"
   scp "$TMP_REVISION" "$HOST:$REVISION_STAGE"
   scp "$TMP_MANIFEST" "$HOST:$REMOTE_MANIFEST"
-  if [[ "$FULL" -eq 1 ]]; then
+  if [[ "$DEPLOY_CLIENT" -eq 1 ]]; then
     ssh "$HOST" "sed -i 's|^SERVER_URL=.*|SERVER_URL=\"$PATCH_PRIMARY\"|; s|^SERVER_URL_STANDBY=.*|SERVER_URL_STANDBY=\"$PATCH_STANDBY\"|' '$STAGE_DIR/scripts/start-kiosk.sh'"
   fi
   if [[ "$DRY_RUN" -eq 0 ]]; then
@@ -340,7 +374,7 @@ else
   echo "==> Syncing manifest files..."
   rsync "${RSYNC_ARGS[@]}" "$SRC_ROOT/" "$HOST:$DEPLOY_ROOT/"
   scp "$TMP_REVISION" "$HOST:$DEPLOY_ROOT/REVISION"
-  if [[ "$FULL" -eq 1 ]]; then
+  if [[ "$DEPLOY_CLIENT" -eq 1 ]]; then
     ssh "$HOST" "sed -i 's|^SERVER_URL=.*|SERVER_URL=\"$PATCH_PRIMARY\"|; s|^SERVER_URL_STANDBY=.*|SERVER_URL_STANDBY=\"$PATCH_STANDBY\"|' '$DEPLOY_ROOT/scripts/start-kiosk.sh'"
   fi
 fi
@@ -369,65 +403,68 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
   exit 0
 fi
 
-echo "==> Installing production dependencies on remote..."
-if [[ "$EFFECTIVE_OVERLAY" -eq 1 ]]; then
-  if [[ "$OVERLAY_INSTALL_DEPS" -eq 1 ]]; then
-    ssh "$HOST" "sudo -n overlayroot-chroot bash -lc \"if [[ -f '$DEPLOY_ROOT/server/package-lock.json' ]]; then npm ci --omit=dev --no-audit --no-fund --loglevel=error --prefix '$DEPLOY_ROOT/server'; else npm install --omit=dev --no-audit --no-fund --loglevel=error --prefix '$DEPLOY_ROOT/server'; fi\""
+if [[ "$DEPLOY_SERVER" -eq 1 ]]; then
+  echo "==> Installing production dependencies on remote..."
+  if [[ "$EFFECTIVE_OVERLAY" -eq 1 ]]; then
+    if [[ "$OVERLAY_INSTALL_DEPS" -eq 1 ]]; then
+      ssh "$HOST" "sudo -n overlayroot-chroot bash -lc \"if [[ -f '$DEPLOY_ROOT/server/package-lock.json' ]]; then npm ci --omit=dev --no-audit --no-fund --loglevel=error --prefix '$DEPLOY_ROOT/server'; else npm install --omit=dev --no-audit --no-fund --loglevel=error --prefix '$DEPLOY_ROOT/server'; fi\""
+    else
+      echo "==> Skipping npm install in overlay mode (OVERLAY_INSTALL_DEPS=0)."
+    fi
   else
-    echo "==> Skipping npm install in overlay mode (OVERLAY_INSTALL_DEPS=0)."
+    echo "==> Normalizing server directory ownership for dependency install..."
+    ssh "$HOST" "set -e; if [[ -d '$DEPLOY_ROOT/server/node_modules' ]]; then sudo -n chown -R \$(id -un):\$(id -gn) '$DEPLOY_ROOT/server/node_modules'; fi; sudo -n chown \$(id -un):\$(id -gn) '$DEPLOY_ROOT/server' '$DEPLOY_ROOT/server/package.json' '$DEPLOY_ROOT/server/package-lock.json' 2>/dev/null || true"
+    ssh "$HOST" "if ! command -v npm &>/dev/null; then echo 'npm not found — skipping (client-only host)'; elif [[ -f '$DEPLOY_ROOT/server/package-lock.json' ]]; then npm ci --omit=dev --no-audit --no-fund --loglevel=error --prefix '$DEPLOY_ROOT/server'; else npm install --omit=dev --no-audit --no-fund --loglevel=error --prefix '$DEPLOY_ROOT/server'; fi"
   fi
-else
-  echo "==> Normalizing server directory ownership for dependency install..."
-  ssh "$HOST" "set -e; if [[ -d '$DEPLOY_ROOT/server/node_modules' ]]; then sudo -n chown -R \$(id -un):\$(id -gn) '$DEPLOY_ROOT/server/node_modules'; fi; sudo -n chown \$(id -un):\$(id -gn) '$DEPLOY_ROOT/server' '$DEPLOY_ROOT/server/package.json' '$DEPLOY_ROOT/server/package-lock.json' 2>/dev/null || true"
-  ssh "$HOST" "if ! command -v npm &>/dev/null; then echo 'npm not found — skipping (client-only host)'; elif [[ -f '$DEPLOY_ROOT/server/package-lock.json' ]]; then npm ci --omit=dev --no-audit --no-fund --loglevel=error --prefix '$DEPLOY_ROOT/server'; else npm install --omit=dev --no-audit --no-fund --loglevel=error --prefix '$DEPLOY_ROOT/server'; fi"
+  echo "==> Installing persist-upload helper on remote..."
+  if [[ "$EFFECTIVE_OVERLAY" -eq 1 ]]; then
+    if [[ "$LOWERDIR_DIRECT_WRITE" -eq 1 ]]; then
+      ssh "$HOST" "sudo -n install -D -m 755 '$DEPLOY_ROOT/server/persist-upload.sh' /media/root-ro/usr/local/bin/persist-upload.sh"
+    else
+      ssh "$HOST" "sudo -n overlayroot-chroot install -m 755 '$DEPLOY_ROOT/server/persist-upload.sh' /usr/local/bin/persist-upload.sh"
+    fi
+  else
+    ssh "$HOST" "sudo -n install -m 755 '$DEPLOY_ROOT/server/persist-upload.sh' /usr/local/bin/persist-upload.sh"
+  fi
+
+  echo "==> Installing backup timer units on remote..."
+  if [[ "$EFFECTIVE_OVERLAY" -eq 1 ]]; then
+    if [[ "$LOWERDIR_DIRECT_WRITE" -eq 1 ]]; then
+      ssh "$HOST" "set -e; install_user=\$(stat -c %U '$DEPLOY_ROOT'); sed -e \"s|@INSTALL_USER@|\$install_user|g\" -e \"s|@INSTALL_DIR@|$DEPLOY_ROOT|g\" '$DEPLOY_ROOT/scripts/directory-backup.service' | sudo -n tee /media/root-ro/etc/systemd/system/directory-backup.service >/dev/null; sudo -n chmod 644 /media/root-ro/etc/systemd/system/directory-backup.service"
+      ssh "$HOST" "sudo -n install -D -m 644 '$DEPLOY_ROOT/scripts/directory-backup.timer' /media/root-ro/etc/systemd/system/directory-backup.timer"
+      ssh "$HOST" "sudo -n mkdir -p /media/root-ro/etc/systemd/system/timers.target.wants && sudo -n ln -sfn /etc/systemd/system/directory-backup.timer /media/root-ro/etc/systemd/system/timers.target.wants/directory-backup.timer"
+    else
+      ssh "$HOST" "set -e; install_user=\$(stat -c %U '$DEPLOY_ROOT'); tmp_unit=\$(mktemp /tmp/directory-backup.service.XXXXXX); sed -e \"s|@INSTALL_USER@|\$install_user|g\" -e \"s|@INSTALL_DIR@|$DEPLOY_ROOT|g\" '$DEPLOY_ROOT/scripts/directory-backup.service' > \"\$tmp_unit\"; sudo -n overlayroot-chroot install -D -m 644 \"\$tmp_unit\" /etc/systemd/system/directory-backup.service; rm -f \"\$tmp_unit\""
+      ssh "$HOST" "sudo -n overlayroot-chroot install -D -m 644 '$DEPLOY_ROOT/scripts/directory-backup.timer' /etc/systemd/system/directory-backup.timer"
+      ssh "$HOST" "sudo -n overlayroot-chroot mkdir -p /etc/systemd/system/timers.target.wants && sudo -n overlayroot-chroot ln -sfn /etc/systemd/system/directory-backup.timer /etc/systemd/system/timers.target.wants/directory-backup.timer"
+    fi
+  else
+    ssh "$HOST" "set -e; install_user=\$(stat -c %U '$DEPLOY_ROOT'); sed -e \"s|@INSTALL_USER@|\$install_user|g\" -e \"s|@INSTALL_DIR@|$DEPLOY_ROOT|g\" '$DEPLOY_ROOT/scripts/directory-backup.service' | sudo -n tee /etc/systemd/system/directory-backup.service >/dev/null; sudo -n chmod 644 /etc/systemd/system/directory-backup.service"
+    ssh "$HOST" "sudo -n install -D -m 644 '$DEPLOY_ROOT/scripts/directory-backup.timer' /etc/systemd/system/directory-backup.timer"
+    ssh "$HOST" "sudo -n systemctl enable directory-backup.timer"
+  fi
+  ssh "$HOST" "sudo -n systemctl daemon-reload && sudo -n systemctl start directory-backup.timer"
 fi
 
-echo "==> Installing persist-upload helper on remote..."
-if [[ "$EFFECTIVE_OVERLAY" -eq 1 ]]; then
-  if [[ "$LOWERDIR_DIRECT_WRITE" -eq 1 ]]; then
-    ssh "$HOST" "sudo -n install -D -m 755 '$DEPLOY_ROOT/server/persist-upload.sh' /media/root-ro/usr/local/bin/persist-upload.sh"
+if [[ "$DEPLOY_CLIENT" -eq 1 || "$DEPLOY_SERVER" -eq 1 ]]; then
+  echo "==> Installing kiosk-guard on remote..."
+  if [[ "$EFFECTIVE_OVERLAY" -eq 1 ]]; then
+    if [[ "$LOWERDIR_DIRECT_WRITE" -eq 1 ]]; then
+      ssh "$HOST" "sudo -n install -D -m 755 '$DEPLOY_ROOT/scripts/kiosk-guard' /media/root-ro/usr/local/sbin/kiosk-guard"
+      ssh "$HOST" "sudo -n install -D -m 644 '$DEPLOY_ROOT/scripts/kiosk-guard.service' /media/root-ro/etc/systemd/system/kiosk-guard.service"
+      ssh "$HOST" "sudo -n mkdir -p /media/root-ro/etc/systemd/system/multi-user.target.wants && sudo -n ln -sfn /etc/systemd/system/kiosk-guard.service /media/root-ro/etc/systemd/system/multi-user.target.wants/kiosk-guard.service"
+    else
+      ssh "$HOST" "sudo -n overlayroot-chroot install -D -m 755 '$DEPLOY_ROOT/scripts/kiosk-guard' /usr/local/sbin/kiosk-guard"
+      ssh "$HOST" "sudo -n overlayroot-chroot install -D -m 644 '$DEPLOY_ROOT/scripts/kiosk-guard.service' /etc/systemd/system/kiosk-guard.service"
+      ssh "$HOST" "sudo -n overlayroot-chroot mkdir -p /etc/systemd/system/multi-user.target.wants && sudo -n overlayroot-chroot ln -sfn /etc/systemd/system/kiosk-guard.service /etc/systemd/system/multi-user.target.wants/kiosk-guard.service"
+    fi
   else
-    ssh "$HOST" "sudo -n overlayroot-chroot install -m 755 '$DEPLOY_ROOT/server/persist-upload.sh' /usr/local/bin/persist-upload.sh"
+    ssh "$HOST" "sudo -n install -D -m 755 '$DEPLOY_ROOT/scripts/kiosk-guard' /usr/local/sbin/kiosk-guard"
+    ssh "$HOST" "sudo -n install -D -m 644 '$DEPLOY_ROOT/scripts/kiosk-guard.service' /etc/systemd/system/kiosk-guard.service"
+    ssh "$HOST" "sudo -n systemctl enable kiosk-guard.service"
   fi
-else
-  ssh "$HOST" "sudo -n install -m 755 '$DEPLOY_ROOT/server/persist-upload.sh' /usr/local/bin/persist-upload.sh"
+  ssh "$HOST" "sudo -n systemctl daemon-reload && sudo -n systemctl restart kiosk-guard.service"
 fi
-
-echo "==> Installing backup timer units on remote..."
-if [[ "$EFFECTIVE_OVERLAY" -eq 1 ]]; then
-  if [[ "$LOWERDIR_DIRECT_WRITE" -eq 1 ]]; then
-    ssh "$HOST" "set -e; install_user=\$(stat -c %U '$DEPLOY_ROOT'); sed -e \"s|@INSTALL_USER@|\$install_user|g\" -e \"s|@INSTALL_DIR@|$DEPLOY_ROOT|g\" '$DEPLOY_ROOT/scripts/directory-backup.service' | sudo -n tee /media/root-ro/etc/systemd/system/directory-backup.service >/dev/null; sudo -n chmod 644 /media/root-ro/etc/systemd/system/directory-backup.service"
-    ssh "$HOST" "sudo -n install -D -m 644 '$DEPLOY_ROOT/scripts/directory-backup.timer' /media/root-ro/etc/systemd/system/directory-backup.timer"
-    ssh "$HOST" "sudo -n mkdir -p /media/root-ro/etc/systemd/system/timers.target.wants && sudo -n ln -sfn /etc/systemd/system/directory-backup.timer /media/root-ro/etc/systemd/system/timers.target.wants/directory-backup.timer"
-  else
-    ssh "$HOST" "set -e; install_user=\$(stat -c %U '$DEPLOY_ROOT'); tmp_unit=\$(mktemp /tmp/directory-backup.service.XXXXXX); sed -e \"s|@INSTALL_USER@|\$install_user|g\" -e \"s|@INSTALL_DIR@|$DEPLOY_ROOT|g\" '$DEPLOY_ROOT/scripts/directory-backup.service' > \"\$tmp_unit\"; sudo -n overlayroot-chroot install -D -m 644 \"\$tmp_unit\" /etc/systemd/system/directory-backup.service; rm -f \"\$tmp_unit\""
-    ssh "$HOST" "sudo -n overlayroot-chroot install -D -m 644 '$DEPLOY_ROOT/scripts/directory-backup.timer' /etc/systemd/system/directory-backup.timer"
-    ssh "$HOST" "sudo -n overlayroot-chroot mkdir -p /etc/systemd/system/timers.target.wants && sudo -n overlayroot-chroot ln -sfn /etc/systemd/system/directory-backup.timer /etc/systemd/system/timers.target.wants/directory-backup.timer"
-  fi
-else
-  ssh "$HOST" "set -e; install_user=\$(stat -c %U '$DEPLOY_ROOT'); sed -e \"s|@INSTALL_USER@|\$install_user|g\" -e \"s|@INSTALL_DIR@|$DEPLOY_ROOT|g\" '$DEPLOY_ROOT/scripts/directory-backup.service' | sudo -n tee /etc/systemd/system/directory-backup.service >/dev/null; sudo -n chmod 644 /etc/systemd/system/directory-backup.service"
-  ssh "$HOST" "sudo -n install -D -m 644 '$DEPLOY_ROOT/scripts/directory-backup.timer' /etc/systemd/system/directory-backup.timer"
-  ssh "$HOST" "sudo -n systemctl enable directory-backup.timer"
-fi
-ssh "$HOST" "sudo -n systemctl daemon-reload && sudo -n systemctl start directory-backup.timer"
-
-echo "==> Installing kiosk-guard on remote..."
-if [[ "$EFFECTIVE_OVERLAY" -eq 1 ]]; then
-  if [[ "$LOWERDIR_DIRECT_WRITE" -eq 1 ]]; then
-    ssh "$HOST" "sudo -n install -D -m 755 '$DEPLOY_ROOT/scripts/kiosk-guard' /media/root-ro/usr/local/sbin/kiosk-guard"
-    ssh "$HOST" "sudo -n install -D -m 644 '$DEPLOY_ROOT/scripts/kiosk-guard.service' /media/root-ro/etc/systemd/system/kiosk-guard.service"
-    ssh "$HOST" "sudo -n mkdir -p /media/root-ro/etc/systemd/system/multi-user.target.wants && sudo -n ln -sfn /etc/systemd/system/kiosk-guard.service /media/root-ro/etc/systemd/system/multi-user.target.wants/kiosk-guard.service"
-  else
-    ssh "$HOST" "sudo -n overlayroot-chroot install -D -m 755 '$DEPLOY_ROOT/scripts/kiosk-guard' /usr/local/sbin/kiosk-guard"
-    ssh "$HOST" "sudo -n overlayroot-chroot install -D -m 644 '$DEPLOY_ROOT/scripts/kiosk-guard.service' /etc/systemd/system/kiosk-guard.service"
-    ssh "$HOST" "sudo -n overlayroot-chroot mkdir -p /etc/systemd/system/multi-user.target.wants && sudo -n overlayroot-chroot ln -sfn /etc/systemd/system/kiosk-guard.service /etc/systemd/system/multi-user.target.wants/kiosk-guard.service"
-  fi
-else
-  ssh "$HOST" "sudo -n install -D -m 755 '$DEPLOY_ROOT/scripts/kiosk-guard' /usr/local/sbin/kiosk-guard"
-  ssh "$HOST" "sudo -n install -D -m 644 '$DEPLOY_ROOT/scripts/kiosk-guard.service' /etc/systemd/system/kiosk-guard.service"
-  ssh "$HOST" "sudo -n systemctl enable kiosk-guard.service"
-fi
-ssh "$HOST" "sudo -n systemctl daemon-reload && sudo -n systemctl restart kiosk-guard.service"
 
 if [[ "$NO_RESTART" -eq 1 ]]; then
   echo "==> --no-restart set; skipping service restart and health checks."
@@ -435,21 +472,23 @@ if [[ "$NO_RESTART" -eq 1 ]]; then
   exit 0
 fi
 
-echo "==> Restarting remote service..."
-if ssh "$HOST" "command -v systemctl >/dev/null 2>&1 && (test -f /etc/systemd/system/directory-server.service || test -f /lib/systemd/system/directory-server.service)"; then
-  if ! ssh "$HOST" "sudo -n systemctl restart directory-server"; then
-    echo "WARN: non-interactive restart failed. Run on remote host:" >&2
-    echo "  sudo systemctl restart directory-server" >&2
-    exit 1
+if [[ "$DEPLOY_SERVER" -eq 1 ]]; then
+  echo "==> Restarting remote service..."
+  if ssh "$HOST" "command -v systemctl >/dev/null 2>&1 && (test -f /etc/systemd/system/directory-server.service || test -f /lib/systemd/system/directory-server.service)"; then
+    if ! ssh "$HOST" "sudo -n systemctl restart directory-server"; then
+      echo "WARN: non-interactive restart failed. Run on remote host:" >&2
+      echo "  sudo systemctl restart directory-server" >&2
+      exit 1
+    fi
+    echo "==> Running remote smoke tests..."
+    sleep 2
+    ssh "$HOST" "bash -s -- --url http://127.0.0.1:3000 --no-color" < "$SCRIPT_DIR/smoke-test.sh"
+  else
+    echo "==> No directory-server on remote host (client-only) — skipping restart and smoke tests."
   fi
-  echo "==> Running remote smoke tests..."
-  sleep 2
-  ssh "$HOST" "bash -s -- --url http://127.0.0.1:3000 --no-color" < "$SCRIPT_DIR/smoke-test.sh"
-else
-  echo "==> No directory-server on remote host (client-only) — skipping restart and smoke tests."
 fi
 
-if [[ "$FULL" -eq 1 ]]; then
+if [[ "$DEPLOY_CLIENT" -eq 1 ]]; then
   echo "==> Waiting briefly before restarting kiosk session..."
   sleep 3
   echo "==> Restarting remote kiosk session..."
