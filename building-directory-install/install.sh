@@ -105,6 +105,21 @@ disable_overlayroot_noise_services() {
     sudo systemctl disable --now "${present[@]}" >/dev/null 2>&1 || true
 }
 
+disable_pam_wtmpdb() {
+    if [ ! -f /etc/pam.d/common-session ]; then
+        print_info "common-session not present; skipping pam_wtmpdb disable."
+        return 0
+    fi
+
+    if ! grep -q 'pam_wtmpdb\.so' /etc/pam.d/common-session 2>/dev/null; then
+        print_info "pam_wtmpdb already absent from common-session."
+        return 0
+    fi
+
+    print_info "Removing pam_wtmpdb from common-session on kiosk hosts..."
+    sudo sed -i '/pam_wtmpdb\.so/d' /etc/pam.d/common-session
+}
+
 # Check if running as root
 if [ "$EUID" -eq 0 ]; then
     print_error "Please do not run this script as root or with sudo"
@@ -549,6 +564,9 @@ if [ "$INSTALL_MODE" = "client" ] || [ "$INSTALL_MODE" = "both" ]; then
     # Sound is not used on kiosk hosts. Mask PulseAudio user units to avoid
     # repeated session startup failures on the read-only home directory.
     sudo systemctl --global mask pulseaudio.service pulseaudio.socket
+    # Wired kiosk deployments do not use the onboard Broadcom Wi-Fi device.
+    sudo install -D -m 644 scripts/kiosk-blacklist-wireless.conf /etc/modprobe.d/kiosk-blacklist-wireless.conf
+    disable_pam_wtmpdb
 
     sudo udevadm control --reload-rules
 
