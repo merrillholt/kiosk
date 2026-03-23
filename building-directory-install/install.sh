@@ -7,6 +7,14 @@
 
 set -e  # Exit on error
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+CANONICAL_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+if [ -d "$CANONICAL_ROOT/scripts" ]; then
+    RUNTIME_SCRIPTS_SRC="$CANONICAL_ROOT/scripts"
+else
+    RUNTIME_SCRIPTS_SRC="$SCRIPT_DIR/scripts"
+fi
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -517,12 +525,14 @@ if [ "$INSTALL_MODE" = "client" ] || [ "$INSTALL_MODE" = "both" ]; then
 
     # Copy kiosk scripts
     print_info "Installing kiosk scripts..."
-    cp scripts/start-kiosk.sh    "$INSTALL_DIR/scripts/"
-    cp scripts/restart-kiosk.sh  "$INSTALL_DIR/scripts/"
-    cp scripts/kiosk-guard       "$INSTALL_DIR/scripts/"
-    cp scripts/kiosk-guard.service "$INSTALL_DIR/scripts/"
-    cp scripts/install-elo-driver.sh "$INSTALL_DIR/scripts/"
+    cp "$RUNTIME_SCRIPTS_SRC/start-kiosk.sh"    "$INSTALL_DIR/scripts/"
+    cp "$RUNTIME_SCRIPTS_SRC/start-kiosk-lib.sh" "$INSTALL_DIR/scripts/"
+    cp "$RUNTIME_SCRIPTS_SRC/restart-kiosk.sh"  "$INSTALL_DIR/scripts/"
+    cp "$RUNTIME_SCRIPTS_SRC/kiosk-guard"       "$INSTALL_DIR/scripts/"
+    cp "$RUNTIME_SCRIPTS_SRC/kiosk-guard.service" "$INSTALL_DIR/scripts/"
+    cp "$RUNTIME_SCRIPTS_SRC/install-elo-driver.sh" "$INSTALL_DIR/scripts/"
     chmod +x "$INSTALL_DIR/scripts/start-kiosk.sh"
+    chmod +x "$INSTALL_DIR/scripts/start-kiosk-lib.sh"
     chmod +x "$INSTALL_DIR/scripts/restart-kiosk.sh"
     chmod +x "$INSTALL_DIR/scripts/kiosk-guard"
     chmod +x "$INSTALL_DIR/scripts/install-elo-driver.sh"
@@ -532,30 +542,30 @@ if [ "$INSTALL_MODE" = "client" ] || [ "$INSTALL_MODE" = "both" ]; then
         cp -r vendor/elo-mt-usb "$INSTALL_DIR/vendor/"
     fi
 
-    # Update server URL in start-kiosk.sh
+    # Update server URL defaults in start-kiosk-lib.sh
     if [ "$INSTALL_MODE" = "both" ]; then
-        sed -i "s|SERVER_URL=.*|SERVER_URL=\"http://localhost\"|" \
-            "$INSTALL_DIR/scripts/start-kiosk.sh"
+        sed -i "s|KIOSK_SERVER_URL:-http://.*}|KIOSK_SERVER_URL:-http://localhost}|" \
+            "$INSTALL_DIR/scripts/start-kiosk-lib.sh"
     else
-        sed -i "s|SERVER_URL=.*|SERVER_URL=\"http://$SERVER_IP\"|" \
-            "$INSTALL_DIR/scripts/start-kiosk.sh"
+        sed -i "s|KIOSK_SERVER_URL:-http://.*}|KIOSK_SERVER_URL:-http://$SERVER_IP}|" \
+            "$INSTALL_DIR/scripts/start-kiosk-lib.sh"
     fi
 
     # Install udev rule — fires when a USB keyboard is plugged in
     print_info "Installing keyboard detection udev rule..."
-    sudo cp scripts/99-kiosk-keyboard.rules \
+    sudo cp "$RUNTIME_SCRIPTS_SRC/99-kiosk-keyboard.rules" \
         /etc/udev/rules.d/99-kiosk-keyboard.rules
-    sudo cp scripts/99-elo-usb-power.rules \
+    sudo cp "$RUNTIME_SCRIPTS_SRC/99-elo-usb-power.rules" \
         /etc/udev/rules.d/99-elo-usb-power.rules
 
     # Install the script that the udev rule calls
-    sudo cp scripts/kiosk-keyboard-added.sh \
+    sudo cp "$RUNTIME_SCRIPTS_SRC/kiosk-keyboard-added.sh" \
         /usr/local/bin/kiosk-keyboard-added.sh
     sudo chmod 755 /usr/local/bin/kiosk-keyboard-added.sh
 
     # Ensure pressing or holding the physical power button powers down.
     sudo mkdir -p /etc/systemd/logind.conf.d
-    sudo cp scripts/80-kiosk-power-button.conf \
+    sudo cp "$RUNTIME_SCRIPTS_SRC/80-kiosk-power-button.conf" \
         /etc/systemd/logind.conf.d/80-kiosk-power-button.conf
 
     # Disable xfce4-notifyd in kiosk mode (cage Wayland) to avoid
@@ -565,7 +575,7 @@ if [ "$INSTALL_MODE" = "client" ] || [ "$INSTALL_MODE" = "both" ]; then
     # repeated session startup failures on the read-only home directory.
     sudo systemctl --global mask pulseaudio.service pulseaudio.socket
     # Wired kiosk deployments do not use the onboard Broadcom Wi-Fi device.
-    sudo install -D -m 644 scripts/kiosk-blacklist-wireless.conf /etc/modprobe.d/kiosk-blacklist-wireless.conf
+    sudo install -D -m 644 "$RUNTIME_SCRIPTS_SRC/kiosk-blacklist-wireless.conf" /etc/modprobe.d/kiosk-blacklist-wireless.conf
     disable_pam_wtmpdb
 
     sudo udevadm control --reload-rules
@@ -615,7 +625,7 @@ EOF
     # on overlayroot hosts and creates avoidable read-only-filesystem error spam.
     disable_print_stack
 
-disable_overlayroot_noise_services
+    disable_overlayroot_noise_services
 
     sudo systemctl set-default multi-user.target
     sudo systemctl daemon-reload

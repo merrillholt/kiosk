@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SRC_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 COMPUTE_REVISION="$SCRIPT_DIR/compute-revision.sh"
+VERIFY_KIOSK_RUNTIME="$SCRIPT_DIR/verify-kiosk-runtime-files.sh"
 
 HOST="${HOST:-kiosk@192.168.1.80}"
 DEPLOY_ROOT="${DEPLOY_ROOT:-/home/kiosk/building-directory}"
@@ -174,6 +175,10 @@ if [[ ! -d "$SRC_ROOT" ]]; then
   exit 1
 fi
 
+if [[ -x "$VERIFY_KIOSK_RUNTIME" ]]; then
+  "$VERIFY_KIOSK_RUNTIME"
+fi
+
 if [[ "$WITH_DB" -eq 1 && -z "$DB_SOURCE" ]]; then
   echo "--with-db requires --db-source <path> (or DB_SOURCE env var)." >&2
   exit 2
@@ -283,7 +288,7 @@ if [[ "$EFFECTIVE_OVERLAY" -eq 1 ]]; then
   scp "$TMP_REVISION" "$HOST:$REVISION_STAGE"
   scp "$TMP_MANIFEST" "$HOST:$REMOTE_MANIFEST"
   if [[ "$DEPLOY_CLIENT" -eq 1 ]]; then
-    ssh "$HOST" "sed -i 's|^SERVER_URL=.*|SERVER_URL=\"$PATCH_PRIMARY\"|; s|^SERVER_URL_STANDBY=.*|SERVER_URL_STANDBY=\"$PATCH_STANDBY\"|' '$STAGE_DIR/scripts/start-kiosk.sh'"
+    ssh "$HOST" "sed -i 's|KIOSK_SERVER_URL:-http://.*}|KIOSK_SERVER_URL:-$PATCH_PRIMARY}|; s|KIOSK_SERVER_URL_STANDBY:-http://.*}|KIOSK_SERVER_URL_STANDBY:-$PATCH_STANDBY}|' '$STAGE_DIR/scripts/start-kiosk-lib.sh'"
   fi
   if [[ "$DRY_RUN" -eq 0 ]]; then
     echo "==> Writing files to overlay lower layer..."
@@ -317,7 +322,7 @@ else
   rsync "${RSYNC_ARGS[@]}" "$SRC_ROOT/" "$HOST:$DEPLOY_ROOT/"
   scp "$TMP_REVISION" "$HOST:$DEPLOY_ROOT/REVISION"
   if [[ "$DEPLOY_CLIENT" -eq 1 ]]; then
-    ssh "$HOST" "sed -i 's|^SERVER_URL=.*|SERVER_URL=\"$PATCH_PRIMARY\"|; s|^SERVER_URL_STANDBY=.*|SERVER_URL_STANDBY=\"$PATCH_STANDBY\"|' '$DEPLOY_ROOT/scripts/start-kiosk.sh'"
+    ssh "$HOST" "sed -i 's|KIOSK_SERVER_URL:-http://.*}|KIOSK_SERVER_URL:-$PATCH_PRIMARY}|; s|KIOSK_SERVER_URL_STANDBY:-http://.*}|KIOSK_SERVER_URL_STANDBY:-$PATCH_STANDBY}|' '$DEPLOY_ROOT/scripts/start-kiosk-lib.sh'"
   fi
 fi
 
