@@ -40,10 +40,6 @@ run_overlay_lowerdir_write() {
 set -euo pipefail
 REMOTE_BODY="${1:-}"
 sudo -n mount -o remount,rw /media/root-ro
-cleanup() {
-  sudo -n mount -o remount,ro /media/root-ro || true
-}
-trap cleanup EXIT
 eval "$REMOTE_BODY"
 echo 3 | sudo -n tee /proc/sys/vm/drop_caches >/dev/null
 REMOTE_SCRIPT
@@ -321,7 +317,6 @@ if [[ "$EFFECTIVE_OVERLAY" -eq 1 ]]; then
     ssh "${SSH_BASE_ARGS[@]}" "$HOST" DEPLOY_ROOT="$DEPLOY_ROOT" STAGE_DIR="$STAGE_DIR" REMOTE_MANIFEST="$REMOTE_MANIFEST" 'bash -s' <<'REMOTE_SCRIPT'
 set -euo pipefail
 cleanup() {
-  mount | grep -Eq '^/dev/.+ on /media/root-ro type .+ \(rw,' && sudo -n mount -o remount,ro /media/root-ro || true
   rm -rf "$STAGE_DIR" "$REMOTE_MANIFEST"
 }
 trap cleanup EXIT
