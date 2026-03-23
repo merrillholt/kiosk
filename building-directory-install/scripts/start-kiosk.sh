@@ -2,7 +2,6 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-# Shared logic lives in a sourceable library so client tests can exercise it directly.
 source "$SCRIPT_DIR/start-kiosk-lib.sh"
 
 kiosk_lib_init
