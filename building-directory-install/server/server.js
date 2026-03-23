@@ -1362,6 +1362,10 @@ function getLocalIpv4Set() {
     return out;
 }
 
+function isLocalKioskTarget(ip) {
+    return getLocalIpv4Set().has(ip);
+}
+
 const KIOSK_STATUS_REFRESH_MS = Number.parseInt(process.env.KIOSK_STATUS_REFRESH_MS || '', 10) || 30000;
 const kioskStatusCache = new Map(
     KIOSK_CLIENTS.map(k => [k.id, {
@@ -1592,7 +1596,8 @@ app.get('/api/kiosks', (req, res) => {
         name: k.name,
         ip: k.ip,
         user: k.user,
-        serverRole: getKioskServerRole(k.ip)
+        serverRole: getKioskServerRole(k.ip),
+        localTarget: isLocalKioskTarget(k.ip)
     })));
 });
 
@@ -1634,6 +1639,11 @@ app.post('/api/kiosks/:id/deploy', (req, res) => {
     const id = parseInt(req.params.id);
     const kiosk = KIOSK_CLIENTS.find(k => k.id === id);
     if (!kiosk) return res.status(404).json({ error: 'Kiosk not found' });
+    if (isLocalKioskTarget(kiosk.ip)) {
+        return res.status(409).json({
+            error: 'Self-deploy from the active admin host is not supported. Use the external deploy command instead.'
+        });
+    }
     if (!fs.existsSync(KIOSK_SSH_KEY)) {
         return res.status(400).json({
             error: 'SSH deploy key not found. Open the Deploy tab to generate it first.'

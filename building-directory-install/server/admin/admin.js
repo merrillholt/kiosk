@@ -528,7 +528,7 @@ function renderDeployCards(kiosks, statuses) {
                     <span class="kiosk-deploy-ip">${escapeHtml(k.user)}@${escapeHtml(k.ip)}</span>
                     ${renderKioskStatus(statusById.get(k.id) || { serverRole: k.serverRole || 'client', overlay: 'unknown', reachable: false })}
                 </div>
-                <button class="btn btn-success" onclick="deployOne(${k.id}, '${escapeHtml(k.name)}')">Deploy</button>
+                <button class="btn btn-success" onclick="deployOne(${k.id}, '${escapeHtml(k.name)}')" ${k.localTarget ? 'disabled title="Use the external deploy command for this host."' : ''}>Deploy</button>
             </div>
         `).join('');
 }
@@ -566,6 +566,11 @@ function copyDeployKey() {
 async function deployOne(id, name) {
     appendDeployOutput(`\n--- Deploying to ${name} ---`);
     const btn = document.querySelector(`#kiosk-deploy-list .kiosk-deploy-card:nth-child(${id}) button`);
+    if (btn && btn.disabled) {
+        appendDeployOutput('ERROR: Self-deploy from the active admin host is not supported. Use the external deploy command instead.');
+        showMessage(`Deploy to ${name} blocked`, 'error');
+        return;
+    }
     try {
         const res = await apiFetch(`${API_URL}/kiosks/${id}/deploy`, { method: 'POST' });
         const data = await res.json();
@@ -590,6 +595,10 @@ async function deployAll() {
         const res = await apiFetch(`${API_URL}/kiosks`);
         const kiosks = await res.json();
         for (const k of kiosks) {
+            if (k.localTarget) {
+                appendDeployOutput(`\n--- Skipping ${k.name} ---\nSelf-deploy from the active admin host is not supported.`);
+                continue;
+            }
             await deployOne(k.id, k.name);
         }
         showMessage('Deploy all complete');
