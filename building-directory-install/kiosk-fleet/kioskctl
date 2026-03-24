@@ -120,6 +120,14 @@ if [[ -n "${primary:-}" || -n "${standby:-}" ]]; then
   echo "server_url=${primary:-unknown}"
   echo "server_url_standby=${standby:-unknown}"
 fi
+_rev_file="/home/kiosk/building-directory/REVISION"
+if [[ -f "$_rev_file" ]]; then
+  echo "revision=$(head -n 1 "$_rev_file" | tr -d '\r')"
+  echo "last_deploy=$(stat -c '%y' "$_rev_file" | sed 's/\.[0-9]\+ / /')"
+else
+  echo "revision=unknown"
+  echo "last_deploy=unknown"
+fi
 echo "disk_root=$(df -hP / | awk 'NR==2 {print $3 "/" $2 " (" $5 ")"}')"
 echo "disk_uploads=$(df -hP /home/kiosk/building-directory/server/uploads 2>/dev/null | awk 'NR==2 {print $3 "/" $2 " (" $5 ")"}' || echo n/a)"
 echo "memory=$(free -m | awk '/Mem:/ {printf "%s/%sMB (%.0f%%)", $3, $2, ($3*100)/$2}')"
