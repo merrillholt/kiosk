@@ -42,6 +42,8 @@ Important:
 Deploys from this machine to a production host over SSH. **Requires a clean git working tree** before deploying to protected IPs (`192.168.1.80`, `.81`, `.82`).
 
 - `tools/deploy-ssh.sh` — server-only manifest to `kiosk@192.168.1.80` (default)
+- `tools/deploy-ssh.sh --server` — explicit server-only deploy
+- `tools/deploy-ssh.sh --client` — client/kiosk runtime deploy only
 - `tools/deploy-ssh.sh --full` — full manifest (server + kiosk + scripts)
 - `tools/deploy-ssh.sh --dry-run` — preview sync actions only
 - `tools/deploy-ssh.sh --host <user@ip>` — target a specific host
@@ -55,18 +57,23 @@ Notes:
 - `rsync` must be installed on both local and remote hosts.
 - If remote host is currently in maintenance/writable mode, install prerequisite with:
   - `sudo apt-get update && sudo apt-get install -y rsync`
-- **Overlay mode** (normal production): writes files directly to the lower layer via
-  `overlayroot-chroot`, making changes persistent without a reboot.
+- **Overlay mode** (normal production): writes files directly to the persistent lower
+  layer under `/media/root-ro` and reboots the host afterward to restore a clean
+  overlayroot state.
 - **Maintenance/writable mode**: syncs directly and runs `npm ci --omit=dev` in `server/`.
 - In overlay mode, dependency install is skipped by default (`OVERLAY_INSTALL_DEPS=0`).
 - Deploy scripts install/update `/usr/local/bin/persist-upload.sh` on target host.
 - Script attempts non-interactive `sudo systemctl restart directory-server`.
-- Full deploy patches primary/standby URLs into `scripts/start-kiosk.sh`.
-- Full deploy restarts the kiosk session after server health checks pass.
+- Client/full deploy patches primary/standby URLs into `scripts/start-kiosk-lib.sh`.
+- Overlay deploys reboot the host; non-overlay client deploys restart the kiosk session.
 - Remote host must have `directory-server` service installed and enabled.
 - Remote host must have nginx installed and configured (port 80).
 - If remote sudo requires a password, restart must be done manually on the remote host.
 - Database is not copied by default; use `--with-db --db-source <path>` when promoting data.
+- Client deploy also enforces client-only host cleanup:
+  - removes any `directory-backup` units from the host
+  - installs `scripts/kiosk-blacklist-wireless.conf`
+  - masks `pulseaudio.service` and `pulseaudio.socket` in `/etc/systemd/user`
 
 Current default kiosk browser URLs:
 - primary: `http://192.168.1.80`

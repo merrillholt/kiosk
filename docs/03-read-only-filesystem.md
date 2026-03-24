@@ -135,7 +135,7 @@ The `recurse=0` flag prevents `/data` from being overlaid. Without it, admin edi
 
 | Benefit | Trade-off |
 |---------|-----------|
-| Can't corrupt OS | Updates require deploy or overlayroot-chroot |
+| Can't corrupt OS | Persistent changes require deploy, maintenance mode, or lower-layer writes |
 | Consistent state | Logs don't persist across reboots |
 | No SSD wear on root | Database needs persistent partition |
 | Easy recovery | Slightly more complex initial setup |
@@ -144,10 +144,13 @@ The `recurse=0` flag prevents `/data` from being overlaid. Without it, admin edi
 
 ### Normal deploys (recommended)
 
-Use `tools/deploy-ssh.sh` from the development machine. The script is overlay-aware and writes files directly to the lower layer via `overlayroot-chroot`:
+Use `tools/deploy-ssh.sh` from the development machine. On overlayroot hosts,
+the script writes directly to the persistent lower layer under `/media/root-ro`
+and then reboots the host to restore a clean read-only overlay state:
 
 ```bash
-tools/deploy-ssh.sh           # server-only
+tools/deploy-ssh.sh --server  # server-only
+tools/deploy-ssh.sh --client  # kiosk runtime only
 tools/deploy-ssh.sh --full    # server + kiosk + scripts
 ```
 
@@ -163,8 +166,8 @@ sudo overlayroot-chroot bash
 exit
 ```
 
-Note: if `/media/root-ro` is already mounted read-write (busy), `overlayroot-chroot`
-will print a warning but still execute the command successfully.
+Direct lower-layer writes usually require remounting `/media/root-ro` read-write
+first and remounting or rebooting afterward.
 
 ### Verify /data is mounted correctly
 

@@ -42,7 +42,7 @@ power-failure resilience.
 | Directory data (companies, people, info) | Admin UI → server DB → kiosks poll `/api/data-version` every 60 s and reload |
 | Kiosk browser app (HTML/JS/CSS/app.js) | Deploy to server → kiosks load it from server automatically |
 | Background image | Admin UI Appearance tab → stored on server → kiosks reload |
-| System scripts (start-kiosk.sh, .bash_profile, udev rules) | Admin UI Deploy tab → SSH → `overlayroot-chroot` on each kiosk |
+| System scripts (start-kiosk.sh, .bash_profile, udev rules) | Admin UI Deploy tab → SSH → direct lower-layer write to `/media/root-ro`, then reboot |
 
 ---
 
@@ -143,10 +143,13 @@ cd building-directory-install
 The installer:
 - Installs cage, Chromium, wlr-randr, XFCE4, Xorg, overlayroot
 - Copies kiosk scripts to `~/building-directory/scripts/`
-- Patches `SERVER_URL` in `start-kiosk.sh` to point at the server
+- Patches server URL defaults in `start-kiosk-lib.sh`
 - Installs the udev keyboard detection rule
 - Configures getty autologin on tty1
 - Writes `.bash_profile` (kiosk loop + XFCE fallback)
+- Masks PulseAudio user units in `/etc/systemd/user`
+- Removes `pam_wtmpdb` from `/etc/pam.d/common-session`
+- Installs the Broadcom Wi-Fi blacklist for wired kiosk deployments
 - Configures overlayroot (read-only root on next boot)
 - Prompts to reboot (required to activate overlayroot and start the kiosk)
 
@@ -229,10 +232,9 @@ VBoxManage controlvm "kiosk-dev" acpipowerbutton
 VBoxManage showvminfo "kiosk-dev" | grep "State:"
 ```
 
-> **Display resolution:** `start-kiosk.sh` runs `wlr-randr` inside the cage
-> session to auto-detect the first connected output and set 1920×1080. This
-> works without configuration on both the VM (Virtual-1) and physical hardware
-> (HDMI-1 or similar).
+> **Display resolution:** the current kiosk launcher does not force display
+> resolution. Chromium is started directly inside `cage`, and the display uses
+> the compositor/kernel-selected mode for the connected panel.
 
 ---
 
@@ -335,9 +337,7 @@ cd building-directory-install
 `deploy.sh` handles the overlayroot filesystem on the target machine:
 
 1. **SCP** all files to `/tmp/deploy-staging/` on the target.
-2. **Move to `/run/deploy-stage/`** — bind-mounted inside `overlayroot-chroot`;
-   `/tmp` is not visible inside the chroot.
-3. **Write to the ext4 lower layer** via `overlayroot-chroot`:
+2. **Write to the ext4 lower layer** under `/media/root-ro`:
    - `/usr/local/bin/persist-upload.sh` (chmod 755)
    - `/usr/local/bin/kiosk-keyboard-added.sh` (chmod 755)
    - `/etc/udev/rules.d/99-kiosk-keyboard.rules`
@@ -346,9 +346,9 @@ cd building-directory-install
    - `/home/kiosk/building-directory/scripts/` (kiosk scripts + bash_profile template)
    - `/home/kiosk/.bash_profile`
    - `/etc/nginx/sites-available/directory`
-4. **Drop the kernel dentry cache** so new lower-layer files become visible
+3. **Drop the kernel dentry cache** so new lower-layer files become visible
    to the running overlay without a reboot.
-5. **Reload udev**, **reload nginx**, **restart `directory-server`**.
+4. **Reload udev**, **reload nginx**, **restart `directory-server`**.
 
 ### Verify after deployment
 
@@ -397,12 +397,14 @@ bash tools/deploy-ssh.sh --client --host merrill@192.168.1.127
 ### What `tools/deploy-ssh.sh --client` does
 
 1. Verifies SSH connectivity to the kiosk machine.
-2. SCPs scripts to `/tmp/kiosk-deploy-staging/` on the kiosk.
-3. Patches `SERVER_URL` in `start-kiosk.sh` to the correct server IP.
-4. Moves files to `/run/deploy-stage/` (via sudo; visible inside chroot).
-5. Writes each file to the overlayroot lower layer via `overlayroot-chroot`.
-6. Drops the dentry cache (new files visible without reboot).
-7. Reloads udev rules.
+2. Stages the client manifest on the kiosk.
+3. Patches server URL defaults in `start-kiosk-lib.sh`.
+4. Writes each file to the overlayroot lower layer under `/media/root-ro`.
+5. Applies client-only cleanup:
+   - removes `directory-backup` units
+   - installs the wireless blacklist
+   - masks PulseAudio user units in `/etc/systemd/user`
+6. Reboots the kiosk to restore a clean overlayroot state.
 
 Files deployed to each kiosk:
 
@@ -535,11 +537,11 @@ on reboot.
 
 | Goal | How to do it |
 |------|-------------|
-| Write a file that survives reboot | `sudo overlayroot-chroot cp /run/<staged> <dest>` |
+| Write a file that survives reboot | write to `/media/root-ro/...` or use a deploy helper |
 | Make a new lower-layer file visible immediately | `echo 3 \| sudo tee /proc/sys/vm/drop_caches > /dev/null` |
 | Install a package that must survive reboot | `sudo overlayroot-chroot apt-get install -y <pkg>` |
 | Write a file only needed until next reboot | Write directly to `/tmp` or `/run` (tmpfs) |
-| Stage a file for use inside overlayroot-chroot | Copy to `/run/` — it is bind-mounted; `/tmp` is not |
+| Stage a file for a deploy helper | Copy to `/tmp` or `/run` as appropriate for the helper |
 
 `tools/deploy-ssh.sh --client` and `deploy.sh` handle all of this automatically.
 
