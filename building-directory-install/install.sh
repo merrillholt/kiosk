@@ -128,6 +128,13 @@ disable_pam_wtmpdb() {
     sudo sed -i '/pam_wtmpdb\.so/d' /etc/pam.d/common-session
 }
 
+disable_pulseaudio_user_units() {
+    print_info "Masking PulseAudio user units on kiosk hosts..."
+    sudo mkdir -p /etc/systemd/user
+    sudo ln -sfn /dev/null /etc/systemd/user/pulseaudio.service
+    sudo ln -sfn /dev/null /etc/systemd/user/pulseaudio.socket
+}
+
 # Check if running as root
 if [ "$EUID" -eq 0 ]; then
     print_error "Please do not run this script as root or with sudo"
@@ -576,7 +583,7 @@ if [ "$INSTALL_MODE" = "client" ] || [ "$INSTALL_MODE" = "both" ]; then
     sudo systemctl --global mask xfce4-notifyd.service
     # Sound is not used on kiosk hosts. Mask PulseAudio user units to avoid
     # repeated session startup failures on the read-only home directory.
-    sudo systemctl --global mask pulseaudio.service pulseaudio.socket
+    disable_pulseaudio_user_units
     # Wired kiosk deployments do not use the onboard Broadcom Wi-Fi device.
     sudo install -D -m 644 "$RUNTIME_SCRIPTS_SRC/kiosk-blacklist-wireless.conf" /etc/modprobe.d/kiosk-blacklist-wireless.conf
     disable_pam_wtmpdb
