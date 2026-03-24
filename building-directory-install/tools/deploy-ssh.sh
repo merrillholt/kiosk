@@ -420,6 +420,16 @@ if [[ "$DEPLOY_CLIENT" -eq 1 || "$DEPLOY_SERVER" -eq 1 ]]; then
   ssh "${SSH_BASE_ARGS[@]}" "$HOST" "sudo -n systemctl daemon-reload && sudo -n systemctl restart kiosk-guard.service"
 fi
 
+if [[ "$DEPLOY_CLIENT" -eq 1 ]]; then
+  echo "==> Applying client-only host configuration..."
+  if [[ "$EFFECTIVE_OVERLAY" -eq 1 ]]; then
+    run_overlay_lowerdir_write "sudo -n rm -f /media/root-ro/etc/systemd/system/directory-backup.service /media/root-ro/etc/systemd/system/directory-backup.timer /media/root-ro/etc/systemd/system/timers.target.wants/directory-backup.timer; sudo -n install -D -m 644 '$DEPLOY_ROOT/scripts/kiosk-blacklist-wireless.conf' /media/root-ro/etc/modprobe.d/kiosk-blacklist-wireless.conf"
+  else
+    ssh "${SSH_BASE_ARGS[@]}" "$HOST" "sudo -n rm -f /etc/systemd/system/directory-backup.service /etc/systemd/system/directory-backup.timer /etc/systemd/system/timers.target.wants/directory-backup.timer; sudo -n install -D -m 644 '$DEPLOY_ROOT/scripts/kiosk-blacklist-wireless.conf' /etc/modprobe.d/kiosk-blacklist-wireless.conf"
+  fi
+  ssh "${SSH_BASE_ARGS[@]}" "$HOST" "sudo -n systemctl disable --now directory-backup.timer directory-backup.service >/dev/null 2>&1 || true; sudo -n systemctl daemon-reload"
+fi
+
 if [[ "$NO_RESTART" -eq 1 ]]; then
   echo "==> --no-restart set; skipping service restart and health checks."
   echo "Remote deploy complete."
