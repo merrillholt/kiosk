@@ -12,3 +12,4 @@ scripts/99-kiosk-keyboard.rules
 scripts/99-elo-usb-power.rules
 scripts/80-kiosk-power-button.conf
 scripts/kiosk-blacklist-wireless.conf
+kiosk/unavailable.html
