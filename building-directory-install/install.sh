@@ -135,6 +135,18 @@ disable_pulseaudio_user_units() {
     sudo ln -sfn /dev/null /etc/systemd/user/pulseaudio.socket
 }
 
+ensure_var_log_tmpfs() {
+    local fstab_path="/etc/fstab"
+    local fstab_line='tmpfs /var/log tmpfs defaults,noatime,mode=0755,size=100m 0 0'
+
+    print_info "Ensuring /var/log is mounted as tmpfs on kiosk hosts..."
+    if grep -Eq '^[^#[:space:]]+[[:space:]]+/var/log[[:space:]]+tmpfs[[:space:]]' "$fstab_path" 2>/dev/null; then
+        sudo sed -i "s|^[^#[:space:]]\\+[[:space:]]\\+/var/log[[:space:]]\\+tmpfs[[:space:]].*|$fstab_line|" "$fstab_path"
+    else
+        printf '%s\n' "$fstab_line # overlayroot:fs-virtual" | sudo tee -a "$fstab_path" >/dev/null
+    fi
+}
+
 # Check if running as root
 if [ "$EUID" -eq 0 ]; then
     print_error "Please do not run this script as root or with sudo"
@@ -587,6 +599,7 @@ if [ "$INSTALL_MODE" = "client" ] || [ "$INSTALL_MODE" = "both" ]; then
     # Wired kiosk deployments do not use the onboard Broadcom Wi-Fi device.
     sudo install -D -m 644 "$RUNTIME_SCRIPTS_SRC/kiosk-blacklist-wireless.conf" /etc/modprobe.d/kiosk-blacklist-wireless.conf
     disable_pam_wtmpdb
+    ensure_var_log_tmpfs
 
     sudo udevadm control --reload-rules
 
