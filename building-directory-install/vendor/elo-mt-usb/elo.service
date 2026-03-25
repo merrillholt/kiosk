@@ -6,4 +6,4 @@ Type=forking
 ExecStart=/etc/opt/elo-mt-usb/loadEloMultiTouchUSB.sh
 
 [Install]
-WantedBy=graphical.target
+WantedBy=multi-user.target

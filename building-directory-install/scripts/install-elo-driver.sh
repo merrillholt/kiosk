@@ -37,10 +37,7 @@ sudo chmod 644 \
 sudo install -D -m 644 /etc/opt/elo-mt-usb/99-elotouch.rules /etc/udev/rules.d/99-elotouch.rules
 echo uinput | sudo tee /etc/modules-load.d/uinput.conf > /dev/null
 
-# The vendor unit targets graphical.target; kiosks boot into multi-user.target.
-sudo sed 's/WantedBy=graphical.target/WantedBy=multi-user.target/' \
-    /etc/opt/elo-mt-usb/elo.service \
-    | sudo tee /etc/systemd/system/elo.service > /dev/null
+sudo install -D -m 644 /etc/opt/elo-mt-usb/elo.service /etc/systemd/system/elo.service
 
 sudo modprobe uinput || true
 sudo udevadm control --reload-rules
