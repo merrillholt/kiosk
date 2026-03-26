@@ -29,6 +29,7 @@ fi
 echo "Refreshing generated install tree from canonical sources..."
 "$SYNC_INSTALL_TREE"
 "$CHECK_INSTALL_DRIFT"
+echo "Documentation PDFs refreshed in $SRC_INSTALL_DIR/docs/pdf"
 
 mkdir -p "$DIST_DIR"
 rm -rf "$OUT_DIR"

@@ -57,6 +57,12 @@ regenerate the install tree with:
 ./tools/check-install-drift.sh
 ```
 
+This regeneration step also rebuilds PDF versions of the Markdown docs into:
+
+```bash
+building-directory-install/docs/
+```
+
 Do not hand-edit duplicated files under `building-directory-install/scripts/`.
 
 ```

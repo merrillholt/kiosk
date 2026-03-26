@@ -7,6 +7,10 @@ TeX and other legacy/reference documents may lag behind the current install and
 deploy flow. If documents disagree and the question is about real deployed
 behavior, verify the production system on `192.168.1.80`.
 
+When the install tree is regenerated with `./tools/sync-install-tree.sh`, PDF
+versions of the top-level Markdown docs are rebuilt into
+`building-directory-install/docs/`.
+
 ## Primary By Scope
 
 - **New host installation (all phases):** [10-new-host-installation.md](10-new-host-installation.md)

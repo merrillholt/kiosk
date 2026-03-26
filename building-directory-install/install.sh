@@ -504,9 +504,11 @@ EOF
     else
         print_error "directory-server service is not active"
     fi
-    wait_for_http_ok "http://127.0.0.1:3000/api/data-version" "API health check (/api/data-version)"
-    wait_for_http_ok "http://127.0.0.1:3000/api/kiosks" "Deploy API check (/api/kiosks)"
-    wait_for_http_ok "http://127.0.0.1:3000/api/backup.txt" "Backup API check (/api/backup.txt)"
+    # These checks are informational. They should not abort a "both" install
+    # before the client configuration and optional Elo prompt run.
+    wait_for_http_ok "http://127.0.0.1:3000/api/data-version" "API health check (/api/data-version)" || true
+    wait_for_http_ok "http://127.0.0.1:3000/api/kiosks" "Deploy API check (/api/kiosks)" || true
+    wait_for_http_ok "http://127.0.0.1:3000/api/backup.txt" "Backup API check (/api/backup.txt)" || true
 
     LOCAL_IP=$(ip route get 1.1.1.1 | awk '{print $7; exit}')
 

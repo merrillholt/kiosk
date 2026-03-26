@@ -6,3 +6,4 @@ dist/
 resume-codex
 REVISION
 building-directory-install/REVISION
+building-directory-install/docs/*.pdf

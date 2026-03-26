@@ -8,3 +8,7 @@ Edit the canonical sources in the repository root and regenerate with:
 Drift can be checked with:
 
   ./tools/check-install-drift.sh
+
+Documentation PDFs are also regenerated into:
+
+  building-directory-install/docs/

@@ -6,6 +6,7 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 MANIFEST="$ROOT_DIR/manifest/install-files.txt"
 INSTALL_DIR="$ROOT_DIR/building-directory-install"
 COMPUTE_REVISION="$SCRIPT_DIR/compute-revision.sh"
+GENERATE_INSTALL_DOC_PDFS="$SCRIPT_DIR/generate-install-doc-pdfs.sh"
 GENERATED_MARKER="$INSTALL_DIR/.generated-from-root"
 
 if [[ ! -f "$MANIFEST" ]]; then
@@ -41,6 +42,10 @@ REVISION_VALUE="$("$COMPUTE_REVISION")"
 printf '%s\n' "$REVISION_VALUE" > "$INSTALL_DIR/REVISION"
 echo "synced: REVISION (computed)"
 
+if [[ -x "$GENERATE_INSTALL_DOC_PDFS" ]]; then
+  "$GENERATE_INSTALL_DOC_PDFS"
+fi
+
 cat > "$GENERATED_MARKER" <<'EOF'
 This directory contains generated install-tree copies of manifest-managed files.
 
@@ -52,6 +57,10 @@ Edit the canonical sources in the repository root and regenerate with:
 Drift can be checked with:
 
   ./tools/check-install-drift.sh
+
+Documentation PDFs are also regenerated into:
+
+  building-directory-install/docs/
 EOF
 echo "synced: .generated-from-root"
 
