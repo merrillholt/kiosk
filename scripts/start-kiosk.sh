@@ -6,6 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/start-kiosk-lib.sh"
 
 kiosk_lib_init
+wait_for_touchscreen_ready
 
 select_launch_target
 start_recovery_watcher

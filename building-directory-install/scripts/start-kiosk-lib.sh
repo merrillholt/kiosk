@@ -4,6 +4,10 @@ kiosk_lib_init() {
     SERVER_URL="${KIOSK_SERVER_URL:-http://192.168.1.80}"
     SERVER_URL_STANDBY="${KIOSK_SERVER_URL_STANDBY:-http://192.168.1.81}"
     UNAVAILABLE_PAGE="${KIOSK_UNAVAILABLE_PAGE:-file:///home/kiosk/building-directory/kiosk/unavailable.html}"
+    TOUCH_WAIT_USB_ID="${KIOSK_TOUCH_WAIT_USB_ID:-04e7:0020}"
+    TOUCH_DEVICE_NAME="${KIOSK_TOUCH_DEVICE_NAME:-Elo virtual single touch digitizer - uinput v5}"
+    TOUCH_READY_TIMEOUT_SEC="${KIOSK_TOUCH_READY_TIMEOUT_SEC:-20}"
+    TOUCH_READY_SETTLE_SEC="${KIOSK_TOUCH_READY_SETTLE_SEC:-3}"
     PRIMARY_TIMEOUT_SEC="${KIOSK_PRIMARY_TIMEOUT_SEC:-30}"
     STANDBY_WAIT_ATTEMPTS="${KIOSK_STANDBY_WAIT_ATTEMPTS:-10}"
     WAIT_INTERVAL_SEC="${KIOSK_WAIT_INTERVAL_SEC:-2}"
@@ -16,6 +20,46 @@ kiosk_lib_init() {
     ACTIVE_MODE="primary"
     RECOVERY_PID=""
     KIOSK_ACTION="none"
+}
+
+touchscreen_wait_required() {
+    command -v lsusb >/dev/null 2>&1 || return 1
+    lsusb -d "$TOUCH_WAIT_USB_ID" >/dev/null 2>&1
+}
+
+touchscreen_ready() {
+    grep -Fq "$TOUCH_DEVICE_NAME" /proc/bus/input/devices 2>/dev/null
+}
+
+wait_for_touchscreen_ready() {
+    local i
+
+    if ! touchscreen_wait_required; then
+        return 0
+    fi
+
+    if touchscreen_ready; then
+        log_kiosk_start "Touchscreen device already present: ${TOUCH_DEVICE_NAME}"
+        if (( TOUCH_READY_SETTLE_SEC > 0 )); then
+            sleep "$TOUCH_READY_SETTLE_SEC"
+        fi
+        return 0
+    fi
+
+    log_kiosk_start "Waiting up to ${TOUCH_READY_TIMEOUT_SEC}s for touchscreen device: ${TOUCH_DEVICE_NAME}"
+    for ((i = 1; i <= TOUCH_READY_TIMEOUT_SEC; i++)); do
+        if touchscreen_ready; then
+            log_kiosk_start "Touchscreen device ready after ${i}s: ${TOUCH_DEVICE_NAME}"
+            if (( TOUCH_READY_SETTLE_SEC > 0 )); then
+                sleep "$TOUCH_READY_SETTLE_SEC"
+            fi
+            return 0
+        fi
+        sleep 1
+    done
+
+    log_kiosk_start "Touchscreen device not detected after ${TOUCH_READY_TIMEOUT_SEC}s; continuing startup"
+    return 0
 }
 
 log_kiosk_start() {
