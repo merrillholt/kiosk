@@ -382,9 +382,9 @@ if [[ "$DEPLOY_SERVER" -eq 1 ]]; then
   fi
   echo "==> Installing nginx tmpfiles rule on remote..."
   if [[ "$EFFECTIVE_OVERLAY" -eq 1 ]]; then
-    run_overlay_lowerdir_write "sudo -n install -D -m 644 '$DEPLOY_ROOT/scripts/nginx-log-tmpfiles.conf' /media/root-ro/etc/tmpfiles.d/nginx-log-tmpfiles.conf"
+    run_overlay_lowerdir_write "sudo -n install -D -m 644 '$DEPLOY_ROOT/scripts/nginx-log-tmpfiles.conf' /media/root-ro/etc/tmpfiles.d/nginx-log-tmpfiles.conf; if [[ -d /media/root-ro/home/kiosk ]]; then sudo -n chmod 711 /media/root-ro/home/kiosk; fi"
   else
-    ssh "${SSH_BASE_ARGS[@]}" "$HOST" "sudo -n install -D -m 644 '$DEPLOY_ROOT/scripts/nginx-log-tmpfiles.conf' /etc/tmpfiles.d/nginx-log-tmpfiles.conf"
+    ssh "${SSH_BASE_ARGS[@]}" "$HOST" "sudo -n install -D -m 644 '$DEPLOY_ROOT/scripts/nginx-log-tmpfiles.conf' /etc/tmpfiles.d/nginx-log-tmpfiles.conf; if [[ -d /home/kiosk ]]; then sudo -n chmod 711 /home/kiosk; fi"
   fi
   ssh "${SSH_BASE_ARGS[@]}" "$HOST" "sudo -n systemd-tmpfiles --create /etc/tmpfiles.d/nginx-log-tmpfiles.conf || true"
   echo "==> Installing persist-upload helper on remote..."

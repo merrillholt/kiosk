@@ -73,6 +73,12 @@ const KIOSK_SERVER_URL = process.env.KIOSK_SERVER_URL || 'http://192.168.1.80';
 // Warm-standby URL kiosk machines will switch to if primary is unavailable.
 const KIOSK_SERVER_URL_STANDBY = process.env.KIOSK_SERVER_URL_STANDBY || 'http://192.168.1.81';
 const KIOSK_DEPLOY_SCRIPT = path.join(PROJECT_ROOT, 'tools', 'deploy-ssh.sh');
+const KIOSK_KNOWN_HOSTS_FILE = process.env.KIOSK_KNOWN_HOSTS_FILE || '/tmp/kiosk_deploy_known_hosts';
+const STANDBY_DB_FILE = process.env.KIOSK_STANDBY_DB || '/home/kiosk/building-directory/server/directory.db';
+const KIOSK_STANDBY_SYNC_ENABLED = !['0', 'false', 'no'].includes(String(process.env.KIOSK_STANDBY_SYNC_ENABLED || '1').toLowerCase());
+const KIOSK_STANDBY_SYNC_DELAY_MS = Number.parseInt(process.env.KIOSK_STANDBY_SYNC_DELAY_MS || '', 10) || (5 * 60 * 1000);
+const KIOSK_STANDBY_SYNC_CHECK_MS = Number.parseInt(process.env.KIOSK_STANDBY_SYNC_CHECK_MS || '', 10) || (15 * 60 * 1000);
+const KIOSK_STANDBY_SYNC_TIMEOUT_MS = Number.parseInt(process.env.KIOSK_STANDBY_SYNC_TIMEOUT_MS || '', 10) || (2 * 60 * 1000);
 let SERVER_PACKAGE_VERSION = 'unknown';
 try {
     const pkg = JSON.parse(fs.readFileSync(PACKAGE_JSON_FILE, 'utf8'));
@@ -1366,6 +1372,157 @@ function isLocalKioskTarget(ip) {
     return getLocalIpv4Set().has(ip);
 }
 
+function getStandbySyncTarget() {
+    const standbyHost = extractHostFromUrl(KIOSK_SERVER_URL_STANDBY);
+    if (!standbyHost || isLocalKioskTarget(standbyHost)) return null;
+    const kiosk = KIOSK_CLIENTS.find(k => k.ip === standbyHost);
+    return {
+        host: standbyHost,
+        user: kiosk && kiosk.user ? kiosk.user : 'kiosk'
+    };
+}
+
+function isPrimaryServerNode() {
+    const primaryHost = extractHostFromUrl(KIOSK_SERVER_URL);
+    return !!primaryHost && isLocalKioskTarget(primaryHost);
+}
+
+function getSshBaseArgs(target) {
+    return [
+        '-i', KIOSK_SSH_KEY,
+        '-o', 'BatchMode=yes',
+        '-o', 'ConnectTimeout=5',
+        '-o', 'StrictHostKeyChecking=accept-new',
+        '-o', `UserKnownHostsFile=${KIOSK_KNOWN_HOSTS_FILE}`,
+        `${target.user}@${target.host}`
+    ];
+}
+
+function getDataVersionValue() {
+    return new Promise((resolve, reject) => {
+        db.get(`SELECT COALESCE((SELECT value FROM settings WHERE key = 'data_version'), '0') AS value`, [], (err, row) => {
+            if (err) return reject(err);
+            resolve(String((row && row.value) || '0').trim() || '0');
+        });
+    });
+}
+
+async function getRemoteDataVersion(target) {
+    const result = await runCommandCapture('ssh', [
+        ...getSshBaseArgs(target),
+        `sqlite3 '${STANDBY_DB_FILE}' "SELECT COALESCE((SELECT value FROM settings WHERE key='data_version'),'0');"`
+    ], { timeout: 15000 });
+    if (result.status !== 0) {
+        throw new Error(((result.stderr || '').trim() || result.error || 'failed to query standby data_version'));
+    }
+    return String((result.stdout || '').trim() || '0');
+}
+
+async function syncStandbyDatabaseNow(reason = 'manual') {
+    const target = getStandbySyncTarget();
+    if (!KIOSK_STANDBY_SYNC_ENABLED || !isPrimaryServerNode() || !target) return { skipped: true };
+    if (!fs.existsSync(KIOSK_SSH_KEY)) {
+        throw new Error(`SSH deploy key not found at ${KIOSK_SSH_KEY}`);
+    }
+
+    const localVersion = await getDataVersionValue();
+    let standbyVersion = 'unknown';
+    try {
+        standbyVersion = await getRemoteDataVersion(target);
+        if (standbyVersion === localVersion) {
+            return { skipped: true, localVersion, standbyVersion };
+        }
+    } catch (err) {
+        console.warn(`Standby sync precheck failed (${reason}): ${err.message}`);
+    }
+
+    const ts = Date.now();
+    const localBackup = path.join(os.tmpdir(), `standby-sync-${ts}.sqlite`);
+    const remoteBackup = `/tmp/standby-sync-${ts}.sqlite`;
+
+    try {
+        const backup = await runCommandCapture('sqlite3', [DB_FILE, `.backup ${localBackup}`], {
+            timeout: KIOSK_STANDBY_SYNC_TIMEOUT_MS
+        });
+        if (backup.status !== 0 || !fs.existsSync(localBackup)) {
+            throw new Error(((backup.stderr || '').trim() || backup.error || 'failed to create local backup'));
+        }
+
+        const scp = await runCommandCapture('scp', [
+            '-i', KIOSK_SSH_KEY,
+            '-o', 'BatchMode=yes',
+            '-o', 'ConnectTimeout=5',
+            '-o', 'StrictHostKeyChecking=accept-new',
+            '-o', `UserKnownHostsFile=${KIOSK_KNOWN_HOSTS_FILE}`,
+            localBackup,
+            `${target.user}@${target.host}:${remoteBackup}`
+        ], { timeout: KIOSK_STANDBY_SYNC_TIMEOUT_MS });
+        if (scp.status !== 0) {
+            throw new Error(((scp.stderr || '').trim() || scp.error || 'failed to copy standby backup'));
+        }
+
+        const remoteRestore = await runCommandCapture('ssh', [
+            ...getSshBaseArgs(target),
+            `set -e
+             test -s '${remoteBackup}'
+             sqlite3 '${remoteBackup}' 'PRAGMA schema_version;' >/dev/null
+             sudo -n systemctl stop directory-server
+             cp '${remoteBackup}' '${STANDBY_DB_FILE}'
+             sudo -n chown kiosk:kiosk '${STANDBY_DB_FILE}'
+             sudo -n systemctl start directory-server
+             rm -f '${remoteBackup}'`
+        ], { timeout: KIOSK_STANDBY_SYNC_TIMEOUT_MS });
+        if (remoteRestore.status !== 0) {
+            throw new Error(((remoteRestore.stderr || '').trim() || remoteRestore.error || 'failed to restore standby backup'));
+        }
+
+        const verifyVersion = await getRemoteDataVersion(target);
+        if (verifyVersion !== localVersion) {
+            throw new Error(`standby data_version mismatch after sync (local=${localVersion}, standby=${verifyVersion})`);
+        }
+
+        console.log(`Standby DB sync complete (${reason}): ${target.host} data_version=${localVersion}`);
+        return { synced: true, localVersion, standbyVersion: verifyVersion };
+    } finally {
+        fs.unlink(localBackup, () => {});
+        void runCommandCapture('ssh', [
+            ...getSshBaseArgs(target),
+            `rm -f '${remoteBackup}'`
+        ], { timeout: 5000 });
+    }
+}
+
+const standbySyncState = {
+    dirty: false,
+    timer: null,
+    running: false
+};
+
+function scheduleStandbySync(reason = 'update') {
+    if (!KIOSK_STANDBY_SYNC_ENABLED || !isPrimaryServerNode() || !getStandbySyncTarget()) return;
+    standbySyncState.dirty = true;
+    if (standbySyncState.timer) return;
+    standbySyncState.timer = setTimeout(async () => {
+        standbySyncState.timer = null;
+        if (standbySyncState.running) {
+            scheduleStandbySync('retry-while-running');
+            return;
+        }
+        standbySyncState.running = true;
+        standbySyncState.dirty = false;
+        try {
+            await syncStandbyDatabaseNow(reason);
+        } catch (err) {
+            console.warn(`Standby DB sync failed (${reason}): ${err.message}`);
+            standbySyncState.dirty = true;
+        } finally {
+            standbySyncState.running = false;
+            if (standbySyncState.dirty) scheduleStandbySync('retry');
+        }
+    }, KIOSK_STANDBY_SYNC_DELAY_MS);
+    if (typeof standbySyncState.timer.unref === 'function') standbySyncState.timer.unref();
+}
+
 const KIOSK_STATUS_REFRESH_MS = Number.parseInt(process.env.KIOSK_STATUS_REFRESH_MS || '', 10) || 30000;
 const kioskStatusCache = new Map(
     KIOSK_CLIENTS.map(k => [k.id, {
@@ -1582,7 +1739,14 @@ function incrementDataVersion() {
             `UPDATE settings
              SET value = CAST(COALESCE(value, '0') AS INTEGER) + 1,
                  updated_at = CURRENT_TIMESTAMP
-             WHERE key = 'data_version'`
+             WHERE key = 'data_version'`,
+            (err) => {
+                if (err) {
+                    console.error('Failed to update data_version:', err.message);
+                    return;
+                }
+                scheduleStandbySync('data_version');
+            }
         );
     });
 }
@@ -1669,6 +1833,17 @@ app.post('/api/kiosks/:id/deploy', (req, res) => {
     }
     res.json({ success: true, output });
 });
+
+const standbySyncInterval = setInterval(() => {
+    if (!KIOSK_STANDBY_SYNC_ENABLED || !isPrimaryServerNode() || !getStandbySyncTarget()) return;
+    if (standbySyncState.running || standbySyncState.timer) return;
+    scheduleStandbySync('periodic-check');
+}, KIOSK_STANDBY_SYNC_CHECK_MS);
+if (typeof standbySyncInterval.unref === 'function') standbySyncInterval.unref();
+
+if (KIOSK_STANDBY_SYNC_ENABLED && isPrimaryServerNode() && getStandbySyncTarget()) {
+    scheduleStandbySync('startup-check');
+}
 
 // Start server
 app.listen(PORT, HOST, () => {
