@@ -248,6 +248,26 @@ if [ "$INSTALL_MODE" = "server" ] || [ "$INSTALL_MODE" = "both" ]; then
     npm install
     cd - > /dev/null
 
+    # Keep the SQLite database on /data so server writes survive overlayroot.
+    print_info "Configuring database storage on /data..."
+    sudo install -d -m 775 -o "$INSTALL_USER" -g "$INSTALL_USER" /data/directory
+    if [ -L "$INSTALL_DIR/server/directory.db" ]; then
+        print_info "Server database symlink already present."
+    else
+        if [ -f "$INSTALL_DIR/server/directory.db" ]; then
+            if [ ! -f /data/directory/directory.db ]; then
+                mv "$INSTALL_DIR/server/directory.db" /data/directory/directory.db
+            else
+                rm -f "$INSTALL_DIR/server/directory.db"
+            fi
+        fi
+        if [ ! -f /data/directory/directory.db ]; then
+            sqlite3 /data/directory/directory.db 'PRAGMA journal_mode=delete;' >/dev/null
+        fi
+        chown "$INSTALL_USER:$INSTALL_USER" /data/directory/directory.db
+        ln -sfn /data/directory/directory.db "$INSTALL_DIR/server/directory.db"
+    fi
+
     # Create database
     print_info "Initializing database..."
     if [ -f "$INSTALL_DIR/scripts/sample-data.sql" ]; then
