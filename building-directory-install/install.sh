@@ -234,6 +234,9 @@ if [ "$INSTALL_MODE" = "server" ] || [ "$INSTALL_MODE" = "both" ]; then
     # Create installation directory
     print_info "Creating installation directory: $INSTALL_DIR"
     mkdir -p "$INSTALL_DIR"
+    # nginx serves files from /home/kiosk/building-directory, so it must be able
+    # to traverse /home/kiosk without exposing directory contents.
+    sudo chmod 711 "$INSTALL_HOME"
 
     # Copy server files
     print_info "Copying server files..."
