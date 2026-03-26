@@ -1,0 +1,3 @@
+# .82 development touchscreen requires a 180-degree touch transform.
+# Keep this host-specific; .80 and production Elo displays should not use it.
+ACTION=="add|change", SUBSYSTEM=="input", ATTRS{name}=="Elo virtual single touch digitizer - uinput v5", ATTRS{id/vendor}=="04e7", ENV{LIBINPUT_CALIBRATION_MATRIX}="-1 0 1 0 -1 1"
