@@ -1498,26 +1498,41 @@ const standbySyncState = {
     running: false
 };
 
+async function runStandbySync(reason = 'manual') {
+    if (!KIOSK_STANDBY_SYNC_ENABLED || !isPrimaryServerNode() || !getStandbySyncTarget()) {
+        return { skipped: true };
+    }
+    if (standbySyncState.running) {
+        standbySyncState.dirty = true;
+        return { skipped: true, busy: true };
+    }
+
+    standbySyncState.running = true;
+    standbySyncState.dirty = false;
+    try {
+        return await syncStandbyDatabaseNow(reason);
+    } catch (err) {
+        console.warn(`Standby DB sync failed (${reason}): ${err.message}`);
+        standbySyncState.dirty = true;
+        throw err;
+    } finally {
+        standbySyncState.running = false;
+        if (standbySyncState.dirty && !standbySyncState.timer) {
+            scheduleStandbySync('retry');
+        }
+    }
+}
+
 function scheduleStandbySync(reason = 'update') {
     if (!KIOSK_STANDBY_SYNC_ENABLED || !isPrimaryServerNode() || !getStandbySyncTarget()) return;
     standbySyncState.dirty = true;
     if (standbySyncState.timer) return;
     standbySyncState.timer = setTimeout(async () => {
         standbySyncState.timer = null;
-        if (standbySyncState.running) {
-            scheduleStandbySync('retry-while-running');
-            return;
-        }
-        standbySyncState.running = true;
-        standbySyncState.dirty = false;
         try {
-            await syncStandbyDatabaseNow(reason);
+            await runStandbySync(reason);
         } catch (err) {
-            console.warn(`Standby DB sync failed (${reason}): ${err.message}`);
-            standbySyncState.dirty = true;
-        } finally {
-            standbySyncState.running = false;
-            if (standbySyncState.dirty) scheduleStandbySync('retry');
+            // runStandbySync already logged and marked dirty for retry.
         }
     }, KIOSK_STANDBY_SYNC_DELAY_MS);
     if (typeof standbySyncState.timer.unref === 'function') standbySyncState.timer.unref();
@@ -1837,12 +1852,16 @@ app.post('/api/kiosks/:id/deploy', (req, res) => {
 const standbySyncInterval = setInterval(() => {
     if (!KIOSK_STANDBY_SYNC_ENABLED || !isPrimaryServerNode() || !getStandbySyncTarget()) return;
     if (standbySyncState.running || standbySyncState.timer) return;
-    scheduleStandbySync('periodic-check');
+    void runStandbySync('periodic-check');
 }, KIOSK_STANDBY_SYNC_CHECK_MS);
 if (typeof standbySyncInterval.unref === 'function') standbySyncInterval.unref();
 
 if (KIOSK_STANDBY_SYNC_ENABLED && isPrimaryServerNode() && getStandbySyncTarget()) {
-    scheduleStandbySync('startup-check');
+    const startupStandbySync = setTimeout(() => {
+        if (standbySyncState.running || standbySyncState.timer) return;
+        void runStandbySync('startup-check');
+    }, 1000);
+    if (typeof startupStandbySync.unref === 'function') startupStandbySync.unref();
 }
 
 // Start server
