@@ -37,9 +37,10 @@ For full driver installation and udev configuration see
 ## Linux Touch Support
 
 The Elo 3239L uses the **Elo MT USB userspace driver** (`elomtusbd`) rather than
-standard kernel HID-only handling. After `elo.service` runs at boot, the kernel
-`hid-generic` driver presents the device as an absolute pointer on
-`/dev/input/event*`.
+standard kernel HID-only handling. `elo.service` runs
+`loadEloMultiTouchUSB.sh`, starts `elomtusbd --stdigitizer`, and keeps that
+process active. The driver creates a uinput virtual device named
+`Elo virtual single touch digitizer - uinput v5` on `/dev/input/event*`.
 
 ### Verify the device is detected
 
@@ -50,11 +51,11 @@ lsusb | grep -i elo
 
 # Kernel assigned an event node
 sudo dmesg | grep -i elo
-# Expected: hid-generic ... Pointer [Elo TouchSystems...]
+# Expected: input: Elo virtual single touch digitizer - uinput v5
 
 # libinput sees it
 sudo libinput list-devices | grep -A5 -i elo
-# Expected: Capabilities: pointer
+# Expected: Capabilities: touch
 ```
 
 ### Test touch events
@@ -70,16 +71,21 @@ sudo evtest
 
 ```bash
 systemctl is-enabled elo.service    # should print: enabled
+systemctl cat elo.service           # active unit should be multi-user.target
 lsmod | grep uinput                  # uinput must be loaded
 ls /etc/udev/rules.d/99-elotouch.rules
 ls /etc/udev/rules.d/99-elo-usb-power.rules
 ```
 
+The vendor bundle also stores a copy of the service file at
+`/etc/opt/elo-mt-usb/elo.service`. That file and
+`/etc/systemd/system/elo.service` should match.
+
 ## Wayland / Cage Behaviour
 
 The kiosk compositor is **Cage** (Wayland). Touch is delivered to Chromium as
-an absolute pointer. No X11 input tools (`xinput`, `xrandr`) apply to the
-running kiosk session.
+a touchscreen device through libinput/Wayland. No X11 input tools (`xinput`,
+`xrandr`) apply to the running kiosk session.
 
 Inspect active Wayland outputs:
 

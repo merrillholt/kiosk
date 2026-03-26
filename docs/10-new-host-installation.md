@@ -333,8 +333,11 @@ MT USB driver bundle to `/etc/opt/elo-mt-usb/` and enables `elo.service`.
 # Confirm driver files are present
 ls /etc/opt/elo-mt-usb/elomtusbd
 
-# Confirm service is enabled (it runs at boot; exits after initialising uinput)
+# Confirm service is enabled
 systemctl is-enabled elo.service
+
+# Confirm the active unit file
+systemctl cat elo.service
 
 # Confirm uinput module is loaded
 lsmod | grep uinput
@@ -342,10 +345,12 @@ lsmod | grep uinput
 
 **How the driver works on `.80` (confirmed):** `elo.service` runs
 `loadEloMultiTouchUSB.sh` at boot, which launches `elomtusbd --stdigitizer`.
-The daemon registers a uinput virtual device and exits. Touch input is then
-handled by the `hid-generic` kernel driver, which presents the Elo 2700
-controller as an absolute pointer on `/dev/input/event*`. This is the
-production-confirmed working configuration.
+The resulting service remains active with `elomtusbd` as the main process. It
+creates a uinput virtual device named `Elo virtual single touch digitizer -
+uinput v5`, which appears as `/dev/input/event*` and is marked
+`ID_INPUT_TOUCHSCREEN=1`. The packaged Elo bundle keeps a copy of the service
+at `/etc/opt/elo-mt-usb/elo.service`, and the active systemd unit is installed
+at `/etc/systemd/system/elo.service`; those two files should match.
 
 ### 4.3 Verify touchscreen detection
 
@@ -356,11 +361,13 @@ lsusb | grep -i elo
 
 # Confirm kernel recognised the device and assigned it an event node
 sudo dmesg | grep -i elo
-# Expected: hid-generic ... input,hidraw: USB HID ... Pointer [Elo ...]
+# Expected: Elo USB detection plus
+#           input: Elo virtual single touch digitizer - uinput v5
 
 # Confirm the input device is present
 sudo libinput list-devices | grep -A5 -i elo
-# Expected: Capabilities: pointer  (absolute pointing device)
+# Expected: Elo virtual single touch digitizer - uinput v5
+#           Capabilities: touch
 ```
 
 ### 4.4 Verify udev rules are applied
