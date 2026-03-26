@@ -13,7 +13,26 @@ then
   modprobe pcspkr
 fi
 
+# Wait for the Elo USB controller to appear before starting the daemon.
+# On some hosts the system boots fast enough that elomtusbd starts before
+# 04e7:0020 is fully enumerated, causing the daemon to exit immediately.
+elo_wait_timeout=30
+elo_wait_count=0
+
+if command -v lsusb >/dev/null 2>&1
+then
+  while [ $elo_wait_count -lt $elo_wait_timeout ]
+  do
+    if lsusb -d 04e7:0020 >/dev/null 2>&1
+    then
+      break
+    fi
+    sleep 1
+    elo_wait_count=$((elo_wait_count + 1))
+  done
+fi
+
 sleep 1
 
 # Load the Elo USB Touchscreen Daemon into memory
-/etc/opt/elo-mt-usb/elomtusbd --stdigitizer
+exec /etc/opt/elo-mt-usb/elomtusbd --stdigitizer
