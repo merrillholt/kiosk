@@ -380,6 +380,13 @@ if [[ "$DEPLOY_SERVER" -eq 1 ]]; then
     ssh "${SSH_BASE_ARGS[@]}" "$HOST" "set -e; if [[ -d '$DEPLOY_ROOT/server/node_modules' ]]; then sudo -n chown -R \$(id -un):\$(id -gn) '$DEPLOY_ROOT/server/node_modules'; fi; sudo -n chown \$(id -un):\$(id -gn) '$DEPLOY_ROOT/server' '$DEPLOY_ROOT/server/package.json' '$DEPLOY_ROOT/server/package-lock.json' 2>/dev/null || true"
     ssh "${SSH_BASE_ARGS[@]}" "$HOST" "if ! command -v npm &>/dev/null; then echo 'npm not found — skipping (client-only host)'; elif [[ -f '$DEPLOY_ROOT/server/package-lock.json' ]]; then npm ci --omit=dev --no-audit --no-fund --loglevel=error --prefix '$DEPLOY_ROOT/server'; else npm install --omit=dev --no-audit --no-fund --loglevel=error --prefix '$DEPLOY_ROOT/server'; fi"
   fi
+  echo "==> Installing nginx tmpfiles rule on remote..."
+  if [[ "$EFFECTIVE_OVERLAY" -eq 1 ]]; then
+    run_overlay_lowerdir_write "sudo -n install -D -m 644 '$DEPLOY_ROOT/scripts/nginx-log-tmpfiles.conf' /media/root-ro/etc/tmpfiles.d/nginx-log-tmpfiles.conf"
+  else
+    ssh "${SSH_BASE_ARGS[@]}" "$HOST" "sudo -n install -D -m 644 '$DEPLOY_ROOT/scripts/nginx-log-tmpfiles.conf' /etc/tmpfiles.d/nginx-log-tmpfiles.conf"
+  fi
+  ssh "${SSH_BASE_ARGS[@]}" "$HOST" "sudo -n systemd-tmpfiles --create /etc/tmpfiles.d/nginx-log-tmpfiles.conf || true"
   echo "==> Installing persist-upload helper on remote..."
   if [[ "$EFFECTIVE_OVERLAY" -eq 1 ]]; then
     run_overlay_lowerdir_write "sudo -n install -D -m 755 '$DEPLOY_ROOT/server/persist-upload.sh' /media/root-ro/usr/local/bin/persist-upload.sh"
@@ -444,6 +451,7 @@ fi
 
 if [[ "$DEPLOY_SERVER" -eq 1 ]]; then
   echo "==> Restarting remote service..."
+  ssh "${SSH_BASE_ARGS[@]}" "$HOST" "sudo -n systemctl restart nginx || true"
   if ssh "${SSH_BASE_ARGS[@]}" "$HOST" "command -v systemctl >/dev/null 2>&1 && (test -f /etc/systemd/system/directory-server.service || test -f /lib/systemd/system/directory-server.service)"; then
     if ! ssh "${SSH_BASE_ARGS[@]}" "$HOST" "sudo -n systemctl restart directory-server"; then
       echo "WARN: non-interactive restart failed. Run on remote host:" >&2

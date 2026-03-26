@@ -228,6 +228,8 @@ if [ "$INSTALL_MODE" = "server" ] || [ "$INSTALL_MODE" = "both" ]; then
     # Install Nginx
     print_info "Installing Nginx..."
     sudo apt install -y nginx
+    sudo install -D -m 644 "$RUNTIME_SCRIPTS_SRC/nginx-log-tmpfiles.conf" /etc/tmpfiles.d/nginx-log-tmpfiles.conf
+    sudo systemd-tmpfiles --create /etc/tmpfiles.d/nginx-log-tmpfiles.conf
 
     # Create installation directory
     print_info "Creating installation directory: $INSTALL_DIR"

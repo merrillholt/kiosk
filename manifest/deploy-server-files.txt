@@ -19,6 +19,7 @@ kiosk/styles.css
 scripts/backup.sh
 scripts/restore-db.sh
 scripts/production-ops.sh
+scripts/nginx-log-tmpfiles.conf
 scripts/directory-backup.service
 scripts/directory-backup.timer
 scripts/start-server.sh
