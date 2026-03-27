@@ -1946,26 +1946,27 @@ app.post('/api/kiosks/:id/deploy', (req, res) => {
 });
 
 function startStandbySyncLoop() {
-    const target = getStandbySyncTarget();
     if (!KIOSK_STANDBY_SYNC_ENABLED) {
         console.log('Standby sync disabled');
         return;
     }
-    if (!isPrimaryServerNode() || !target) {
-        console.log('Standby sync inactive on this node');
-        return;
-    }
-
-    console.log(`Standby sync target: ${target.user}@${target.host}`);
+    console.log('Standby sync loop enabled');
     const standbySyncInterval = setInterval(() => {
+        const target = getStandbySyncTarget();
+        if (!isPrimaryServerNode() || !target) return;
         if (standbySyncState.running || standbySyncState.timer) return;
         void runStandbySync('periodic-check');
     }, KIOSK_STANDBY_SYNC_CHECK_MS);
     if (typeof standbySyncInterval.unref === 'function') standbySyncInterval.unref();
 
     setTimeout(() => {
+        const target = getStandbySyncTarget();
+        if (!isPrimaryServerNode() || !target) {
+            console.log('Standby sync startup check skipped: node not ready');
+            return;
+        }
         if (standbySyncState.running || standbySyncState.timer) return;
-        console.log('Starting forced standby reconciliation');
+        console.log(`Starting forced standby reconciliation to ${target.user}@${target.host}`);
         void runStandbySync('startup-check', { force: true });
     }, 1000);
 }
