@@ -1414,19 +1414,17 @@ function getLocalUploadsSignature() {
     try {
         entries = fs.readdirSync(UPLOADS_LOWER, { withFileTypes: true })
             .filter((entry) => entry.isFile())
-            .map((entry) => {
-                const fullPath = path.join(UPLOADS_LOWER, entry.name);
-                const stat = fs.statSync(fullPath);
-                return `${entry.name}\t${stat.size}\t${stat.mtimeMs}`;
-            })
             .sort();
     } catch (err) {
         return 'missing';
     }
 
     if (entries.length === 0) return 'empty';
-    for (const line of entries) {
-        hash.update(line);
+    for (const entry of entries) {
+        const fullPath = path.join(UPLOADS_LOWER, entry.name);
+        hash.update(entry.name);
+        hash.update('\n');
+        hash.update(fs.readFileSync(fullPath));
         hash.update('\n');
     }
     return hash.digest('hex');
@@ -1454,12 +1452,18 @@ async function getRemoteUploadsSignature(target) {
             printf 'missing\\n'
             exit 0
         fi
-        mapfile -t files < <(find "$uploads_dir" -maxdepth 1 -type f -printf '%f\\t%s\\t%T@\\n' | LC_ALL=C sort)
+        mapfile -t files < <(find "$uploads_dir" -maxdepth 1 -type f -printf '%f\\n' | LC_ALL=C sort)
         if [[ "\${#files[@]}" -eq 0 ]]; then
             printf 'empty\\n'
             exit 0
         fi
-        printf '%s\\n' "\${files[@]}" | sha256sum | awk '{print $1}'
+        tmp_hash_file=$(mktemp)
+        trap 'rm -f "$tmp_hash_file"' EXIT
+        for name in "\${files[@]}"; do
+            printf '%s\\n' "$name" >> "$tmp_hash_file"
+            sha256sum "$uploads_dir/$name" | awk '{print $1}' >> "$tmp_hash_file"
+        done
+        sha256sum "$tmp_hash_file" | awk '{print $1}'
     `;
     const result = await runCommandCapture('ssh', [
         ...getSshBaseArgs(target),
