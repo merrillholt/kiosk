@@ -2,7 +2,7 @@
 # Print documentation as PDF using pandoc + xelatex.
 #
 # Usage:
-#   tools/print-docs.sh all                     # Full manual with cover + TOC
+#   tools/print-docs.sh all                     # Final admin + development PDFs and reference docs
 #   tools/print-docs.sh <name>                  # Single document
 #   tools/print-docs.sh --list                  # List printable documents
 #   tools/print-docs.sh --out <dir> all         # Override output directory
@@ -30,8 +30,8 @@ PANDOC_COMMON=(
   -V monofont="DejaVu Sans Mono"
 )
 
-# Ordered list of documents included in the full manual.
-ALL_DOCS=(
+# Ordered list of documents included in the bundled development manual.
+DEV_DOCS=(
   "01-hardware-requirements.md"
   "05-architecture-overview.md"
   "03-read-only-filesystem.md"
@@ -42,13 +42,20 @@ ALL_DOCS=(
   "09-server-operations.md"
   "10-new-host-installation.md"
   "04-development-environment.md"
+  "client-test-suite.md"
+  "dev-reattachment.md"
+  "manual-network-auth-validation.md"
+  "manual-network-auth-validation-windows11-cmd.md"
+  "production-independence-todo.md"
+  "standby-81-todo.md"
 )
+ADMIN_DOC="11-admin-user-guide.md"
 
 usage() {
   cat <<'EOF'
 Usage: tools/print-docs.sh [--out <dir>] {all|--list|<name>}
 
-  all           Build full manual PDF with cover page and TOC
+  all           Build final admin/development PDFs and reference PDFs
   --list        Show printable documents
   <name>        Build single document PDF
                 (name with or without docs/ prefix and .md extension)
@@ -58,16 +65,19 @@ EOF
 }
 
 list_docs() {
-  echo "Printable documents (in manual order):"
-  for f in "${ALL_DOCS[@]}"; do
+  echo "Bundled development manual order:"
+  for f in "${DEV_DOCS[@]}"; do
     echo "  ${f%.md}"
   done
   echo ""
-  echo "Also printable (not in full manual):"
+  echo "Final admin guide:"
+  echo "  ${ADMIN_DOC%.md}"
+  echo ""
+  echo "Also printable as individual reference PDFs:"
   for f in "$DOCS_DIR"/*.md; do
     base="$(basename "$f")"
     found=0
-    for d in "${ALL_DOCS[@]}"; do
+    for d in "${DEV_DOCS[@]}"; do
       [[ "$d" == "$base" ]] && found=1 && break
     done
     [[ "$found" -eq 0 ]] && echo "  ${base%.md}"
@@ -75,14 +85,15 @@ list_docs() {
 }
 
 build_all() {
-  local out="$OUT_DIR/building-directory-manual.pdf"
+  local dev_out="$OUT_DIR/building-directory-development-guide.pdf"
+  local admin_out="$OUT_DIR/building-directory-admin-guide.pdf"
   local date_str
   date_str="$(date '+%B %d, %Y')"
   mkdir -p "$OUT_DIR"
 
-  # Collect doc paths in order
+  # Collect development doc paths in order.
   local paths=()
-  for f in "${ALL_DOCS[@]}"; do
+  for f in "${DEV_DOCS[@]}"; do
     local p="$DOCS_DIR/$f"
     if [[ ! -f "$p" ]]; then
       echo "Warning: missing doc $f — skipping" >&2
@@ -91,21 +102,37 @@ build_all() {
     paths+=("$p")
   done
 
-  echo "Building full manual → $out"
+  echo "Building bundled development guide → $dev_out"
   pandoc \
     "${PANDOC_COMMON[@]}" \
     --metadata title="Building Directory Kiosk" \
-    --metadata subtitle="Technical Documentation" \
+    --metadata subtitle="Development and Maintainer Guide" \
     --metadata date="$date_str" \
     --toc \
     --toc-depth=2 \
     --number-sections \
     "${paths[@]}" \
-    -o "$out"
-  echo "Done: $out"
+    -o "$dev_out"
+  echo "Done: $dev_out"
 
-  # Also build individual PDFs for each doc
-  for f in "${ALL_DOCS[@]}"; do
+  if [[ -f "$DOCS_DIR/$ADMIN_DOC" ]]; then
+    echo "Building final admin guide → $admin_out"
+    pandoc \
+      "${PANDOC_COMMON[@]}" \
+      --metadata title="Building Directory Kiosk" \
+      --metadata subtitle="Admin User Guide" \
+      --metadata date="$date_str" \
+      --toc \
+      --toc-depth=2 \
+      "$DOCS_DIR/$ADMIN_DOC" \
+      -o "$admin_out"
+    echo "Done: $admin_out"
+  else
+    echo "Warning: missing doc $ADMIN_DOC — skipping final admin guide" >&2
+  fi
+
+  # Also build individual PDFs for each development document.
+  for f in "${DEV_DOCS[@]}"; do
     local p="$DOCS_DIR/$f"
     [[ -f "$p" ]] && build_one "$p"
   done

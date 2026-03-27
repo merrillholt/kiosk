@@ -1399,6 +1399,10 @@ function getSshBaseArgs(target) {
     ];
 }
 
+function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function getDataVersionValue() {
     return new Promise((resolve, reject) => {
         db.get(`SELECT COALESCE((SELECT value FROM settings WHERE key = 'data_version'), '0') AS value`, [], (err, row) => {
@@ -1414,19 +1418,17 @@ function getLocalUploadsSignature() {
     try {
         entries = fs.readdirSync(UPLOADS_LOWER, { withFileTypes: true })
             .filter((entry) => entry.isFile())
-            .map((entry) => {
-                const fullPath = path.join(UPLOADS_LOWER, entry.name);
-                const stat = fs.statSync(fullPath);
-                return `${entry.name}\t${stat.size}\t${stat.mtimeMs}`;
-            })
             .sort();
     } catch (err) {
         return 'missing';
     }
 
     if (entries.length === 0) return 'empty';
-    for (const line of entries) {
-        hash.update(line);
+    for (const entry of entries) {
+        const fullPath = path.join(UPLOADS_LOWER, entry.name);
+        hash.update(entry.name);
+        hash.update('\n');
+        hash.update(fs.readFileSync(fullPath));
         hash.update('\n');
     }
     return hash.digest('hex');
@@ -1454,12 +1456,18 @@ async function getRemoteUploadsSignature(target) {
             printf 'missing\\n'
             exit 0
         fi
-        mapfile -t files < <(find "$uploads_dir" -maxdepth 1 -type f -printf '%f\\t%s\\t%T@\\n' | LC_ALL=C sort)
+        mapfile -t files < <(find "$uploads_dir" -maxdepth 1 -type f -printf '%f\\n' | LC_ALL=C sort)
         if [[ "\${#files[@]}" -eq 0 ]]; then
             printf 'empty\\n'
             exit 0
         fi
-        printf '%s\\n' "\${files[@]}" | sha256sum | awk '{print $1}'
+        tmp_hash_file=$(mktemp)
+        trap 'rm -f "$tmp_hash_file"' EXIT
+        for name in "\${files[@]}"; do
+            printf '%s\\n' "$name" >> "$tmp_hash_file"
+            sha256sum "$uploads_dir/$name" | awk '{print $1}' >> "$tmp_hash_file"
+        done
+        sha256sum "$tmp_hash_file" | awk '{print $1}'
     `;
     const result = await runCommandCapture('ssh', [
         ...getSshBaseArgs(target),
@@ -1469,6 +1477,23 @@ async function getRemoteUploadsSignature(target) {
         throw new Error(((result.stderr || '').trim() || result.error || 'failed to query standby uploads signature'));
     }
     return String((result.stdout || '').trim() || 'missing');
+}
+
+async function waitForStandbyBackOnline(target, timeoutMs = 180000) {
+    const deadline = Date.now() + timeoutMs;
+    let lastErr = 'standby did not come back online';
+    await sleep(5000);
+    while (Date.now() < deadline) {
+        try {
+            await getRemoteDataVersion(target);
+            await getRemoteUploadsSignature(target);
+            return;
+        } catch (err) {
+            lastErr = err.message;
+        }
+        await sleep(5000);
+    }
+    throw new Error(`standby did not come back online after reboot: ${lastErr}`);
 }
 
 async function syncStandbyDatabaseNow(reason = 'manual', options = {}) {
@@ -1527,18 +1552,30 @@ async function syncStandbyDatabaseNow(reason = 'manual', options = {}) {
             throw new Error(((remoteStage.stderr || '').trim() || remoteStage.error || 'failed to create standby staging directory'));
         }
 
-        const scp = await runCommandCapture('scp', [
+        const scpBackup = await runCommandCapture('scp', [
             '-i', KIOSK_SSH_KEY,
             '-o', 'BatchMode=yes',
             '-o', 'ConnectTimeout=5',
             '-o', 'StrictHostKeyChecking=accept-new',
             '-o', `UserKnownHostsFile=${KIOSK_KNOWN_HOSTS_FILE}`,
             localBackup,
-            localUploadsArchive,
-            `${target.user}@${target.host}:${remoteStageDir}/`
+            `${target.user}@${target.host}:${remoteBackup}`
         ], { timeout: KIOSK_STANDBY_SYNC_TIMEOUT_MS });
-        if (scp.status !== 0) {
-            throw new Error(((scp.stderr || '').trim() || scp.error || 'failed to copy standby sync payload'));
+        if (scpBackup.status !== 0) {
+            throw new Error(((scpBackup.stderr || '').trim() || scpBackup.error || 'failed to copy standby database payload'));
+        }
+
+        const scpUploads = await runCommandCapture('scp', [
+            '-i', KIOSK_SSH_KEY,
+            '-o', 'BatchMode=yes',
+            '-o', 'ConnectTimeout=5',
+            '-o', 'StrictHostKeyChecking=accept-new',
+            '-o', `UserKnownHostsFile=${KIOSK_KNOWN_HOSTS_FILE}`,
+            localUploadsArchive,
+            `${target.user}@${target.host}:${remoteUploadsArchive}`
+        ], { timeout: KIOSK_STANDBY_SYNC_TIMEOUT_MS });
+        if (scpUploads.status !== 0) {
+            throw new Error(((scpUploads.stderr || '').trim() || scpUploads.error || 'failed to copy standby uploads payload'));
         }
 
         const remoteRestore = await runCommandCapture('ssh', [
@@ -1548,7 +1585,6 @@ async function syncStandbyDatabaseNow(reason = 'manual', options = {}) {
              test -s '${remoteUploadsArchive}'
              sqlite3 '${remoteBackup}' 'PRAGMA schema_version;' >/dev/null
              uploads_dir='${STANDBY_UPLOADS_DIR}'
-             live_uploads_dir='${STANDBY_UPLOADS_DIR}'
              lower_uploads=0
              if [[ -d /media/root-ro/home/kiosk/building-directory/server ]]; then
                  uploads_dir='/media/root-ro/home/kiosk/building-directory/server/uploads'
@@ -1557,35 +1593,43 @@ async function syncStandbyDatabaseNow(reason = 'manual', options = {}) {
              sudo -n systemctl stop directory-server
              if [[ "$lower_uploads" -eq 1 ]]; then
                  if ! sudo -n mount -o remount,rw /media/root-ro; then
-                     echo "warning: lower uploads remount failed; falling back to live uploads dir" >&2
-                     uploads_dir="$live_uploads_dir"
-                     lower_uploads=0
+                     echo "warning: lower uploads remount failed; no standby uploads update applied" >&2
+                     exit 1
                  fi
              fi
              cleanup() {
-                 if [[ "$lower_uploads" -eq 1 ]]; then
-                     sudo -n mount -o remount,ro /media/root-ro || true
+                 if [[ "$lower_uploads" -ne 1 ]]; then
+                     sudo -n systemctl start directory-server || true
                  fi
-                 sudo -n systemctl start directory-server || true
              }
              trap cleanup EXIT
              sudo -n rm -rf "$uploads_dir"
              sudo -n mkdir -p "$uploads_dir"
              sudo -n tar -xzf '${remoteUploadsArchive}' -C "$uploads_dir"
-             cp '${remoteBackup}' '${STANDBY_DB_FILE}'
              sudo -n chown -R kiosk:kiosk "$uploads_dir"
+             cp '${remoteBackup}' '${STANDBY_DB_FILE}'
              sudo -n chown kiosk:kiosk '${STANDBY_DB_FILE}'
+             rm -f '${remoteBackup}' '${remoteUploadsArchive}'
              trap - EXIT
              if [[ "$lower_uploads" -eq 1 ]]; then
-                 sudo -n mount -o remount,ro /media/root-ro || true
+                 sudo -n sh -c 'nohup /sbin/reboot >/dev/null 2>&1 &' 
+                 exit 0
              fi
              sudo -n systemctl start directory-server
-             rm -f '${remoteBackup}'`
+             exit 0`
         ], { timeout: KIOSK_STANDBY_SYNC_TIMEOUT_MS });
         if (remoteRestore.status !== 0) {
+            console.warn('Standby restore command failed', {
+                status: remoteRestore.status,
+                stdout: (remoteRestore.stdout || '').trim(),
+                stderr: (remoteRestore.stderr || '').trim(),
+                error: remoteRestore.error || ''
+            });
             const detail = (remoteRestore.stderr || remoteRestore.stdout || '').trim() || remoteRestore.error || 'failed to restore standby backup';
             throw new Error(`failed to restore standby backup: ${detail}`);
         }
+
+        await waitForStandbyBackOnline(target);
 
         const [verifyVersion, verifyUploadsSignature] = await Promise.all([
             getRemoteDataVersion(target),

@@ -75,15 +75,15 @@ This remains useful for release readiness and unexpected failed units.
 
 After `.81` is deployed:
 
-1. Confirm `.80`, `.81`, and `.82` are healthy before starting.
-2. Confirm `.81` matches `.80` for current data and serves a known uploaded asset.
-3. Shut down `.80` and record the time.
-4. Confirm `.81` and `.82` switch to standby `.81` within the expected failover window.
-5. Confirm both clients are actually using `.81`, not only showing cached content.
-6. Confirm current data and the uploaded asset render correctly while failed over.
-7. Restore `.80` and record when it becomes reachable again.
-8. Confirm `.81` and `.82` promote back to primary `.80` within the expected failback window.
-9. Record actual failover/failback timings and any incorrect or delayed behavior.
+- [ ] Confirm `.80`, `.81`, and `.82` are healthy before starting.
+- [ ] Confirm `.81` matches `.80` for current data and serves a known uploaded asset.
+- [ ] Shut down `.80` and record the time.
+- [ ] Confirm `.81` and `.82` switch to standby `.81` within the current expected failover window.
+- [ ] Confirm both clients are actually using `.81`, not only showing cached content.
+- [ ] Confirm current data and the uploaded asset render correctly while failed over.
+- [ ] Restore `.80` and record when it becomes reachable again.
+- [ ] Confirm `.81` and `.82` promote back to primary `.80` within the current expected failback window.
+- [ ] Record actual failover/failback timings and any incorrect or delayed behavior.
 
 ### Touchscreen
 

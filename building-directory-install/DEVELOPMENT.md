@@ -63,6 +63,12 @@ This regeneration step also rebuilds PDF versions of the Markdown docs into:
 building-directory-install/docs/
 ```
 
+The packaged docs directory should contain two final PDFs:
+- `building-directory-admin-guide.pdf`
+- `building-directory-development-guide.pdf`
+
+It should also keep the individual development PDFs as reference copies.
+
 Do not hand-edit duplicated files under `building-directory-install/scripts/`.
 
 ```

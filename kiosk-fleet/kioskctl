@@ -120,6 +120,34 @@ if [[ -n "${primary:-}" || -n "${standby:-}" ]]; then
   echo "server_url=${primary:-unknown}"
   echo "server_url_standby=${standby:-unknown}"
 fi
+if [[ -f /tmp/kiosk-start.log ]]; then
+  _active_line="$(grep -E 'Launching kiosk against (primary|standby)|Primary unreachable after [0-9]+s; switching to standby|Using offline page after startup failure' /tmp/kiosk-start.log | tail -n 1 || true)"
+  case "$_active_line" in
+    *"Launching kiosk against primary "*)
+      echo "active_server_role=primary"
+      echo "active_server_url=${_active_line##*primary }"
+      ;;
+    *"Launching kiosk against standby "*)
+      echo "active_server_role=standby"
+      echo "active_server_url=${_active_line##*standby }"
+      ;;
+    *"switching to standby "*)
+      echo "active_server_role=standby"
+      echo "active_server_url=${_active_line##*standby }"
+      ;;
+    *"Using offline page after startup failure"*)
+      echo "active_server_role=offline"
+      echo "active_server_url=file:///home/kiosk/building-directory/kiosk/unavailable.html"
+      ;;
+    *)
+      echo "active_server_role=unknown"
+      echo "active_server_url=unknown"
+      ;;
+  esac
+else
+  echo "active_server_role=unknown"
+  echo "active_server_url=unknown"
+fi
 _rev_file="/home/kiosk/building-directory/REVISION"
 if [[ -f "$_rev_file" ]]; then
   echo "revision=$(head -n 1 "$_rev_file" | tr -d '\r')"
