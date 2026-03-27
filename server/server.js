@@ -1945,19 +1945,29 @@ app.post('/api/kiosks/:id/deploy', (req, res) => {
     res.json({ success: true, output });
 });
 
-const standbySyncInterval = setInterval(() => {
-    if (!KIOSK_STANDBY_SYNC_ENABLED || !isPrimaryServerNode() || !getStandbySyncTarget()) return;
-    if (standbySyncState.running || standbySyncState.timer) return;
-    void runStandbySync('periodic-check');
-}, KIOSK_STANDBY_SYNC_CHECK_MS);
-if (typeof standbySyncInterval.unref === 'function') standbySyncInterval.unref();
+function startStandbySyncLoop() {
+    const target = getStandbySyncTarget();
+    if (!KIOSK_STANDBY_SYNC_ENABLED) {
+        console.log('Standby sync disabled');
+        return;
+    }
+    if (!isPrimaryServerNode() || !target) {
+        console.log('Standby sync inactive on this node');
+        return;
+    }
 
-if (KIOSK_STANDBY_SYNC_ENABLED && isPrimaryServerNode() && getStandbySyncTarget()) {
-    const startupStandbySync = setTimeout(() => {
+    console.log(`Standby sync target: ${target.user}@${target.host}`);
+    const standbySyncInterval = setInterval(() => {
         if (standbySyncState.running || standbySyncState.timer) return;
+        void runStandbySync('periodic-check');
+    }, KIOSK_STANDBY_SYNC_CHECK_MS);
+    if (typeof standbySyncInterval.unref === 'function') standbySyncInterval.unref();
+
+    setTimeout(() => {
+        if (standbySyncState.running || standbySyncState.timer) return;
+        console.log('Starting forced standby reconciliation');
         void runStandbySync('startup-check', { force: true });
     }, 1000);
-    if (typeof startupStandbySync.unref === 'function') startupStandbySync.unref();
 }
 
 // Start server
@@ -1967,6 +1977,7 @@ app.listen(PORT, HOST, () => {
     console.log(`Kiosk interface: http://localhost/`);
     console.log(`Admin interface: http://localhost/admin`);
     console.log(`Revision: ${DEPLOY_REVISION} (${REVISION_SOURCE})`);
+    startStandbySyncLoop();
 });
 
 // Handle shutdown gracefully
