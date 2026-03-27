@@ -1,0 +1,1 @@
+ACTION=="add|change", SUBSYSTEM=="input", ATTRS{name}=="Elo virtual single touch digitizer - uinput v5", ENV{LIBINPUT_CALIBRATION_MATRIX}="-1 0 1 0 -1 1"

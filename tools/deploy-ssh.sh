@@ -431,7 +431,10 @@ if [[ "$DEPLOY_CLIENT" -eq 1 ]]; then
   echo "==> Applying client-only host configuration..."
   CLIENT_EXTRA_LOWERDIR_CMD="sudo -n rm -f /media/root-ro/etc/udev/rules.d/99-elo-touch-calibration.rules"
   CLIENT_EXTRA_LIVE_CMD="sudo -n rm -f /etc/udev/rules.d/99-elo-touch-calibration.rules"
-  if [[ "$HOST_IP" == "192.168.1.82" ]]; then
+  if [[ "$HOST_IP" == "192.168.1.81" ]]; then
+    CLIENT_EXTRA_LOWERDIR_CMD="sudo -n install -D -m 644 '$DEPLOY_ROOT/scripts/99-elo-touch-calibration-81.rules' /media/root-ro/etc/udev/rules.d/99-elo-touch-calibration.rules"
+    CLIENT_EXTRA_LIVE_CMD="sudo -n install -D -m 644 '$DEPLOY_ROOT/scripts/99-elo-touch-calibration-81.rules' /etc/udev/rules.d/99-elo-touch-calibration.rules"
+  elif [[ "$HOST_IP" == "192.168.1.82" ]]; then
     CLIENT_EXTRA_LOWERDIR_CMD="sudo -n install -D -m 644 '$DEPLOY_ROOT/scripts/99-elo-touch-calibration-82.rules' /media/root-ro/etc/udev/rules.d/99-elo-touch-calibration.rules"
     CLIENT_EXTRA_LIVE_CMD="sudo -n install -D -m 644 '$DEPLOY_ROOT/scripts/99-elo-touch-calibration-82.rules' /etc/udev/rules.d/99-elo-touch-calibration.rules"
   fi
