@@ -36,21 +36,51 @@ Deployed runtime: /home/security/building-directory/
 ## Quick Setup (After Fresh Clone)
 
 ```bash
-# 1. Deploy local runtime from repo
+# 1. Clone the repo and enter it
+git clone git@github.com:merrillholt/kiosk.git /home/security/Public-Kiosk
 cd /home/security/Public-Kiosk
+
+# 2. Regenerate the install tree and packaged docs
+./tools/sync-install-tree.sh
+
+# 3. Deploy local runtime from repo
 ./tools/deploy-local.sh --full
 
-# 2. Restart service
+# 4. Restart service
 sudo systemctl restart directory-server
 
-# 3. Pull authoritative database from production
+# 5. Pull authoritative database from production
 ./tools/sync-primary-db.sh --skip-standby
 
-# 4. Verify
+# 6. Verify
 curl -i http://127.0.0.1/api/data-version
+./kiosk-fleet/kioskctl --no-color status
 ```
 
 See `docs/dev-reattachment.md` for the full rebuild sequence.
+
+## Update Existing Dev Checkout
+
+```bash
+# 1. Update the local checkout
+cd /home/security/Public-Kiosk
+git pull --ff-only
+
+# 2. Regenerate the install tree and packaged docs
+./tools/sync-install-tree.sh
+./tools/check-install-drift.sh
+
+# 3. Refresh the local runtime
+./tools/deploy-local.sh --full
+sudo systemctl restart directory-server
+
+# 4. Refresh local data from production when needed
+./tools/sync-primary-db.sh --skip-standby
+
+# 5. Verify
+curl -i http://127.0.0.1/api/data-version
+./kiosk-fleet/kioskctl --no-color status
+```
 
 ## Network Access
 
