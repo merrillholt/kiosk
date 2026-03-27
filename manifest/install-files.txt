@@ -40,9 +40,11 @@ scripts/bash_profile
 scripts/kiosk-keyboard-added.sh
 scripts/99-kiosk-keyboard.rules
 scripts/99-elo-usb-power.rules
+scripts/99-elo-touch-calibration-81.rules
 scripts/99-elo-touch-calibration-82.rules
 scripts/80-kiosk-power-button.conf
 scripts/kiosk-blacklist-wireless.conf
+scripts/nct6775.modules-load.conf
 scripts/start-server.sh
 scripts/restart-server.sh
 scripts/kioskctl

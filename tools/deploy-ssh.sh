@@ -446,6 +446,15 @@ if [[ "$DEPLOY_CLIENT" -eq 1 ]]; then
   ssh "${SSH_BASE_ARGS[@]}" "$HOST" "sudo -n systemctl disable --now directory-backup.timer directory-backup.service >/dev/null 2>&1 || true; systemctl --user disable --now pulseaudio.socket pulseaudio.service >/dev/null 2>&1 || true; systemctl --user reset-failed pulseaudio.socket pulseaudio.service >/dev/null 2>&1 || true; sudo -n systemctl daemon-reload"
 fi
 
+if [[ "$HOST_IP" == "192.168.1.81" ]]; then
+  echo "==> Installing .81 NUC hardware-monitor module configuration..."
+  if [[ "$EFFECTIVE_OVERLAY" -eq 1 ]]; then
+    run_overlay_lowerdir_write "sudo -n install -D -m 644 '$DEPLOY_ROOT/scripts/nct6775.modules-load.conf' /media/root-ro/etc/modules-load.d/kiosk-nuc-hwmon.conf"
+  else
+    ssh "${SSH_BASE_ARGS[@]}" "$HOST" "sudo -n install -D -m 644 '$DEPLOY_ROOT/scripts/nct6775.modules-load.conf' /etc/modules-load.d/kiosk-nuc-hwmon.conf && sudo -n modprobe nct6775 || true"
+  fi
+fi
+
 if [[ "$NO_RESTART" -eq 1 ]]; then
   echo "==> --no-restart set; skipping service restart and health checks."
   echo "Remote deploy complete."
