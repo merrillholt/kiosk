@@ -1399,6 +1399,10 @@ function getSshBaseArgs(target) {
     ];
 }
 
+function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function getDataVersionValue() {
     return new Promise((resolve, reject) => {
         db.get(`SELECT COALESCE((SELECT value FROM settings WHERE key = 'data_version'), '0') AS value`, [], (err, row) => {
@@ -1473,6 +1477,23 @@ async function getRemoteUploadsSignature(target) {
         throw new Error(((result.stderr || '').trim() || result.error || 'failed to query standby uploads signature'));
     }
     return String((result.stdout || '').trim() || 'missing');
+}
+
+async function waitForStandbyBackOnline(target, timeoutMs = 180000) {
+    const deadline = Date.now() + timeoutMs;
+    let lastErr = 'standby did not come back online';
+    await sleep(5000);
+    while (Date.now() < deadline) {
+        try {
+            await getRemoteDataVersion(target);
+            await getRemoteUploadsSignature(target);
+            return;
+        } catch (err) {
+            lastErr = err.message;
+        }
+        await sleep(5000);
+    }
+    throw new Error(`standby did not come back online after reboot: ${lastErr}`);
 }
 
 async function syncStandbyDatabaseNow(reason = 'manual', options = {}) {
@@ -1577,10 +1598,9 @@ async function syncStandbyDatabaseNow(reason = 'manual', options = {}) {
                  fi
              fi
              cleanup() {
-                 if [[ "$lower_uploads" -eq 1 ]]; then
-                     sudo -n mount -o remount,ro /media/root-ro || true
+                 if [[ "$lower_uploads" -ne 1 ]]; then
+                     sudo -n systemctl start directory-server || true
                  fi
-                 sudo -n systemctl start directory-server || true
              }
              trap cleanup EXIT
              sudo -n rm -rf "$uploads_dir"
@@ -1589,12 +1609,14 @@ async function syncStandbyDatabaseNow(reason = 'manual', options = {}) {
              sudo -n chown -R kiosk:kiosk "$uploads_dir"
              cp '${remoteBackup}' '${STANDBY_DB_FILE}'
              sudo -n chown kiosk:kiosk '${STANDBY_DB_FILE}'
+             rm -f '${remoteBackup}' '${remoteUploadsArchive}'
              trap - EXIT
              if [[ "$lower_uploads" -eq 1 ]]; then
-                 sudo -n mount -o remount,ro /media/root-ro || true
+                 sudo -n sh -c 'nohup /sbin/reboot >/dev/null 2>&1 &' 
+                 exit 0
              fi
              sudo -n systemctl start directory-server
-             rm -f '${remoteBackup}'`
+             exit 0`
         ], { timeout: KIOSK_STANDBY_SYNC_TIMEOUT_MS });
         if (remoteRestore.status !== 0) {
             console.warn('Standby restore command failed', {
@@ -1606,6 +1628,8 @@ async function syncStandbyDatabaseNow(reason = 'manual', options = {}) {
             const detail = (remoteRestore.stderr || remoteRestore.stdout || '').trim() || remoteRestore.error || 'failed to restore standby backup';
             throw new Error(`failed to restore standby backup: ${detail}`);
         }
+
+        await waitForStandbyBackOnline(target);
 
         const [verifyVersion, verifyUploadsSignature] = await Promise.all([
             getRemoteDataVersion(target),
