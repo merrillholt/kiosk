@@ -664,6 +664,21 @@ EOF
     print_info "Creating .bash_profile for kiosk autostart..."
     install -D -m 644 "$INSTALL_DIR/scripts/bash_profile" "$HOME/.bash_profile"
 
+    # Seed the per-user Chromium state expected by the Debian wrapper so the
+    # first kiosk launch does not die in crashpad initialization on fresh hosts.
+    print_info "Seeding Chromium user state..."
+    install -d -m 700 \
+        "$HOME/.config/chromium/Crash Reports/attachments" \
+        "$HOME/.config/chromium/Crash Reports/completed" \
+        "$HOME/.config/chromium/Crash Reports/pending" \
+        "$HOME/.config/chromium/Crash Reports/new" \
+        "$HOME/.pki/nssdb"
+    : > "$HOME/.config/chromium/Crash Reports/settings.dat"
+    chmod 600 "$HOME/.config/chromium/Crash Reports/settings.dat"
+    if command -v certutil >/dev/null 2>&1 && [ ! -f "$HOME/.pki/nssdb/cert9.db" ]; then
+        certutil -d sql:"$HOME/.pki/nssdb" -N --empty-password >/dev/null 2>&1 || true
+    fi
+
     # pam_wtmpdb writes to the readonly root and breaks tty1 autologin on kiosk
     # hosts after reboot. Remove it from the common session stack.
     if grep -q 'pam_wtmpdb\.so' /etc/pam.d/common-session 2>/dev/null; then
