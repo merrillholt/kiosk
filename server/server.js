@@ -1471,8 +1471,9 @@ async function getRemoteUploadsSignature(target) {
     return String((result.stdout || '').trim() || 'missing');
 }
 
-async function syncStandbyDatabaseNow(reason = 'manual') {
+async function syncStandbyDatabaseNow(reason = 'manual', options = {}) {
     const target = getStandbySyncTarget();
+    const forceSync = options.force === true;
     if (!KIOSK_STANDBY_SYNC_ENABLED || !isPrimaryServerNode() || !target) return { skipped: true };
     if (!fs.existsSync(KIOSK_SSH_KEY)) {
         throw new Error(`SSH deploy key not found at ${KIOSK_SSH_KEY}`);
@@ -1487,7 +1488,7 @@ async function syncStandbyDatabaseNow(reason = 'manual') {
             getRemoteDataVersion(target),
             getRemoteUploadsSignature(target)
         ]);
-        if (standbyVersion === localVersion && standbyUploadsSignature === localUploadsSignature) {
+        if (!forceSync && standbyVersion === localVersion && standbyUploadsSignature === localUploadsSignature) {
             return { skipped: true, localVersion, standbyVersion, uploadsSignature: localUploadsSignature };
         }
     } catch (err) {
@@ -1593,7 +1594,7 @@ const standbySyncState = {
     running: false
 };
 
-async function runStandbySync(reason = 'manual') {
+async function runStandbySync(reason = 'manual', options = {}) {
     if (!KIOSK_STANDBY_SYNC_ENABLED || !isPrimaryServerNode() || !getStandbySyncTarget()) {
         return { skipped: true };
     }
@@ -1605,7 +1606,7 @@ async function runStandbySync(reason = 'manual') {
     standbySyncState.running = true;
     standbySyncState.dirty = false;
     try {
-        return await syncStandbyDatabaseNow(reason);
+        return await syncStandbyDatabaseNow(reason, options);
     } catch (err) {
         console.warn(`Standby DB sync failed (${reason}): ${err.message}`);
         standbySyncState.dirty = true;
@@ -1954,7 +1955,7 @@ if (typeof standbySyncInterval.unref === 'function') standbySyncInterval.unref()
 if (KIOSK_STANDBY_SYNC_ENABLED && isPrimaryServerNode() && getStandbySyncTarget()) {
     const startupStandbySync = setTimeout(() => {
         if (standbySyncState.running || standbySyncState.timer) return;
-        void runStandbySync('startup-check');
+        void runStandbySync('startup-check', { force: true });
     }, 1000);
     if (typeof startupStandbySync.unref === 'function') startupStandbySync.unref();
 }
