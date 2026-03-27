@@ -149,7 +149,7 @@ ensure_var_log_tmpfs() {
 
 ensure_persistent_journal() {
     local fstab_path="/etc/fstab"
-    local journal_line='/data/journal /var/log/journal none bind,x-systemd.requires=/data.mount,x-systemd.after=/data.mount,x-mount.mkdir 0 0'
+    local journal_line='/data/journal /var/log/journal none bind,x-systemd.requires=data.mount,x-systemd.after=data.mount,x-mount.mkdir 0 0'
     local journal_group="root"
 
     if getent group systemd-journal >/dev/null 2>&1; then
