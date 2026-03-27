@@ -75,6 +75,7 @@ const KIOSK_SERVER_URL_STANDBY = process.env.KIOSK_SERVER_URL_STANDBY || 'http:/
 const KIOSK_DEPLOY_SCRIPT = path.join(PROJECT_ROOT, 'tools', 'deploy-ssh.sh');
 const KIOSK_KNOWN_HOSTS_FILE = process.env.KIOSK_KNOWN_HOSTS_FILE || '/tmp/kiosk_deploy_known_hosts';
 const STANDBY_DB_FILE = process.env.KIOSK_STANDBY_DB || '/home/kiosk/building-directory/server/directory.db';
+const STANDBY_UPLOADS_DIR = process.env.KIOSK_STANDBY_UPLOADS || '/home/kiosk/building-directory/server/uploads';
 const KIOSK_STANDBY_SYNC_ENABLED = !['0', 'false', 'no'].includes(String(process.env.KIOSK_STANDBY_SYNC_ENABLED || '1').toLowerCase());
 const KIOSK_STANDBY_SYNC_DELAY_MS = Number.parseInt(process.env.KIOSK_STANDBY_SYNC_DELAY_MS || '', 10) || (5 * 60 * 1000);
 const KIOSK_STANDBY_SYNC_CHECK_MS = Number.parseInt(process.env.KIOSK_STANDBY_SYNC_CHECK_MS || '', 10) || (15 * 60 * 1000);
@@ -1407,6 +1408,30 @@ function getDataVersionValue() {
     });
 }
 
+function getLocalUploadsSignature() {
+    const hash = crypto.createHash('sha256');
+    let entries = [];
+    try {
+        entries = fs.readdirSync(UPLOADS_LOWER, { withFileTypes: true })
+            .filter((entry) => entry.isFile())
+            .map((entry) => {
+                const fullPath = path.join(UPLOADS_LOWER, entry.name);
+                const stat = fs.statSync(fullPath);
+                return `${entry.name}\t${stat.size}\t${stat.mtimeMs}`;
+            })
+            .sort();
+    } catch (err) {
+        return 'missing';
+    }
+
+    if (entries.length === 0) return 'empty';
+    for (const line of entries) {
+        hash.update(line);
+        hash.update('\n');
+    }
+    return hash.digest('hex');
+}
+
 async function getRemoteDataVersion(target) {
     const result = await runCommandCapture('ssh', [
         ...getSshBaseArgs(target),
@@ -1418,6 +1443,34 @@ async function getRemoteDataVersion(target) {
     return String((result.stdout || '').trim() || '0');
 }
 
+async function getRemoteUploadsSignature(target) {
+    const remoteCmd = `
+        set -e
+        uploads_dir='${STANDBY_UPLOADS_DIR}'
+        if [[ -d /media/root-ro/home/kiosk/building-directory/server ]]; then
+            uploads_dir='/media/root-ro/home/kiosk/building-directory/server/uploads'
+        fi
+        if [[ ! -d "$uploads_dir" ]]; then
+            printf 'missing\\n'
+            exit 0
+        fi
+        mapfile -t files < <(find "$uploads_dir" -maxdepth 1 -type f -printf '%f\\t%s\\t%T@\\n' | LC_ALL=C sort)
+        if [[ "\${#files[@]}" -eq 0 ]]; then
+            printf 'empty\\n'
+            exit 0
+        fi
+        printf '%s\\n' "\${files[@]}" | sha256sum | awk '{print $1}'
+    `;
+    const result = await runCommandCapture('ssh', [
+        ...getSshBaseArgs(target),
+        remoteCmd
+    ], { timeout: 15000 });
+    if (result.status !== 0) {
+        throw new Error(((result.stderr || '').trim() || result.error || 'failed to query standby uploads signature'));
+    }
+    return String((result.stdout || '').trim() || 'missing');
+}
+
 async function syncStandbyDatabaseNow(reason = 'manual') {
     const target = getStandbySyncTarget();
     if (!KIOSK_STANDBY_SYNC_ENABLED || !isPrimaryServerNode() || !target) return { skipped: true };
@@ -1426,11 +1479,16 @@ async function syncStandbyDatabaseNow(reason = 'manual') {
     }
 
     const localVersion = await getDataVersionValue();
+    const localUploadsSignature = getLocalUploadsSignature();
     let standbyVersion = 'unknown';
+    let standbyUploadsSignature = 'unknown';
     try {
-        standbyVersion = await getRemoteDataVersion(target);
-        if (standbyVersion === localVersion) {
-            return { skipped: true, localVersion, standbyVersion };
+        [standbyVersion, standbyUploadsSignature] = await Promise.all([
+            getRemoteDataVersion(target),
+            getRemoteUploadsSignature(target)
+        ]);
+        if (standbyVersion === localVersion && standbyUploadsSignature === localUploadsSignature) {
+            return { skipped: true, localVersion, standbyVersion, uploadsSignature: localUploadsSignature };
         }
     } catch (err) {
         console.warn(`Standby sync precheck failed (${reason}): ${err.message}`);
@@ -1438,7 +1496,10 @@ async function syncStandbyDatabaseNow(reason = 'manual') {
 
     const ts = Date.now();
     const localBackup = path.join(os.tmpdir(), `standby-sync-${ts}.sqlite`);
-    const remoteBackup = `/tmp/standby-sync-${ts}.sqlite`;
+    const localUploadsArchive = path.join(os.tmpdir(), `standby-sync-uploads-${ts}.tar.gz`);
+    const remoteStageDir = `/tmp/standby-sync-${ts}`;
+    const remoteBackup = `${remoteStageDir}/directory.sqlite`;
+    const remoteUploadsArchive = `${remoteStageDir}/uploads.tar.gz`;
 
     try {
         const backup = await runCommandCapture('sqlite3', [DB_FILE, `.backup ${localBackup}`], {
@@ -1448,6 +1509,23 @@ async function syncStandbyDatabaseNow(reason = 'manual') {
             throw new Error(((backup.stderr || '').trim() || backup.error || 'failed to create local backup'));
         }
 
+        const archive = await runCommandCapture('tar', [
+            '-C', UPLOADS_LOWER,
+            '-czf', localUploadsArchive,
+            '.'
+        ], { timeout: KIOSK_STANDBY_SYNC_TIMEOUT_MS });
+        if (archive.status !== 0 || !fs.existsSync(localUploadsArchive)) {
+            throw new Error(((archive.stderr || '').trim() || archive.error || 'failed to archive local uploads'));
+        }
+
+        const remoteStage = await runCommandCapture('ssh', [
+            ...getSshBaseArgs(target),
+            `mkdir -p '${remoteStageDir}'`
+        ], { timeout: 15000 });
+        if (remoteStage.status !== 0) {
+            throw new Error(((remoteStage.stderr || '').trim() || remoteStage.error || 'failed to create standby staging directory'));
+        }
+
         const scp = await runCommandCapture('scp', [
             '-i', KIOSK_SSH_KEY,
             '-o', 'BatchMode=yes',
@@ -1455,19 +1533,29 @@ async function syncStandbyDatabaseNow(reason = 'manual') {
             '-o', 'StrictHostKeyChecking=accept-new',
             '-o', `UserKnownHostsFile=${KIOSK_KNOWN_HOSTS_FILE}`,
             localBackup,
-            `${target.user}@${target.host}:${remoteBackup}`
+            localUploadsArchive,
+            `${target.user}@${target.host}:${remoteStageDir}/`
         ], { timeout: KIOSK_STANDBY_SYNC_TIMEOUT_MS });
         if (scp.status !== 0) {
-            throw new Error(((scp.stderr || '').trim() || scp.error || 'failed to copy standby backup'));
+            throw new Error(((scp.stderr || '').trim() || scp.error || 'failed to copy standby sync payload'));
         }
 
         const remoteRestore = await runCommandCapture('ssh', [
             ...getSshBaseArgs(target),
             `set -e
              test -s '${remoteBackup}'
+             test -s '${remoteUploadsArchive}'
              sqlite3 '${remoteBackup}' 'PRAGMA schema_version;' >/dev/null
+             uploads_dir='${STANDBY_UPLOADS_DIR}'
+             if [[ -d /media/root-ro/home/kiosk/building-directory/server ]]; then
+                 uploads_dir='/media/root-ro/home/kiosk/building-directory/server/uploads'
+             fi
              sudo -n systemctl stop directory-server
+             rm -rf "$uploads_dir"
+             mkdir -p "$uploads_dir"
+             tar -xzf '${remoteUploadsArchive}' -C "$uploads_dir"
              cp '${remoteBackup}' '${STANDBY_DB_FILE}'
+             sudo -n chown -R kiosk:kiosk "$uploads_dir"
              sudo -n chown kiosk:kiosk '${STANDBY_DB_FILE}'
              sudo -n systemctl start directory-server
              rm -f '${remoteBackup}'`
@@ -1476,18 +1564,25 @@ async function syncStandbyDatabaseNow(reason = 'manual') {
             throw new Error(((remoteRestore.stderr || '').trim() || remoteRestore.error || 'failed to restore standby backup'));
         }
 
-        const verifyVersion = await getRemoteDataVersion(target);
+        const [verifyVersion, verifyUploadsSignature] = await Promise.all([
+            getRemoteDataVersion(target),
+            getRemoteUploadsSignature(target)
+        ]);
         if (verifyVersion !== localVersion) {
             throw new Error(`standby data_version mismatch after sync (local=${localVersion}, standby=${verifyVersion})`);
         }
+        if (verifyUploadsSignature !== localUploadsSignature) {
+            throw new Error(`standby uploads signature mismatch after sync (local=${localUploadsSignature}, standby=${verifyUploadsSignature})`);
+        }
 
-        console.log(`Standby DB sync complete (${reason}): ${target.host} data_version=${localVersion}`);
-        return { synced: true, localVersion, standbyVersion: verifyVersion };
+        console.log(`Standby sync complete (${reason}): ${target.host} data_version=${localVersion} uploads=${localUploadsSignature}`);
+        return { synced: true, localVersion, standbyVersion: verifyVersion, uploadsSignature: verifyUploadsSignature };
     } finally {
         fs.unlink(localBackup, () => {});
+        fs.unlink(localUploadsArchive, () => {});
         void runCommandCapture('ssh', [
             ...getSshBaseArgs(target),
-            `rm -f '${remoteBackup}'`
+            `rm -rf '${remoteStageDir}'`
         ], { timeout: 5000 });
     }
 }
