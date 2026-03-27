@@ -171,12 +171,19 @@ echo "cpu_usage_1s=$(awk -v a="$cpu" -v b="$cpu2" 'BEGIN {
   if (dt<=0) print "n/a"; else printf("%.1f%%", (dt-did)*100/dt);
 }')"
 _fan="none"
+_fan_best=""
+_fan_best_value=-1
 for _f in /sys/class/hwmon/*/fan*_input; do
   [[ -f "$_f" ]] || continue
   _rpm="$(cat "$_f" 2>/dev/null || echo 0)"
-  _fan="${_rpm} RPM"
-  break
+  if [[ "$_rpm" =~ ^[0-9]+$ ]] && (( _rpm > _fan_best_value )); then
+    _fan_best_value=$_rpm
+    _fan_best="$_rpm RPM"
+  fi
 done
+if [[ -n "$_fan_best" ]]; then
+  _fan="$_fan_best"
+fi
 echo "fan=$_fan"
 echo "__FAILED_UNITS_BEGIN__"
 systemctl --failed --no-legend --plain 2>/dev/null || true
