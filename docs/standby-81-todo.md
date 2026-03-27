@@ -28,9 +28,17 @@ until `192.168.1.81` is installed, reachable, and serving traffic.
 
 4. Failover validation
    - Maintenance mode needed: No.
-   - Confirm kiosks can reach `http://192.168.1.81` when `192.168.1.80` is unavailable.
-   - Verify kiosk behavior during primary failure and recovery.
-   - Confirm the standby data matches the latest synced production state.
+   - Precheck steady state before outage:
+     - confirm `.80`, `.81`, and `.82` are healthy
+     - confirm `.81` matches `.80` for company count and `data_version`
+     - confirm `.81` serves a known uploaded asset such as the configured background image
+   - Shut down `.80` and record the outage start time.
+   - Confirm the kiosks on `.81` and `.82` switch to the standby server on `.81` within the expected failover window.
+   - Confirm the clients are actually using `.81`, not only showing cached content.
+   - Confirm current data and at least one uploaded asset render correctly while on standby.
+   - Restore `.80` and record when it becomes reachable again.
+   - Confirm `.81` and `.82` promote back to primary `.80` within the expected failback window.
+   - Record actual failover/failback timings and any incorrect or delayed behavior.
 
 5. Power-feed failure scenarios
    - Maintenance mode needed: No.
