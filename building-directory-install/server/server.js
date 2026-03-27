@@ -1562,7 +1562,8 @@ async function syncStandbyDatabaseNow(reason = 'manual', options = {}) {
              rm -f '${remoteBackup}'`
         ], { timeout: KIOSK_STANDBY_SYNC_TIMEOUT_MS });
         if (remoteRestore.status !== 0) {
-            throw new Error(((remoteRestore.stderr || '').trim() || remoteRestore.error || 'failed to restore standby backup'));
+            const detail = (remoteRestore.stderr || remoteRestore.stdout || '').trim() || remoteRestore.error || 'failed to restore standby backup';
+            throw new Error(`failed to restore standby backup: ${detail}`);
         }
 
         const [verifyVersion, verifyUploadsSignature] = await Promise.all([
@@ -1955,7 +1956,7 @@ function startStandbySyncLoop() {
         const target = getStandbySyncTarget();
         if (!isPrimaryServerNode() || !target) return;
         if (standbySyncState.running || standbySyncState.timer) return;
-        void runStandbySync('periodic-check');
+        void runStandbySync('periodic-check').catch(() => {});
     }, KIOSK_STANDBY_SYNC_CHECK_MS);
     if (typeof standbySyncInterval.unref === 'function') standbySyncInterval.unref();
 
@@ -1975,7 +1976,7 @@ function startStandbySyncLoop() {
         if (standbySyncState.running || standbySyncState.timer) return;
         clearInterval(startupRetryTimer);
         console.log(`Starting forced standby reconciliation to ${target.user}@${target.host}`);
-        void runStandbySync('startup-check', { force: true });
+        void runStandbySync('startup-check', { force: true }).catch(() => {});
     }, startupRetryDelayMs);
     if (typeof startupRetryTimer.unref === 'function') startupRetryTimer.unref();
 }
