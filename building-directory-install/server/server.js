@@ -1548,16 +1548,32 @@ async function syncStandbyDatabaseNow(reason = 'manual', options = {}) {
              test -s '${remoteUploadsArchive}'
              sqlite3 '${remoteBackup}' 'PRAGMA schema_version;' >/dev/null
              uploads_dir='${STANDBY_UPLOADS_DIR}'
+             lower_uploads=0
              if [[ -d /media/root-ro/home/kiosk/building-directory/server ]]; then
                  uploads_dir='/media/root-ro/home/kiosk/building-directory/server/uploads'
+                 lower_uploads=1
              fi
              sudo -n systemctl stop directory-server
-             rm -rf "$uploads_dir"
-             mkdir -p "$uploads_dir"
-             tar -xzf '${remoteUploadsArchive}' -C "$uploads_dir"
+             if [[ "$lower_uploads" -eq 1 ]]; then
+                 sudo -n mount -o remount,rw /media/root-ro
+             fi
+             cleanup() {
+                 if [[ "$lower_uploads" -eq 1 ]]; then
+                     sudo -n mount -o remount,ro /media/root-ro || true
+                 fi
+                 sudo -n systemctl start directory-server || true
+             }
+             trap cleanup EXIT
+             sudo -n rm -rf "$uploads_dir"
+             sudo -n mkdir -p "$uploads_dir"
+             sudo -n tar -xzf '${remoteUploadsArchive}' -C "$uploads_dir"
              cp '${remoteBackup}' '${STANDBY_DB_FILE}'
              sudo -n chown -R kiosk:kiosk "$uploads_dir"
              sudo -n chown kiosk:kiosk '${STANDBY_DB_FILE}'
+             trap - EXIT
+             if [[ "$lower_uploads" -eq 1 ]]; then
+                 sudo -n mount -o remount,ro /media/root-ro || true
+             fi
              sudo -n systemctl start directory-server
              rm -f '${remoteBackup}'`
         ], { timeout: KIOSK_STANDBY_SYNC_TIMEOUT_MS });
