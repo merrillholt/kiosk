@@ -5,11 +5,7 @@ Goal: make production on `192.168.1.80` run and recover correctly even if the de
 ## Priority 1: Production Data Durability
 
 - Maintenance mode needed: Yes, for correcting persistent `overlayroot.conf` on current production hosts.
-- Status on `192.168.1.80`: completed. `overlayroot.conf` corrected to `overlayroot="tmpfs:swap=1,recurse=0"`, `/data` now mounts directly as ext4 in normal mode, and a reboot persistence test passed.
-- Move the production SQLite database off the ephemeral overlay path or bind it to a persistent location.
-- Verify that admin changes made on `192.168.1.80` survive reboot without any development-machine involvement.
-- Document the authoritative production database path and backup location.
-- Test a full power-cycle on `192.168.1.80` after admin edits and confirm data remains intact.
+- Status on `192.168.1.80`: complete. `overlayroot.conf` corrected to `overlayroot="tmpfs:swap=1,recurse=0"`, `/data` mounts directly as ext4 in normal mode, the live server DB path is `/data/directory/directory.db`, and reboot persistence was validated.
 
 ## Priority 2: Production-Local Backup And Restore
 
@@ -19,11 +15,11 @@ Goal: make production on `192.168.1.80` run and recover correctly even if the de
 ## Priority 3: Direct Standby Sync From Production
 
 - Maintenance mode needed: No.
-- Deferred until `192.168.1.81` is deployed and reachable. Standby-dependent work is tracked separately in `docs/standby-81-todo.md`.
-- Remove the requirement that the development machine sit in the middle of production -> standby database replication.
-- Add or adapt a tool so `192.168.1.80` can push a consistent SQLite backup directly to `192.168.1.81`.
-- Confirm the standby sync process works when the development machine is offline.
-- Decide whether standby sync is manual, scheduled, or both.
+- Status: complete. `192.168.1.80` now performs direct standby reconciliation to `192.168.1.81` without the development machine in the middle.
+- Sync scope: SQLite database plus uploaded assets under `server/uploads/` such as the configured background image.
+- Trigger model: startup reconciliation, long-interval periodic recheck, and debounced async sync after admin-side DB mutations.
+- Overlayroot behavior: standby writes go to the lower layer and the standby reboots afterward instead of attempting an in-place remount back to read-only.
+- Validation: `.81` now matches `.80` for company count and serves the synced background image from its local server.
 
 ## Priority 4: Rebuild-Safe Development Reattachment
 
@@ -51,3 +47,9 @@ Goal: make production on `192.168.1.80` run and recover correctly even if the de
 - Production backups can be created and restored without the development machine.
 - Standby database sync works without the development machine.
 - A fresh development machine can clone the repo, deploy locally, and sync from production safely.
+
+## Current Fleet Status
+
+- `192.168.1.80`: primary server and kiosk, healthy on the current tree.
+- `192.168.1.81`: standby server and kiosk, healthy on the current tree. Fresh-host Chromium startup required seeding the per-user Chromium crash-report and NSS state in the kiosk home.
+- `192.168.1.82`: client-only kiosk, healthy on the current tree. It retains the `.82`-specific Elo touch calibration override for the development touchscreen path.
