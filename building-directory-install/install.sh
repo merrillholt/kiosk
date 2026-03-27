@@ -147,6 +147,30 @@ ensure_var_log_tmpfs() {
     fi
 }
 
+ensure_persistent_journal() {
+    local fstab_path="/etc/fstab"
+    local journal_line='/data/journal /var/log/journal none bind,x-systemd.requires=/data.mount,x-systemd.after=/data.mount,x-mount.mkdir 0 0'
+    local journal_group="root"
+
+    if getent group systemd-journal >/dev/null 2>&1; then
+        journal_group="systemd-journal"
+    fi
+
+    print_info "Ensuring persistent journald storage on /data/journal..."
+    sudo install -d -m 2755 -o root -g "$journal_group" /data/journal
+    sudo install -d -m 2755 -o root -g "$journal_group" /var/log/journal
+    sudo install -D -m 644 "$RUNTIME_SCRIPTS_SRC/journald-persistent.conf" /etc/systemd/journald.conf.d/persistent.conf
+
+    if grep -Eq '^[^#[:space:]]+[[:space:]]+/var/log/journal[[:space:]]+none[[:space:]]+bind' "$fstab_path" 2>/dev/null; then
+        sudo sed -i "s|^[^#[:space:]]\\+[[:space:]]\\+/var/log/journal[[:space:]]\\+none[[:space:]]\\+bind.*|$journal_line|" "$fstab_path"
+    else
+        printf '%s\n' "$journal_line # persistent-journal" | sudo tee -a "$fstab_path" >/dev/null
+    fi
+
+    sudo mountpoint -q /var/log/journal || sudo mount /var/log/journal || true
+    sudo systemctl restart systemd-journald || true
+}
+
 # Check if running as root
 if [ "$EUID" -eq 0 ]; then
     print_error "Please do not run this script as root or with sudo"
@@ -211,6 +235,9 @@ sudo apt upgrade -y
 # Install common dependencies
 print_header "Installing Common Dependencies"
 sudo apt install -y git curl wget unzip sqlite3 openssl rsync
+
+print_header "Configuring Persistent Boot Logs"
+ensure_persistent_journal
 
 # ── Server components ─────────────────────────────────────────────────────────
 if [ "$INSTALL_MODE" = "server" ] || [ "$INSTALL_MODE" = "both" ]; then

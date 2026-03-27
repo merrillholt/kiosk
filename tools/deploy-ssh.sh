@@ -446,6 +446,15 @@ if [[ "$DEPLOY_CLIENT" -eq 1 ]]; then
   ssh "${SSH_BASE_ARGS[@]}" "$HOST" "sudo -n systemctl disable --now directory-backup.timer directory-backup.service >/dev/null 2>&1 || true; systemctl --user disable --now pulseaudio.socket pulseaudio.service >/dev/null 2>&1 || true; systemctl --user reset-failed pulseaudio.socket pulseaudio.service >/dev/null 2>&1 || true; sudo -n systemctl daemon-reload"
 fi
 
+echo "==> Configuring persistent journald on remote..."
+JOURNAL_LIVE_CMD="journal_group=root; getent group systemd-journal >/dev/null 2>&1 && journal_group=systemd-journal; sudo -n install -d -m 2755 -o root -g \$journal_group /data/journal /var/log/journal; sudo -n install -D -m 644 '$DEPLOY_ROOT/scripts/journald-persistent.conf' /etc/systemd/journald.conf.d/persistent.conf; if grep -Eq '^[^#[:space:]]+[[:space:]]+/var/log/journal[[:space:]]+none[[:space:]]+bind' /etc/fstab 2>/dev/null; then sudo -n sed -i 's|^[^#[:space:]]\\+[[:space:]]\\+/var/log/journal[[:space:]]\\+none[[:space:]]\\+bind.*|/data/journal /var/log/journal none bind,x-systemd.requires=/data.mount,x-systemd.after=/data.mount,x-mount.mkdir 0 0|' /etc/fstab; else printf '%s\n' '/data/journal /var/log/journal none bind,x-systemd.requires=/data.mount,x-systemd.after=/data.mount,x-mount.mkdir 0 0 # persistent-journal' | sudo -n tee -a /etc/fstab >/dev/null; fi"
+JOURNAL_LOWERDIR_CMD="journal_group=root; getent group systemd-journal >/dev/null 2>&1 && journal_group=systemd-journal; sudo -n install -d -m 2755 -o root -g \$journal_group /data/journal; sudo -n install -D -m 644 '$DEPLOY_ROOT/scripts/journald-persistent.conf' /media/root-ro/etc/systemd/journald.conf.d/persistent.conf; if grep -Eq '^[^#[:space:]]+[[:space:]]+/var/log/journal[[:space:]]+none[[:space:]]+bind' /media/root-ro/etc/fstab 2>/dev/null; then sudo -n sed -i 's|^[^#[:space:]]\\+[[:space:]]\\+/var/log/journal[[:space:]]\\+none[[:space:]]\\+bind.*|/data/journal /var/log/journal none bind,x-systemd.requires=/data.mount,x-systemd.after=/data.mount,x-mount.mkdir 0 0|' /media/root-ro/etc/fstab; else printf '%s\n' '/data/journal /var/log/journal none bind,x-systemd.requires=/data.mount,x-systemd.after=/data.mount,x-mount.mkdir 0 0 # persistent-journal' | sudo -n tee -a /media/root-ro/etc/fstab >/dev/null; fi"
+if [[ "$EFFECTIVE_OVERLAY" -eq 1 ]]; then
+  run_overlay_lowerdir_write "$JOURNAL_LOWERDIR_CMD"
+else
+  ssh "${SSH_BASE_ARGS[@]}" "$HOST" "$JOURNAL_LIVE_CMD; sudo -n mountpoint -q /var/log/journal || sudo -n mount /var/log/journal || true; sudo -n systemctl restart systemd-journald || true"
+fi
+
 if [[ "$HOST_IP" == "192.168.1.81" ]]; then
   echo "==> Installing .81 NUC hardware-monitor module configuration..."
   if [[ "$EFFECTIVE_OVERLAY" -eq 1 ]]; then
