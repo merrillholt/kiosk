@@ -1447,9 +1447,6 @@ async function getRemoteUploadsSignature(target) {
     const remoteCmd = `
         set -e
         uploads_dir='${STANDBY_UPLOADS_DIR}'
-        if [[ -d /media/root-ro/home/kiosk/building-directory/server ]]; then
-            uploads_dir='/media/root-ro/home/kiosk/building-directory/server/uploads'
-        fi
         if [[ ! -d "$uploads_dir" ]]; then
             printf 'missing\\n'
             exit 0
@@ -1548,20 +1545,12 @@ async function syncStandbyDatabaseNow(reason = 'manual', options = {}) {
              test -s '${remoteUploadsArchive}'
              sqlite3 '${remoteBackup}' 'PRAGMA schema_version;' >/dev/null
              uploads_dir='${STANDBY_UPLOADS_DIR}'
-             live_uploads_dir='${STANDBY_UPLOADS_DIR}'
+             lower_uploads_dir='/media/root-ro/home/kiosk/building-directory/server/uploads'
              lower_uploads=0
              if [[ -d /media/root-ro/home/kiosk/building-directory/server ]]; then
-                 uploads_dir='/media/root-ro/home/kiosk/building-directory/server/uploads'
                  lower_uploads=1
              fi
              sudo -n systemctl stop directory-server
-             if [[ "$lower_uploads" -eq 1 ]]; then
-                 if ! sudo -n mount -o remount,rw /media/root-ro; then
-                     echo "warning: lower uploads remount failed; falling back to live uploads dir" >&2
-                     uploads_dir="$live_uploads_dir"
-                     lower_uploads=0
-                 fi
-             fi
              cleanup() {
                  if [[ "$lower_uploads" -eq 1 ]]; then
                      sudo -n mount -o remount,ro /media/root-ro || true
@@ -1572,8 +1561,19 @@ async function syncStandbyDatabaseNow(reason = 'manual', options = {}) {
              sudo -n rm -rf "$uploads_dir"
              sudo -n mkdir -p "$uploads_dir"
              sudo -n tar -xzf '${remoteUploadsArchive}' -C "$uploads_dir"
-             cp '${remoteBackup}' '${STANDBY_DB_FILE}'
              sudo -n chown -R kiosk:kiosk "$uploads_dir"
+             if [[ "$lower_uploads" -eq 1 ]]; then
+                 if sudo -n mount -o remount,rw /media/root-ro; then
+                     sudo -n rm -rf "$lower_uploads_dir"
+                     sudo -n mkdir -p "$lower_uploads_dir"
+                     sudo -n cp -a "$uploads_dir"/. "$lower_uploads_dir"/
+                     sudo -n chown -R kiosk:kiosk "$lower_uploads_dir"
+                 else
+                     echo "warning: lower uploads remount failed; live uploads updated only" >&2
+                     lower_uploads=0
+                 fi
+             fi
+             cp '${remoteBackup}' '${STANDBY_DB_FILE}'
              sudo -n chown kiosk:kiosk '${STANDBY_DB_FILE}'
              trap - EXIT
              if [[ "$lower_uploads" -eq 1 ]]; then
