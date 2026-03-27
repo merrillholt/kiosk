@@ -1524,18 +1524,30 @@ async function syncStandbyDatabaseNow(reason = 'manual', options = {}) {
             throw new Error(((remoteStage.stderr || '').trim() || remoteStage.error || 'failed to create standby staging directory'));
         }
 
-        const scp = await runCommandCapture('scp', [
+        const scpBackup = await runCommandCapture('scp', [
             '-i', KIOSK_SSH_KEY,
             '-o', 'BatchMode=yes',
             '-o', 'ConnectTimeout=5',
             '-o', 'StrictHostKeyChecking=accept-new',
             '-o', `UserKnownHostsFile=${KIOSK_KNOWN_HOSTS_FILE}`,
             localBackup,
-            localUploadsArchive,
-            `${target.user}@${target.host}:${remoteStageDir}/`
+            `${target.user}@${target.host}:${remoteBackup}`
         ], { timeout: KIOSK_STANDBY_SYNC_TIMEOUT_MS });
-        if (scp.status !== 0) {
-            throw new Error(((scp.stderr || '').trim() || scp.error || 'failed to copy standby sync payload'));
+        if (scpBackup.status !== 0) {
+            throw new Error(((scpBackup.stderr || '').trim() || scpBackup.error || 'failed to copy standby database payload'));
+        }
+
+        const scpUploads = await runCommandCapture('scp', [
+            '-i', KIOSK_SSH_KEY,
+            '-o', 'BatchMode=yes',
+            '-o', 'ConnectTimeout=5',
+            '-o', 'StrictHostKeyChecking=accept-new',
+            '-o', `UserKnownHostsFile=${KIOSK_KNOWN_HOSTS_FILE}`,
+            localUploadsArchive,
+            `${target.user}@${target.host}:${remoteUploadsArchive}`
+        ], { timeout: KIOSK_STANDBY_SYNC_TIMEOUT_MS });
+        if (scpUploads.status !== 0) {
+            throw new Error(((scpUploads.stderr || '').trim() || scpUploads.error || 'failed to copy standby uploads payload'));
         }
 
         const remoteRestore = await runCommandCapture('ssh', [
