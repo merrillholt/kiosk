@@ -431,7 +431,10 @@ if [[ "$DEPLOY_CLIENT" -eq 1 ]]; then
   echo "==> Applying client-only host configuration..."
   CLIENT_EXTRA_LOWERDIR_CMD="sudo -n rm -f /media/root-ro/etc/udev/rules.d/99-elo-touch-calibration.rules"
   CLIENT_EXTRA_LIVE_CMD="sudo -n rm -f /etc/udev/rules.d/99-elo-touch-calibration.rules"
-  if [[ "$HOST_IP" == "192.168.1.82" ]]; then
+  if [[ "$HOST_IP" == "192.168.1.81" ]]; then
+    CLIENT_EXTRA_LOWERDIR_CMD="sudo -n install -D -m 644 '$DEPLOY_ROOT/scripts/99-elo-touch-calibration-81.rules' /media/root-ro/etc/udev/rules.d/99-elo-touch-calibration.rules"
+    CLIENT_EXTRA_LIVE_CMD="sudo -n install -D -m 644 '$DEPLOY_ROOT/scripts/99-elo-touch-calibration-81.rules' /etc/udev/rules.d/99-elo-touch-calibration.rules"
+  elif [[ "$HOST_IP" == "192.168.1.82" ]]; then
     CLIENT_EXTRA_LOWERDIR_CMD="sudo -n install -D -m 644 '$DEPLOY_ROOT/scripts/99-elo-touch-calibration-82.rules' /media/root-ro/etc/udev/rules.d/99-elo-touch-calibration.rules"
     CLIENT_EXTRA_LIVE_CMD="sudo -n install -D -m 644 '$DEPLOY_ROOT/scripts/99-elo-touch-calibration-82.rules' /etc/udev/rules.d/99-elo-touch-calibration.rules"
   fi
@@ -441,6 +444,15 @@ if [[ "$DEPLOY_CLIENT" -eq 1 ]]; then
     ssh "${SSH_BASE_ARGS[@]}" "$HOST" "sudo -n rm -f /etc/systemd/system/directory-backup.service /etc/systemd/system/directory-backup.timer /etc/systemd/system/timers.target.wants/directory-backup.timer; sudo -n install -D -m 644 '$DEPLOY_ROOT/scripts/kiosk-blacklist-wireless.conf' /etc/modprobe.d/kiosk-blacklist-wireless.conf; sudo -n install -D -m 644 '$DEPLOY_ROOT/scripts/bash_profile' /home/kiosk/.bash_profile; $CLIENT_EXTRA_LIVE_CMD; sudo -n install -d -m 700 /home/kiosk/.config/chromium/Crash\\ Reports/attachments /home/kiosk/.config/chromium/Crash\\ Reports/completed /home/kiosk/.config/chromium/Crash\\ Reports/pending /home/kiosk/.config/chromium/Crash\\ Reports/new /home/kiosk/.pki/nssdb; sudo -n touch /home/kiosk/.config/chromium/Crash\\ Reports/settings.dat; sudo -n chmod 600 /home/kiosk/.config/chromium/Crash\\ Reports/settings.dat; sudo -n chown -R kiosk:kiosk /home/kiosk/.config /home/kiosk/.pki; sudo -n mkdir -p /etc/systemd/user; sudo -n ln -sfn /dev/null /etc/systemd/user/pulseaudio.service; sudo -n ln -sfn /dev/null /etc/systemd/user/pulseaudio.socket; if grep -Eq '^[^#[:space:]]+[[:space:]]+/var/log[[:space:]]+tmpfs[[:space:]]' /etc/fstab 2>/dev/null; then sudo -n sed -i 's|^[^#[:space:]]\\+[[:space:]]\\+/var/log[[:space:]]\\+tmpfs[[:space:]].*|tmpfs /var/log tmpfs defaults,noatime,mode=0755,size=100m 0 0|' /etc/fstab; else printf '%s\n' 'tmpfs /var/log tmpfs defaults,noatime,mode=0755,size=100m 0 0 # overlayroot:fs-virtual' | sudo -n tee -a /etc/fstab >/dev/null; fi; sudo -n udevadm control --reload-rules; sudo -n udevadm trigger --action=change /dev/input/event* >/dev/null 2>&1 || true"
   fi
   ssh "${SSH_BASE_ARGS[@]}" "$HOST" "sudo -n systemctl disable --now directory-backup.timer directory-backup.service >/dev/null 2>&1 || true; systemctl --user disable --now pulseaudio.socket pulseaudio.service >/dev/null 2>&1 || true; systemctl --user reset-failed pulseaudio.socket pulseaudio.service >/dev/null 2>&1 || true; sudo -n systemctl daemon-reload"
+fi
+
+if [[ "$HOST_IP" == "192.168.1.81" ]]; then
+  echo "==> Installing .81 NUC hardware-monitor module configuration..."
+  if [[ "$EFFECTIVE_OVERLAY" -eq 1 ]]; then
+    run_overlay_lowerdir_write "sudo -n install -D -m 644 '$DEPLOY_ROOT/scripts/nct6775.modules-load.conf' /media/root-ro/etc/modules-load.d/kiosk-nuc-hwmon.conf"
+  else
+    ssh "${SSH_BASE_ARGS[@]}" "$HOST" "sudo -n install -D -m 644 '$DEPLOY_ROOT/scripts/nct6775.modules-load.conf' /etc/modules-load.d/kiosk-nuc-hwmon.conf && sudo -n modprobe nct6775 || true"
+  fi
 fi
 
 if [[ "$NO_RESTART" -eq 1 ]]; then
