@@ -1583,6 +1583,12 @@ async function syncStandbyDatabaseNow(reason = 'manual', options = {}) {
              rm -f '${remoteBackup}'`
         ], { timeout: KIOSK_STANDBY_SYNC_TIMEOUT_MS });
         if (remoteRestore.status !== 0) {
+            console.warn('Standby restore command failed', {
+                status: remoteRestore.status,
+                stdout: (remoteRestore.stdout || '').trim(),
+                stderr: (remoteRestore.stderr || '').trim(),
+                error: remoteRestore.error || ''
+            });
             const detail = (remoteRestore.stderr || remoteRestore.stdout || '').trim() || remoteRestore.error || 'failed to restore standby backup';
             throw new Error(`failed to restore standby backup: ${detail}`);
         }
