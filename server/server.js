@@ -1959,16 +1959,25 @@ function startStandbySyncLoop() {
     }, KIOSK_STANDBY_SYNC_CHECK_MS);
     if (typeof standbySyncInterval.unref === 'function') standbySyncInterval.unref();
 
-    setTimeout(() => {
+    const startupRetryDelayMs = 5000;
+    const startupRetryMax = 12;
+    let startupRetryCount = 0;
+    const startupRetryTimer = setInterval(() => {
+        startupRetryCount += 1;
         const target = getStandbySyncTarget();
         if (!isPrimaryServerNode() || !target) {
-            console.log('Standby sync startup check skipped: node not ready');
+            if (startupRetryCount >= startupRetryMax) {
+                clearInterval(startupRetryTimer);
+                console.log('Standby sync startup check gave up: node not ready');
+            }
             return;
         }
         if (standbySyncState.running || standbySyncState.timer) return;
+        clearInterval(startupRetryTimer);
         console.log(`Starting forced standby reconciliation to ${target.user}@${target.host}`);
         void runStandbySync('startup-check', { force: true });
-    }, 1000);
+    }, startupRetryDelayMs);
+    if (typeof startupRetryTimer.unref === 'function') startupRetryTimer.unref();
 }
 
 // Start server
