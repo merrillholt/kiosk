@@ -1428,7 +1428,7 @@ function getLocalUploadsSignature() {
         const fullPath = path.join(UPLOADS_LOWER, entry.name);
         hash.update(entry.name);
         hash.update('\n');
-        hash.update(fs.readFileSync(fullPath));
+        hash.update(crypto.createHash('sha256').update(fs.readFileSync(fullPath)).digest('hex'));
         hash.update('\n');
     }
     return hash.digest('hex');
