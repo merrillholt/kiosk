@@ -427,6 +427,15 @@ if [[ "$DEPLOY_CLIENT" -eq 1 || "$DEPLOY_SERVER" -eq 1 ]]; then
   ssh "${SSH_BASE_ARGS[@]}" "$HOST" "sudo -n systemctl daemon-reload && sudo -n systemctl restart kiosk-guard.service"
 fi
 
+if [[ "$DEPLOY_CLIENT" -eq 1 || "$DEPLOY_SERVER" -eq 1 ]]; then
+  echo "==> Refreshing Elo launcher on remote when present..."
+  if [[ "$EFFECTIVE_OVERLAY" -eq 1 ]]; then
+    run_overlay_lowerdir_write "if [[ -d /media/root-ro/etc/opt/elo-mt-usb ]]; then sudo -n install -D -m 755 '$DEPLOY_ROOT/scripts/loadEloMultiTouchUSB.sh' /media/root-ro/etc/opt/elo-mt-usb/loadEloMultiTouchUSB.sh; fi"
+  else
+    ssh "${SSH_BASE_ARGS[@]}" "$HOST" "if [[ -d /etc/opt/elo-mt-usb ]]; then sudo -n install -D -m 755 '$DEPLOY_ROOT/scripts/loadEloMultiTouchUSB.sh' /etc/opt/elo-mt-usb/loadEloMultiTouchUSB.sh; fi"
+  fi
+fi
+
 if [[ "$DEPLOY_CLIENT" -eq 1 ]]; then
   echo "==> Applying client-only host configuration..."
   CLIENT_EXTRA_LOWERDIR_CMD="sudo -n rm -f /media/root-ro/etc/udev/rules.d/99-elo-touch-calibration.rules"

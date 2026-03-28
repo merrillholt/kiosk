@@ -22,6 +22,7 @@ scripts/production-ops.sh
 scripts/nginx-log-tmpfiles.conf
 scripts/directory-backup.service
 scripts/directory-backup.timer
+scripts/loadEloMultiTouchUSB.sh
 scripts/journald-persistent.conf
 scripts/nct6775.modules-load.conf
 scripts/start-server.sh
