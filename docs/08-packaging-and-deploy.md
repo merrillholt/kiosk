@@ -2,7 +2,7 @@
 
 ## Goal
 
-Keep one canonical source tree at the project root (`server/`, `kiosk/`, `scripts/`, `kiosk-fleet/`) and generate installer payloads from it.
+Keep one canonical source tree at the project root (`server/`, `kiosk/`, `scripts/`) and generate installer payloads from it.
 
 ## Files
 
@@ -90,8 +90,8 @@ Current default kiosk browser URLs:
 - The admin Deploy tab uses `tools/deploy-ssh.sh --client` for kiosk runtime deployment; it is
   not the same as a full application deploy from `tools/deploy-ssh.sh --full`.
 
-## Fleet Script Convenience Wrapper
+## Fleet Control Script
 
-- `scripts/kioskctl` is a thin wrapper that executes `kiosk-fleet/kioskctl`.
-- This lets operators run fleet commands from the `scripts/` path while keeping fleet
-  tooling source under `kiosk-fleet/`.
+- `scripts/kioskctl` is the canonical fleet control script.
+- It embeds the current production kiosk IPs by default and also accepts a
+  whitespace-separated `HOSTS` environment override for ad hoc testing.

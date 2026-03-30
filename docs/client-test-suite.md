@@ -48,7 +48,7 @@ Covers:
 Operational host health checks:
 
 ```bash
-kiosk-fleet/kioskctl status
+scripts/kioskctl status
 ```
 
 This remains useful for release readiness and unexpected failed units.

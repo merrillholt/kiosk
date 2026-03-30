@@ -90,7 +90,7 @@ Use installer entry point:
 - Choose mode: `1) Server` or `3) Both`
 
 Installer performs:
-- Copies `server/`, `scripts/`, `kiosk/` (and `kiosk-fleet/` when present)
+- Copies `server/`, `scripts/`, and `kiosk/`
 - Installs Node.js dependencies
 - Installs and enables `directory-server` service
 - Configures nginx reverse proxy

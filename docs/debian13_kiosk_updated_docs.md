@@ -187,8 +187,8 @@ sudo ufw status | grep 3000
 ## 7) Fleet control script (kioskctl) — updated for cage-based kiosks
 
 **Purpose:** central control from an admin workstation for 1→3 kiosks.  
-Host list file:
-- `building-directory/kiosk-fleet/hosts` (one IP per line)
+Default host list:
+- embedded directly in `scripts/kioskctl`
 
 Updated `kioskctl` (no LightDM/Monit; reports getty@tty1, kiosk-guard, cage, chromium):
 
@@ -196,7 +196,7 @@ Updated `kioskctl` (no LightDM/Monit; reports getty@tty1, kiosk-guard, cage, chr
 #!/usr/bin/env bash
 set -euo pipefail
 
-HOSTS_FILE="${HOSTS_FILE:-$(dirname "$0")/hosts}"
+DEFAULT_HOSTS=("192.168.1.80" "192.168.1.81" "192.168.1.82")
 USER_NAME="${USER_NAME:-kiosk}"
 
 usage() {

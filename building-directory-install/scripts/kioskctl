@@ -1,5 +1,453 @@
 #!/usr/bin/env bash
 set -euo pipefail
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-exec "$ROOT_DIR/kiosk-fleet/kioskctl" "$@"
+
+DEFAULT_HOSTS=("192.168.1.80" "192.168.1.81" "192.168.1.82")
+USER_NAME="${USER_NAME:-kiosk}"
+RAW=0
+STRICT=0
+NO_COLOR_FLAG=0
+CURRENT_HOST=""
+
+usage() {
+  cat <<'EOF'
+Usage: kioskctl [--raw] [--strict] [--no-color] {status|uptime|reboot-normal|reboot-maint|restart-kiosk|cmd <command...>}
+
+Commands:
+  status            Show kiosk + OS health (services, disk/swap/cpu/memory, failed units, recent errors)
+  uptime            Show uptime
+  reboot-normal     Reboot (boots default GRUB entry)
+  reboot-maint      Reboot (then select MAINTENANCE at GRUB)
+  restart-kiosk     Kill cage; tty1 login loop should restart kiosk automatically
+  cmd <command...>  Run an arbitrary remote command on all hosts
+
+Environment:
+  HOSTS       Optional whitespace-separated host list override
+  USER_NAME   SSH username (default: kiosk)
+
+Options:
+  --raw       Show raw failed units/log errors (no expected/unexpected filtering)
+  --strict    Treat all failures/errors as unexpected (disables expected allowlist)
+  --no-color  Disable ANSI color output
+EOF
+  exit 2
+}
+
+hosts() {
+  if [[ -n "${HOSTS:-}" ]]; then
+    printf '%s\n' $HOSTS
+  else
+    printf '%s\n' "${DEFAULT_HOSTS[@]}"
+  fi
+}
+
+run_all() {
+  local cmd="$1"
+  local fail_count=0
+  while read -r h; do
+    echo "=== $h ==="
+    ssh -n -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new \
+      "${USER_NAME}@${h}" "$cmd" || { echo "ERROR on $h"; fail_count=$((fail_count + 1)); }
+  done < <(hosts)
+  if [[ "$fail_count" -gt 0 ]]; then
+    echo "kioskctl: $fail_count host(s) failed" >&2
+    return 1
+  fi
+  return 0
+}
+
+colorize_setup() {
+  if [[ "$NO_COLOR_FLAG" -eq 1 || ! -t 1 || -n "${NO_COLOR:-}" ]]; then
+    C_RESET=""; C_RED=""; C_YEL=""; C_GRN=""; C_CYN=""; C_BLD=""
+  else
+    C_RESET=$'\033[0m'; C_RED=$'\033[31m'; C_YEL=$'\033[93m'; C_GRN=$'\033[32m'; C_CYN=$'\033[36m'; C_BLD=$'\033[1m'
+  fi
+}
+
+is_expected_unit() {
+  local unit="$1"
+  case "$unit" in
+    anacron.service|grub-common.service|systemd-remount-fs.service) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+is_expected_log_line() {
+  local line="$1"
+  [[ "$line" =~ Read-only\ file\ system ]] && return 0
+  [[ "$line" =~ Failed\ to\ start\ systemd-remount-fs\.service ]] && return 0
+  [[ "$line" =~ systemd-remount-fs.*exit\ status\ 32 ]] && return 0
+  [[ "$line" =~ grub-common\.service ]] && return 0
+  [[ "$line" =~ anacron.*Aborted ]] && return 0
+  [[ "$line" =~ anacron.*Read-only\ file\ system ]] && return 0
+  [[ "$line" =~ 90-alsa-restore\.rules.*no\ matching\ label ]] && return 0
+  [[ "$line" =~ xdg-desktop-portal.*pw\.conf:\ can\'t\ load\ config\ client\.conf ]] && return 0
+  return 1
+}
+
+print_lines() {
+  local color="$1"; shift
+  local line
+  for line in "$@"; do
+    [[ -z "$line" ]] && continue
+    echo "  ${color}${line}${C_RESET}"
+  done
+}
+
+extract_percent() {
+  local line="$1"
+  if [[ "$line" =~ \(([0-9]+)%\) ]]; then
+    printf '%s\n' "${BASH_REMATCH[1]}"
+  elif [[ "$line" =~ ([0-9]+(\.[0-9]+)?)% ]]; then
+    printf '%s\n' "${BASH_REMATCH[1]}"
+  else
+    printf '%s\n' ""
+  fi
+}
+
+print_resource_line() {
+  local line="$1"
+  local pct
+  pct="$(extract_percent "$line")"
+
+  case "$line" in
+    disk_root=*|disk_uploads=*)
+      if [[ -z "$pct" ]]; then
+        printf "${C_YEL}%s${C_RESET}\n" "$line"
+      elif awk "BEGIN {exit !($pct >= 95)}"; then
+        printf "${C_RED}%s${C_RESET}\n" "$line"
+      elif awk "BEGIN {exit !($pct >= 80)}"; then
+        printf "${C_YEL}%s${C_RESET}\n" "$line"
+      else
+        printf "${C_GRN}%s${C_RESET}\n" "$line"
+      fi
+      ;;
+    memory=*)
+      if [[ -z "$pct" ]]; then
+        printf "${C_YEL}%s${C_RESET}\n" "$line"
+      elif awk "BEGIN {exit !($pct >= 90)}"; then
+        printf "${C_RED}%s${C_RESET}\n" "$line"
+      elif awk "BEGIN {exit !($pct >= 75)}"; then
+        printf "${C_YEL}%s${C_RESET}\n" "$line"
+      else
+        printf "${C_GRN}%s${C_RESET}\n" "$line"
+      fi
+      ;;
+    swap=disabled)
+      printf "${C_YEL}%s${C_RESET}\n" "$line"
+      ;;
+    swap=*)
+      if [[ -z "$pct" ]]; then
+        printf "${C_YEL}%s${C_RESET}\n" "$line"
+      elif awk "BEGIN {exit !($pct >= 50)}"; then
+        printf "${C_RED}%s${C_RESET}\n" "$line"
+      elif awk "BEGIN {exit !($pct >= 20)}"; then
+        printf "${C_YEL}%s${C_RESET}\n" "$line"
+      else
+        printf "${C_GRN}%s${C_RESET}\n" "$line"
+      fi
+      ;;
+    cpu_usage_1s=*)
+      if [[ "$line" == "cpu_usage_1s=n/a" || -z "$pct" ]]; then
+        printf "${C_YEL}%s${C_RESET}\n" "$line"
+      elif awk "BEGIN {exit !($pct >= 90)}"; then
+        printf "${C_RED}%s${C_RESET}\n" "$line"
+      elif awk "BEGIN {exit !($pct >= 60)}"; then
+        printf "${C_YEL}%s${C_RESET}\n" "$line"
+      else
+        printf "${C_GRN}%s${C_RESET}\n" "$line"
+      fi
+      ;;
+    temp=*)
+      local temp_c=""
+      if [[ "$line" =~ temp=([0-9]+(\.[0-9]+)?)C ]]; then
+        temp_c="${BASH_REMATCH[1]}"
+      fi
+      if [[ "$line" == "temp=n/a" || -z "$temp_c" ]]; then
+        printf "${C_YEL}%s${C_RESET}\n" "$line"
+      elif awk "BEGIN {exit !($temp_c >= 80)}"; then
+        printf "${C_RED}%s${C_RESET}\n" "$line"
+      elif awk "BEGIN {exit !($temp_c >= 65)}"; then
+        printf "${C_YEL}%s${C_RESET}\n" "$line"
+      else
+        printf "${C_GRN}%s${C_RESET}\n" "$line"
+      fi
+      ;;
+  esac
+}
+
+print_status_line() {
+  local line="$1"
+  case "$line" in
+    overlayroot=1|root_ro_lower=ro|ssh=active|getty@tty1=active|kiosk-guard=active|cage=running|chromium=running|active_server_role=primary)
+      printf "${C_GRN}%s${C_RESET}\n" "$line"
+      ;;
+    overlayroot=0|root_ro_lower=not-mounted|active_server_role=standby|active_server_role=unknown)
+      printf "${C_YEL}%s${C_RESET}\n" "$line"
+      ;;
+    root_ro_lower=rw|ssh=unknown|getty@tty1=unknown|kiosk-guard=not-found|cage=stopped|chromium=stopped|active_server_role=offline)
+      printf "${C_RED}%s${C_RESET}\n" "$line"
+      ;;
+    fan=none)
+      case "$CURRENT_HOST" in
+        192.168.1.80|192.168.1.82)
+          printf "${C_GRN}%s${C_RESET}\n" "$line"
+          ;;
+        *)
+          printf "${C_RED}%s${C_RESET}\n" "$line"
+          ;;
+      esac
+      ;;
+    fan=0\ RPM)
+      printf "${C_RED}%s (fan stopped?)${C_RESET}\n" "$line"
+      ;;
+    fan=*)
+      printf "${C_GRN}%s${C_RESET}\n" "$line"
+      ;;
+    disk_root=*|disk_uploads=*|memory=*|swap=*|cpu_usage_1s=*|temp=*)
+      print_resource_line "$line"
+      ;;
+    *)
+      echo "$line"
+      ;;
+  esac
+}
+
+status_all() {
+  local host_fail_count=0
+  local unexpected_count=0
+  local h out rc
+  while read -r h <&3; do
+    printf "%s=== %s ===%s\n" "$C_CYN$C_BLD" "$h" "$C_RESET"
+    CURRENT_HOST="$h"
+    set +e
+    out="$(ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new \
+      "${USER_NAME}@${h}" 'bash -s' <<'END_REMOTE'
+hostname
+if mount | grep -q "^overlayroot on / type overlay"; then echo "overlayroot=1"; else echo "overlayroot=0"; fi
+_rro="$(mount | awk '$3=="/media/root-ro"{print; exit}')"
+if [[ -z "$_rro" ]]; then echo "root_ro_lower=not-mounted"
+elif echo "$_rro" | grep -q '\bro\b'; then echo "root_ro_lower=ro"
+else echo "root_ro_lower=rw"; fi
+echo -n "ssh="; systemctl is-active ssh 2>/dev/null || systemctl is-active sshd 2>/dev/null || echo "unknown"
+echo -n "getty@tty1="; systemctl is-active getty@tty1 2>/dev/null || echo "unknown"
+echo "kiosk-guard=$(systemctl show -p ActiveState --value kiosk-guard 2>/dev/null || echo not-found)"
+if pgrep -x cage >/dev/null 2>&1; then echo "cage=running"; else echo "cage=stopped"; fi
+if pgrep -a chromium >/dev/null 2>&1; then echo "chromium=running"; else echo "chromium=stopped"; fi
+if [[ -f /home/kiosk/building-directory/scripts/start-kiosk-lib.sh ]]; then
+  primary="$(awk -F'http://|}' '/KIOSK_SERVER_URL:-http:\/\//{print "http://" $2; exit}' /home/kiosk/building-directory/scripts/start-kiosk-lib.sh)"
+  standby="$(awk -F'http://|}' '/KIOSK_SERVER_URL_STANDBY:-http:\/\//{print "http://" $2; exit}' /home/kiosk/building-directory/scripts/start-kiosk-lib.sh)"
+elif [[ -f /home/kiosk/building-directory/scripts/start-kiosk.sh ]]; then
+  primary="$(awk -F'"' '/^SERVER_URL=/{print $2; exit}' /home/kiosk/building-directory/scripts/start-kiosk.sh)"
+  standby="$(awk -F'"' '/^SERVER_URL_STANDBY=/{print $2; exit}' /home/kiosk/building-directory/scripts/start-kiosk.sh)"
+else
+  echo "server_url=unknown"
+  echo "server_url_standby=unknown"
+fi
+if [[ -n "${primary:-}" || -n "${standby:-}" ]]; then
+  echo "server_url=${primary:-unknown}"
+  echo "server_url_standby=${standby:-unknown}"
+fi
+if [[ -f /tmp/kiosk-start.log ]]; then
+  _active_line="$(grep -E 'Launching kiosk against (primary|standby)|Primary unreachable after [0-9]+s; switching to standby|Using offline page after startup failure' /tmp/kiosk-start.log | tail -n 1 || true)"
+  case "$_active_line" in
+    *"Launching kiosk against primary "*)
+      echo "active_server_role=primary"
+      echo "active_server_url=${_active_line##*primary }"
+      ;;
+    *"Launching kiosk against standby "*)
+      echo "active_server_role=standby"
+      echo "active_server_url=${_active_line##*standby }"
+      ;;
+    *"switching to standby "*)
+      echo "active_server_role=standby"
+      echo "active_server_url=${_active_line##*standby }"
+      ;;
+    *"Using offline page after startup failure"*)
+      echo "active_server_role=offline"
+      echo "active_server_url=file:///home/kiosk/building-directory/kiosk/unavailable.html"
+      ;;
+    *)
+      echo "active_server_role=unknown"
+      echo "active_server_url=unknown"
+      ;;
+  esac
+else
+  echo "active_server_role=unknown"
+  echo "active_server_url=unknown"
+fi
+_rev_file="/home/kiosk/building-directory/REVISION"
+if [[ -f "$_rev_file" ]]; then
+  echo "revision=$(head -n 1 "$_rev_file" | tr -d '\r')"
+  echo "last_deploy=$(stat -c '%y' "$_rev_file" | sed 's/\.[0-9]\+ / /')"
+else
+  echo "revision=unknown"
+  echo "last_deploy=unknown"
+fi
+echo "disk_root=$(df -hP / | awk 'NR==2 {print $3 "/" $2 " (" $5 ")"}')"
+echo "disk_uploads=$(df -hP /home/kiosk/building-directory/server/uploads 2>/dev/null | awk 'NR==2 {print $3 "/" $2 " (" $5 ")"}' || echo n/a)"
+echo "memory=$(free -m | awk '/Mem:/ {printf "%s/%sMB (%.0f%%)", $3, $2, ($3*100)/$2}')"
+echo "swap=$(free -m | awk '/Swap:/ {if ($2 == 0) print "disabled"; else printf "%s/%sMB (%.0f%%)", $3, $2, ($3*100)/$2}')"
+cpu="$(awk '/cpu / {print $2,$3,$4,$5,$6,$7,$8,$9}' /proc/stat)"
+sleep 1
+cpu2="$(awk '/cpu / {print $2,$3,$4,$5,$6,$7,$8,$9}' /proc/stat)"
+echo "cpu_usage_1s=$(awk -v a="$cpu" -v b="$cpu2" 'BEGIN {
+  split(a,A," "); split(b,B," ");
+  t1=0; t2=0; for(i=1;i<=8;i++){t1+=A[i]; t2+=B[i]}
+  id1=A[4]+A[5]; id2=B[4]+B[5];
+  dt=t2-t1; did=id2-id1;
+  if (dt<=0) print "n/a"; else printf("%.1f%%", (dt-did)*100/dt);
+}')"
+_coretemp_max=""
+for _t in /sys/class/hwmon/*/temp*_input; do
+  [[ -f "$_t" ]] || continue
+  _name_file="$(dirname "$_t")/name"
+  [[ -f "$_name_file" ]] || continue
+  [[ "$(cat "$_name_file")" == "coretemp" ]] || continue
+  _mc="$(cat "$_t" 2>/dev/null || echo "")"
+  [[ "$_mc" =~ ^[0-9]+$ ]] || continue
+  if [[ -z "$_coretemp_max" || "$_mc" -gt "$_coretemp_max" ]]; then
+    _coretemp_max="$_mc"
+  fi
+done
+if [[ -n "$_coretemp_max" ]]; then
+  echo "temp=$(awk -v mc="$_coretemp_max" 'BEGIN {printf "%.1fC", mc/1000}')"
+else
+  echo "temp=n/a"
+fi
+_fan="none"
+_fan_best=""
+_fan_best_value=-1
+for _f in /sys/class/hwmon/*/fan*_input; do
+  [[ -f "$_f" ]] || continue
+  _rpm="$(cat "$_f" 2>/dev/null || echo 0)"
+  if [[ "$_rpm" =~ ^[0-9]+$ ]] && (( _rpm > _fan_best_value )); then
+    _fan_best_value=$_rpm
+    _fan_best="$_rpm RPM"
+  fi
+done
+if [[ -n "$_fan_best" ]]; then
+  _fan="$_fan_best"
+fi
+echo "fan=$_fan"
+echo "__FAILED_UNITS_BEGIN__"
+systemctl --failed --no-legend --plain 2>/dev/null || true
+echo "__FAILED_UNITS_END__"
+echo "__RECENT_ERRORS_BEGIN__"
+if sudo -n true >/dev/null 2>&1; then
+  sudo -n journalctl -p err..alert -b -n 20 --no-pager 2>/dev/null || true
+else
+  journalctl -p err..alert -b -n 20 --no-pager 2>/dev/null || true
+fi
+echo "__RECENT_ERRORS_END__"
+END_REMOTE
+)"
+    rc=$?
+    set -e
+    if [[ "$rc" -ne 0 ]]; then
+      echo "ERROR on $h"
+      host_fail_count=$((host_fail_count + 1))
+      continue
+    fi
+
+    local header overlay
+    header="$(printf '%s\n' "$out" | sed '/^__FAILED_UNITS_BEGIN__$/,$d')"
+    while IFS= read -r line; do
+      print_status_line "$line"
+    done <<< "$header"
+    overlay="$(printf '%s\n' "$header" | awk -F= '/^overlayroot=/{print $2; exit}')"
+    [[ -z "$overlay" ]] && overlay="0"
+
+    local failed_block logs_block line unit
+    local -a runtime_unexpected failed_expected failed_unexpected logs_expected logs_unexpected
+    runtime_unexpected=()
+    failed_expected=()
+    failed_unexpected=()
+    logs_expected=()
+    logs_unexpected=()
+    failed_block="$(printf '%s\n' "$out" | sed -n '/^__FAILED_UNITS_BEGIN__$/,/^__FAILED_UNITS_END__$/p' | sed '1d;$d')"
+    logs_block="$(printf '%s\n' "$out" | sed -n '/^__RECENT_ERRORS_BEGIN__$/,/^__RECENT_ERRORS_END__$/p' | sed '1d;$d')"
+
+    while IFS= read -r line; do
+      case "$line" in
+        kiosk-guard=active|cage=running|chromium=running)
+          ;;
+        kiosk-guard=*|cage=*|chromium=*)
+          runtime_unexpected+=("$line")
+          ;;
+      esac
+    done <<< "$header"
+
+    while IFS= read -r line; do
+      [[ -z "${line// }" ]] && continue
+      unit="$(printf '%s\n' "$line" | awk '{print $1}')"
+      if [[ "$RAW" -eq 0 && "$STRICT" -eq 0 && "$overlay" == "1" ]] && is_expected_unit "$unit"; then
+        failed_expected+=("$line")
+      else
+        failed_unexpected+=("$line")
+      fi
+    done <<< "$failed_block"
+
+    while IFS= read -r line; do
+      [[ -z "${line// }" ]] && continue
+      if [[ "$RAW" -eq 0 && "$STRICT" -eq 0 && "$overlay" == "1" ]] && is_expected_log_line "$line"; then
+        logs_expected+=("$line")
+      else
+        logs_unexpected+=("$line")
+      fi
+    done <<< "$logs_block"
+
+    echo "runtime_checks_unexpected:"
+    if [[ "${#runtime_unexpected[@]}" -eq 0 ]]; then print_lines "$C_GRN" "none"; else print_lines "$C_RED" "${runtime_unexpected[@]}"; fi
+    echo "failed_units_expected:"
+    if [[ "${#failed_expected[@]}" -eq 0 ]]; then print_lines "$C_GRN" "none"; else print_lines "$C_YEL" "${failed_expected[@]}"; fi
+    echo "failed_units_unexpected:"
+    if [[ "${#failed_unexpected[@]}" -eq 0 ]]; then print_lines "$C_GRN" "none"; else print_lines "$C_RED" "${failed_unexpected[@]}"; fi
+    echo "recent_log_errors_expected:"
+    if [[ "${#logs_expected[@]}" -eq 0 ]]; then print_lines "$C_GRN" "none"; else print_lines "$C_YEL" "${logs_expected[@]}"; fi
+    echo "recent_log_errors_unexpected:"
+    if [[ "${#logs_unexpected[@]}" -eq 0 ]]; then print_lines "$C_GRN" "none"; else print_lines "$C_RED" "${logs_unexpected[@]}"; fi
+
+    if [[ "${#runtime_unexpected[@]}" -gt 0 || "${#failed_unexpected[@]}" -gt 0 || "${#logs_unexpected[@]}" -gt 0 ]]; then
+      unexpected_count=$((unexpected_count + 1))
+    fi
+  done 3< <(hosts)
+
+  if [[ "$host_fail_count" -gt 0 ]]; then
+    echo "kioskctl: $host_fail_count host(s) failed" >&2
+    return 1
+  fi
+  if [[ "$unexpected_count" -gt 0 ]]; then
+    echo "kioskctl: unexpected failures/errors detected ($unexpected_count)" >&2
+    return 1
+  fi
+  return 0
+}
+
+colorize_setup
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --raw) RAW=1; shift ;;
+    --strict) STRICT=1; shift ;;
+    --no-color) NO_COLOR_FLAG=1; colorize_setup; shift ;;
+    -h|--help) usage ;;
+    *) break ;;
+  esac
+done
+
+cmd="${1:-}"; shift || true
+case "$cmd" in
+  status) status_all ;;
+  uptime) run_all 'uptime' ;;
+  reboot-normal) run_all 'sudo /sbin/reboot' ;;
+  reboot-maint)
+    run_all 'sudo grub-reboot "Debian Kiosk — MAINTENANCE (writable root)" || true'
+    run_all 'sudo /sbin/reboot'
+    ;;
+  restart-kiosk) run_all 'sudo pkill -x cage || true' ;;
+  cmd)
+    [[ $# -gt 0 ]] || usage
+    run_all "$*"
+    ;;
+  *) usage ;;
+esac

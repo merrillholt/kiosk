@@ -145,8 +145,6 @@ installed by the kiosk/client setup flow. Its behavior is intentionally narrow:
 From the dev machine:
 
 ```bash
-kiosk-fleet/kioskctl restart-kiosk
-# or:
 scripts/kioskctl restart-kiosk
 ```
 
@@ -174,7 +172,7 @@ Inspect the active Wayland output from within a running kiosk session:
 
 ```bash
 # Via kioskctl (from dev machine):
-kiosk-fleet/kioskctl cmd 'wlr-randr'
+scripts/kioskctl cmd 'wlr-randr'
 ```
 
 Or directly on the host after plugging in a USB keyboard to get XFCE, then
@@ -189,7 +187,7 @@ wlr-randr
 From the dev machine:
 
 ```bash
-kiosk-fleet/kioskctl status
+scripts/kioskctl status
 ```
 
 Key fields:

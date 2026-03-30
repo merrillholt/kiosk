@@ -252,7 +252,7 @@ Confirm from the dev machine using kioskctl:
 
 ```bash
 cd /home/security/Public-Kiosk
-kiosk-fleet/kioskctl status
+scripts/kioskctl status
 # Expected: overlayroot=1, root_ro_lower=ro
 ```
 
@@ -393,7 +393,7 @@ The kiosk should start automatically on `tty1` after login. Confirm on the physi
 From the dev machine:
 
 ```bash
-kiosk-fleet/kioskctl status
+scripts/kioskctl status
 ```
 
 Expected output (all hosts):
@@ -438,6 +438,5 @@ Unplug the keyboard. The kiosk session restarts automatically.
 ## Post-Install
 
 - Remove the USB installer stick.
-- Update `kiosk-fleet/hosts` if the new host is not already listed.
-- Run `kiosk-fleet/kioskctl status` from the dev machine to confirm the host appears healthy.
+- Run `scripts/kioskctl status` from the dev machine to confirm the host appears healthy.
 - For `.81` specifically: work through `docs/standby-81-todo.md` once the host is stable.

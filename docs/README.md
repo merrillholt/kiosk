@@ -37,10 +37,11 @@ It also keeps individual development PDFs as reference copies.
 
 - Installer: `building-directory-install/install.sh`
 - Read-only setup: `building-directory-install/readonly/`
-- Deployment guide: `building-directory-install/readonly/DEPLOYMENT.md`
+- Deployment guide: [08-packaging-and-deploy.md](08-packaging-and-deploy.md)
 
 ## Archive
 
 - `docs/archive/` contains legacy/reference artifacts.
 - [archive/02-linux-distro-selection.md](archive/02-linux-distro-selection.md) — pre-decision OS comparison (Debian 13 selected)
-- [Debian 13 Configuration.tex](Debian%2013%20Configuration.tex) — legacy/reference guide; verify against the current Markdown docs before using
+- [archive/Debian 13 Configuration legacy.tex](archive/Debian%2013%20Configuration%20legacy.tex) — legacy/reference guide; verify against the current Markdown docs before using
+- [archive/Enterprise_Kiosk_Deployment_Guide_v2.tex](archive/Enterprise_Kiosk_Deployment_Guide_v2.tex) — legacy/reference guide from the pre-current deploy workflow

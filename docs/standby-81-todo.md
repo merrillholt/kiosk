@@ -3,8 +3,8 @@
 Goal: track work that only becomes actionable after `192.168.1.81` is deployed, reachable, and serving as the standby system.
 
 Note: repo code now includes conservative automatic failback logic in
-`start-kiosk.sh`, but end-to-end failover/failback testing remains deferred
-until `192.168.1.81` is installed, reachable, and serving traffic.
+`start-kiosk.sh`, and the initial end-to-end failover/failback validation has
+been completed with `.80`, `.81`, and `.82` all live.
 
 ## Standby-Dependent Items
 
@@ -28,16 +28,18 @@ until `192.168.1.81` is installed, reachable, and serving traffic.
 
 4. Failover validation
    - Maintenance mode needed: No.
-   - [ ] Confirm `.80`, `.81`, and `.82` are healthy before starting.
-   - [ ] Confirm `.81` matches `.80` for company count and `data_version`.
-   - [ ] Confirm `.81` serves a known uploaded asset such as the configured background image.
-   - [ ] Shut down `.80` and record the outage start time.
-   - [ ] Confirm the kiosks on `.81` and `.82` switch to the standby server on `.81` within the current expected failover window.
-   - [ ] Confirm the clients are actually using `.81`, not only showing cached content.
-   - [ ] Confirm current data and at least one uploaded asset render correctly while on standby.
-   - [ ] Restore `.80` and record when it becomes reachable again.
-   - [ ] Confirm `.81` and `.82` promote back to primary `.80` within the current expected failback window.
-   - [ ] Record actual failover/failback timings and any incorrect or delayed behavior.
+   - [x] Confirm `.80`, `.81`, and `.82` are healthy before starting.
+   - [x] Confirm `.81` matches `.80` for company count and `data_version`.
+   - [x] Confirm `.81` serves a known uploaded asset such as the configured background image.
+   - [x] Shut down `.80` and record the outage start time.
+   - [x] Confirm the kiosks on `.81` and `.82` switch to the standby server on `.81` within the current expected failover window.
+   - [x] Confirm the clients are actually using `.81`, not only showing cached content.
+   - [x] Confirm current data and at least one uploaded asset render correctly while on standby.
+   - [x] Restore `.80` and record when it becomes reachable again.
+   - [x] Confirm `.81` and `.82` promote back to primary `.80` within the current expected failback window.
+   - [x] Record actual failover/failback timings and any incorrect or delayed behavior.
+   - Validation summary:
+     `.81` failed over in about 37 seconds, `.82` in about 39 seconds, `.82` returned to primary in about 35 seconds after `.80` recovered, and `.81` returned in about 49 seconds. Current data and uploaded assets were confirmed during failover.
 
 5. Power-feed failure scenarios
    - Maintenance mode needed: No.

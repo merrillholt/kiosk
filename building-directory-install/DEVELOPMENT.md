@@ -73,7 +73,6 @@ Do not hand-edit duplicated files under `building-directory-install/scripts/`.
 
 ```
 building-directory-install/
-├── deploy.sh                       # Deploy server files to a remote machine
 ├── install.sh                      # First-time installation (server / client / both)
 ├── server/
 │   ├── server.js                   # Express API + kiosk deploy endpoints
@@ -341,26 +340,21 @@ sudo systemctl restart directory-server
 
 ### If the server is a remote machine (or the dev VM)
 
+The old `deploy.sh` helper is archived and is no longer part of the active
+workflow.
+
 ```bash
-cd building-directory-install
-./deploy.sh [user@host]      # default: merrill@192.168.1.127
+cd /home/security/Public-Kiosk
+./tools/deploy-ssh.sh --full --host kiosk@TARGET_IP
 ```
 
-`deploy.sh` handles the overlayroot filesystem on the target machine:
+`tools/deploy-ssh.sh` is the canonical remote deploy path:
 
-1. **SCP** all files to `/tmp/deploy-staging/` on the target.
-2. **Write to the ext4 lower layer** under `/media/root-ro`:
-   - `/usr/local/bin/persist-upload.sh` (chmod 755)
-   - `/usr/local/bin/kiosk-keyboard-added.sh` (chmod 755)
-   - `/etc/udev/rules.d/99-kiosk-keyboard.rules`
-   - `/etc/sudoers.d/directory-server` (chmod 440)
-   - `/home/kiosk/building-directory/server/` (all server files)
-   - `/home/kiosk/building-directory/scripts/` (kiosk scripts + bash_profile template)
-   - `/home/kiosk/.bash_profile`
-   - `/etc/nginx/sites-available/directory`
-3. **Drop the kernel dentry cache** so new lower-layer files become visible
-   to the running overlay without a reboot.
-4. **Reload udev**, **reload nginx**, **restart `directory-server`**.
+1. Stages manifest files on the target over SSH/SCP.
+2. Writes to the overlay lower layer under `/media/root-ro` when needed.
+3. Applies host-specific runtime files such as kiosk scripts, journald config,
+   touchscreen calibration, and server/client role files.
+4. Restarts services or reboots the target as required by the overlay model.
 
 ### Verify after deployment
 
@@ -555,7 +549,8 @@ on reboot.
 | Write a file only needed until next reboot | Write directly to `/tmp` or `/run` (tmpfs) |
 | Stage a file for a deploy helper | Copy to `/tmp` or `/run` as appropriate for the helper |
 
-`tools/deploy-ssh.sh --client` and `deploy.sh` handle all of this automatically.
+`tools/deploy-ssh.sh --client` and `tools/deploy-ssh.sh --full` handle all of
+this automatically.
 
 ---
 

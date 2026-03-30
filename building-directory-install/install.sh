@@ -729,7 +729,7 @@ EOF
     print_info "Configuring overlayroot..."
     echo 'overlayroot="tmpfs"' | sudo tee /etc/overlayroot.conf > /dev/null
     print_warn "Overlayroot is configured. After reboot the filesystem is read-only."
-    print_warn "Use deploy.sh for all future file changes."
+    print_warn "Use tools/deploy-ssh.sh for all future file changes."
 
     print_header "Kiosk Client Installation Complete!"
     echo "On next boot:"

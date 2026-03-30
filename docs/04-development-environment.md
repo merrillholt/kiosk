@@ -54,7 +54,7 @@ sudo systemctl restart directory-server
 
 # 6. Verify
 curl -i http://127.0.0.1/api/data-version
-./kiosk-fleet/kioskctl --no-color status
+./scripts/kioskctl --no-color status
 ```
 
 See `docs/dev-reattachment.md` for the full rebuild sequence.
@@ -79,7 +79,7 @@ sudo systemctl restart directory-server
 
 # 5. Verify
 curl -i http://127.0.0.1/api/data-version
-./kiosk-fleet/kioskctl --no-color status
+./scripts/kioskctl --no-color status
 ```
 
 ## Network Access

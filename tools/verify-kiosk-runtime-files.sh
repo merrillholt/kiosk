@@ -49,7 +49,6 @@ scripts/kioskctl building-directory-install/scripts/kioskctl
 scripts/production-ops.sh building-directory-install/scripts/production-ops.sh
 scripts/restart-server.sh building-directory-install/scripts/restart-server.sh
 scripts/start-server.sh building-directory-install/scripts/start-server.sh
-kiosk-fleet/kioskctl building-directory-install/kiosk-fleet/kioskctl
 EOF
 
 if [[ "$failures" -ne 0 ]]; then

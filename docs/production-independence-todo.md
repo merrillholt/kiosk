@@ -24,11 +24,7 @@ Goal: make production on `192.168.1.80` run and recover correctly even if the de
 ## Priority 4: Rebuild-Safe Development Reattachment
 
 - Maintenance mode needed: No.
-- Status: preflight checks added to `tools/sync-primary-db.sh`; rebuild sequence documented in `docs/dev-reattachment.md`. Still needs a full clean-machine validation.
-- Define the exact rebuild procedure for a fresh development machine after `git pull` or fresh clone.
-- Add preflight checks to any sync tool that currently assumes `/home/security/building-directory` already exists.
-- Ensure the development machine can rehydrate from production state after rebuild without altering production.
-- Test the full rebuild flow on a clean environment.
+- Status: complete. Preflight checks were added to `tools/sync-primary-db.sh`, the rebuild sequence is documented in `docs/dev-reattachment.md`, the GitHub clone/pull workflow is documented in `docs/04-development-environment.md`, and a clean-clone validation from GitHub was completed successfully.
 
 ## Priority 5: Deployment And Recovery Decoupling
 
@@ -52,4 +48,4 @@ Goal: make production on `192.168.1.80` run and recover correctly even if the de
 
 - `192.168.1.80`: primary server and kiosk, healthy on the current tree.
 - `192.168.1.81`: standby server and kiosk, healthy on the current tree. Fresh-host Chromium startup required seeding the per-user Chromium crash-report and NSS state in the kiosk home.
-- `192.168.1.82`: client-only kiosk, healthy on the current tree. It retains the `.82`-specific Elo touch calibration override for the development touchscreen path.
+- `192.168.1.82`: client-only kiosk, healthy on the current tree and now on final hardware. It retains the `.82`-specific Elo touch calibration override required for that host's display path.
