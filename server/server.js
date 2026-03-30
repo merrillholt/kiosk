@@ -1657,7 +1657,9 @@ async function syncStandbyDatabaseNow(reason = 'manual', options = {}) {
 const standbySyncState = {
     dirty: false,
     timer: null,
-    running: false
+    running: false,
+    lastError: null,      // string | null — message from most recent failed sync
+    lastSuccessAt: null   // ISO string | null — timestamp of most recent successful sync
 };
 
 async function runStandbySync(reason = 'manual', options = {}) {
@@ -1672,9 +1674,15 @@ async function runStandbySync(reason = 'manual', options = {}) {
     standbySyncState.running = true;
     standbySyncState.dirty = false;
     try {
-        return await syncStandbyDatabaseNow(reason, options);
+        const result = await syncStandbyDatabaseNow(reason, options);
+        if (result && result.synced) {
+            standbySyncState.lastError = null;
+            standbySyncState.lastSuccessAt = new Date().toISOString();
+        }
+        return result;
     } catch (err) {
         console.warn(`Standby DB sync failed (${reason}): ${err.message}`);
+        standbySyncState.lastError = err.message;
         standbySyncState.dirty = true;
         throw err;
     } finally {
@@ -1946,7 +1954,14 @@ app.get('/api/kiosks', (req, res) => {
 app.get('/api/kiosks/status', (req, res) => {
     const forceRefresh = req.query.refresh === '1' || req.query.refresh === 'true';
     void refreshKioskStatusCache(forceRefresh);
-    res.json(getCachedKioskStatuses());
+    res.json({
+        kiosks: getCachedKioskStatuses(),
+        standbySyncStatus: {
+            enabled: KIOSK_STANDBY_SYNC_ENABLED,
+            lastError: standbySyncState.lastError,
+            lastSuccessAt: standbySyncState.lastSuccessAt
+        }
+    });
 });
 
 // Server URL that kiosk machines should use to reach this server
@@ -2057,12 +2072,14 @@ app.listen(PORT, HOST, () => {
 });
 
 // Handle shutdown gracefully
-process.on('SIGINT', () => {
+function shutdown(signal) {
     db.close((err) => {
         if (err) {
             console.error(err.message);
         }
-        console.log('Database connection closed.');
+        console.log(`Database connection closed (${signal}).`);
         process.exit(0);
     });
-});
+}
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));

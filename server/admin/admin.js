@@ -482,11 +482,12 @@ async function loadDeployTab() {
             apiFetch(`${API_URL}/revision`)
         ]);
         const kiosks = await kioskRes.json();
-        const statuses = await statusRes.json();
+        const statusData = await statusRes.json();
         const { url, standbyUrl } = await urlRes.json();
         const keyData = await keyRes.json();
         const revisionData = await revRes.json();
-        const statusById = new Map((Array.isArray(statuses) ? statuses : []).map(s => [s.id, s]));
+        const statuses = statusData.kiosks || [];
+        const syncStatus = statusData.standbySyncStatus || null;
 
         document.getElementById('deploy-server-url').textContent = url;
         document.getElementById('deploy-server-url-standby').textContent = standbyUrl || 'not configured';
@@ -496,6 +497,7 @@ async function loadDeployTab() {
             keyData.pubkey || ('Error: ' + keyData.error);
 
         renderDeployCards(kiosks, statuses);
+        renderStandbySyncStatus(syncStatus);
         scheduleDeployStatusRefresh(kiosks, 0);
     } catch (error) { showMessage('Failed to load deploy info', 'error'); }
 }
@@ -507,10 +509,13 @@ function scheduleDeployStatusRefresh(kiosks, attempt) {
         try {
             const refreshRes = await apiFetch(`${API_URL}/kiosks/status`);
             if (!refreshRes.ok) return;
-            const statuses = await refreshRes.json();
+            const data = await refreshRes.json();
+            const statuses = data.kiosks || [];
+            const syncStatus = data.standbySyncStatus || null;
             renderDeployCards(kiosks, statuses);
+            renderStandbySyncStatus(syncStatus);
             if (attempt + 1 >= maxAttempts) return;
-            if (Array.isArray(statuses) && statuses.some(status => status && status.refreshing)) {
+            if (statuses.some(status => status && status.refreshing)) {
                 scheduleDeployStatusRefresh(kiosks, attempt + 1);
             }
         } catch (e) {
@@ -531,6 +536,34 @@ function renderDeployCards(kiosks, statuses) {
                 <button class="btn btn-success" onclick="deployOne(${k.id}, '${escapeHtml(k.name)}')" ${k.localTarget ? 'disabled title="Use the external deploy command for this host."' : ''}>Deploy</button>
             </div>
         `).join('');
+}
+
+function renderStandbySyncStatus(syncStatus) {
+    const el = document.getElementById('standby-sync-status');
+    if (!el) return;
+    if (!syncStatus || !syncStatus.enabled) {
+        el.innerHTML = '';
+        return;
+    }
+    let chipClass, chipLabel, detail;
+    if (syncStatus.lastError) {
+        chipClass = 'sync-error';
+        chipLabel = 'sync failed';
+        detail = escapeHtml(syncStatus.lastError);
+    } else if (syncStatus.lastSuccessAt) {
+        chipClass = 'sync-ok';
+        chipLabel = 'sync ok';
+        const d = new Date(syncStatus.lastSuccessAt);
+        detail = `last synced ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    } else {
+        chipClass = 'sync-pending';
+        chipLabel = 'sync pending';
+        detail = 'no sync yet this session';
+    }
+    el.innerHTML = `<div class="standby-sync-row${syncStatus.lastError ? ' sync-error' : ''}">
+        <span class="status-chip ${escapeHtml(chipClass)}">standby ${escapeHtml(chipLabel)}</span>
+        <span class="standby-sync-detail">${detail}</span>
+    </div>`;
 }
 
 function renderKioskStatus(status) {

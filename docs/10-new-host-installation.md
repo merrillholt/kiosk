@@ -11,12 +11,12 @@ Hardware-specific notes are called out inline.
 Before starting:
 
 - Confirm the target IP and hostname:
-  - `.80` — Qotom Q305P, primary
-  - `.81` — Intel NUC DC3217IYE, standby
-  - `.82` — Qotom Q305P, reserved
+  - `.80` — Qotom Q305P, primary server + display
+  - `.81` — Intel NUC DC3217IYE, standby server + display
+  - `.82` — Qotom Q305P, kiosk client (display only, no local server)
 - Configure a DHCP reservation on the router for the host's MAC address.
 - Have a USB stick (≥ 2GB) available for the installer.
-- Confirm the correct power supply is connected (Qotom/reserved: 12V; NUC: 19V — **do not interchange**).
+- Confirm the correct power supply is connected (Qotom: 12V; NUC: 19V — **do not interchange**).
 - Have physical keyboard and monitor access for the install.
 
 ---
@@ -52,7 +52,7 @@ In BIOS:
 
 At the Debian installer partitioning step, set up partitions manually:
 
-**Qotom Q305P (.80 / .82) — single mSATA SSD (confirmed on .80):**
+**Qotom Q305P (.80 / .82) — single mSATA SSD (confirmed on .80 and .82):**
 
 | Partition | Size | Mount | Filesystem |
 |-----------|------|-------|------------|
@@ -145,7 +145,7 @@ When prompted:
 
 | Prompt | Answer |
 |--------|--------|
-| Installation type | `3` (Both Server and Client) for `.80`; `2` (Client only) for `.82` |
+| Installation type | `3` (Both Server and Client) for `.80` and `.81`; `2` (Client only) for `.82` |
 | Load sample data | `n` |
 | Enable HTTP Basic Auth | `n` (systems are physically secure) |
 | Restrict to IP/CIDR | `n` |
@@ -440,3 +440,4 @@ Unplug the keyboard. The kiosk session restarts automatically.
 - Remove the USB installer stick.
 - Run `scripts/kioskctl status` from the dev machine to confirm the host appears healthy.
 - For `.81` specifically: work through `docs/standby-81-todo.md` once the host is stable.
+- `.82` is client-only — no `directory-server` is installed, and no standby configuration applies.
