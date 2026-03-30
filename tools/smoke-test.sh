@@ -78,6 +78,8 @@ check "GET /api/auth/me with session → authenticated:true" '"authenticated":tr
 check "GET /api/auth/me without session → authenticated:false" '"authenticated":false' \
     "$(body "$BASE_URL/api/auth/me" | grep -o '"authenticated":false' || echo '')"
 
+IS_STANDBY=$(body -b "$COOKIE_JAR" "$BASE_URL/api/auth/me" | grep -o '"isStandby":true' || echo '')
+
 # ── Kiosk read routes ─────────────────────────────────────────────────────────
 
 check "GET /api/data-version → 200" "200" "$(status "$BASE_URL/api/data-version")"
@@ -99,33 +101,42 @@ check "POST /api/individuals without auth → 401" "401" \
 
 # ── Authenticated CRUD ────────────────────────────────────────────────────────
 
-CREATE_RESP=$(body -b "$COOKIE_JAR" -X POST "$BASE_URL/api/companies" \
-    -H "Content-Type: application/json" \
-    -d '{"name":"__smoke_test__","building":"Smoke","suite":"000"}')
-CREATE_STATUS=$(echo "$CREATE_RESP" | grep -o '"id":[0-9]*' | head -1 | grep -qo '[0-9]*' && echo "201" || echo "fail")
-
-# Re-run for actual HTTP status (body() consumed response above)
-CREATE_STATUS=$(status -b "$COOKIE_JAR" -X POST "$BASE_URL/api/companies" \
-    -H "Content-Type: application/json" \
-    -d '{"name":"__smoke_test_2__","building":"Smoke","suite":"000"}')
-check "POST /api/companies with auth → 200" "200" "$CREATE_STATUS"
-
-# Extract id from first create for cleanup
-CREATED_ID=$(echo "$CREATE_RESP" | grep -o '"id":[0-9]*' | head -1 | grep -o '[0-9]*' || echo "")
-
-if [[ -n "$CREATED_ID" ]]; then
-    check "DELETE /api/companies/:id with auth → 200" "200" \
-        "$(status -b "$COOKIE_JAR" -X DELETE "$BASE_URL/api/companies/$CREATED_ID")"
+if [[ -n "$IS_STANDBY" ]]; then
+    # Standby server — writes must be blocked with 409
+    check "POST /api/companies with auth → 409 (standby)" "409" \
+        "$(status -b "$COOKIE_JAR" -X POST "$BASE_URL/api/companies" \
+            -H "Content-Type: application/json" \
+            -d '{"name":"__smoke_test__","building":"Smoke","suite":"000"}')"
+    check "DELETE /api/companies/:id with auth → 409 (standby)" "409" \
+        "$(status -b "$COOKIE_JAR" -X DELETE "$BASE_URL/api/companies/1")"
 else
-    printf "${RED}FAIL${RESET} DELETE /api/companies/:id (could not extract created id)\n"
-    (( FAIL++ )) || true
-fi
+    CREATE_RESP=$(body -b "$COOKIE_JAR" -X POST "$BASE_URL/api/companies" \
+        -H "Content-Type: application/json" \
+        -d '{"name":"__smoke_test__","building":"Smoke","suite":"000"}')
 
-# Clean up the second test record by name (best effort)
-CLEANUP_ID=$(body -b "$COOKIE_JAR" "$BASE_URL/api/companies/search?q=__smoke_test" \
-    | grep -o '"id":[0-9]*' | head -1 | grep -o '[0-9]*' || echo "")
-if [[ -n "$CLEANUP_ID" ]]; then
-    curl -s -o /dev/null -b "$COOKIE_JAR" -X DELETE "$BASE_URL/api/companies/$CLEANUP_ID"
+    # Re-run for actual HTTP status (body() consumed response above)
+    CREATE_STATUS=$(status -b "$COOKIE_JAR" -X POST "$BASE_URL/api/companies" \
+        -H "Content-Type: application/json" \
+        -d '{"name":"__smoke_test_2__","building":"Smoke","suite":"000"}')
+    check "POST /api/companies with auth → 200" "200" "$CREATE_STATUS"
+
+    # Extract id from first create for cleanup
+    CREATED_ID=$(echo "$CREATE_RESP" | grep -o '"id":[0-9]*' | head -1 | grep -o '[0-9]*' || echo "")
+
+    if [[ -n "$CREATED_ID" ]]; then
+        check "DELETE /api/companies/:id with auth → 200" "200" \
+            "$(status -b "$COOKIE_JAR" -X DELETE "$BASE_URL/api/companies/$CREATED_ID")"
+    else
+        printf "${RED}FAIL${RESET} DELETE /api/companies/:id (could not extract created id)\n"
+        (( FAIL++ )) || true
+    fi
+
+    # Clean up the second test record by name (best effort)
+    CLEANUP_ID=$(body -b "$COOKIE_JAR" "$BASE_URL/api/companies/search?q=__smoke_test" \
+        | grep -o '"id":[0-9]*' | head -1 | grep -o '[0-9]*' || echo "")
+    if [[ -n "$CLEANUP_ID" ]]; then
+        curl -s -o /dev/null -b "$COOKIE_JAR" -X DELETE "$BASE_URL/api/companies/$CLEANUP_ID"
+    fi
 fi
 
 # ── Backup ────────────────────────────────────────────────────────────────────
