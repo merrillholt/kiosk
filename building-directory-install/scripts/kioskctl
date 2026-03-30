@@ -203,6 +203,15 @@ print_status_line() {
     fan=*)
       printf "${C_GRN}%s${C_RESET}\n" "$line"
       ;;
+    server_html_primary=ok|server_html_standby=ok)
+      printf "${C_GRN}%s${C_RESET}\n" "$line"
+      ;;
+    server_html_primary=unknown|server_html_standby=unknown)
+      printf "${C_YEL}%s${C_RESET}\n" "$line"
+      ;;
+    server_html_primary=*|server_html_standby=*)
+      printf "${C_RED}%s${C_RESET}\n" "$line"
+      ;;
     disk_root=*|disk_uploads=*|memory=*|swap=*|cpu_usage_1s=*|temp=*)
       print_resource_line "$line"
       ;;
@@ -247,6 +256,24 @@ if [[ -n "${primary:-}" || -n "${standby:-}" ]]; then
   echo "server_url=${primary:-unknown}"
   echo "server_url_standby=${standby:-unknown}"
 fi
+check_server_html() {
+  _url="$1"
+  if [[ -z "$_url" || "$_url" == "unknown" ]]; then
+    echo "unknown"
+    return 0
+  fi
+  _body="$(curl -fsS --max-time 5 "$_url" 2>/dev/null || true)"
+  if [[ -z "$_body" ]]; then
+    echo "unreachable"
+  elif printf '%s' "$_body" | grep -q '<title>Building Directory</title>' && \
+       printf '%s' "$_body" | grep -q 'id="main-menu"'; then
+    echo "ok"
+  else
+    echo "unexpected"
+  fi
+}
+echo "server_html_primary=$(check_server_html "${primary:-unknown}")"
+echo "server_html_standby=$(check_server_html "${standby:-unknown}")"
 if [[ -f /tmp/kiosk-start.log ]]; then
   _active_line="$(grep -E 'Launching kiosk against (primary|standby)|Primary unreachable after [0-9]+s; switching to standby|Using offline page after startup failure' /tmp/kiosk-start.log | tail -n 1 || true)"
   case "$_active_line" in
@@ -352,6 +379,30 @@ END_REMOTE
     local header overlay
     header="$(printf '%s\n' "$out" | sed '/^__FAILED_UNITS_BEGIN__$/,$d')"
     while IFS= read -r line; do
+      case "$line" in
+        *=*)
+          ;;
+        *)
+          print_status_line "$line"
+          ;;
+      esac
+    done <<< "$header"
+    local info_line
+    for info_line in server_url server_html_primary server_url_standby server_html_standby active_server_role active_server_url revision last_deploy; do
+      while IFS= read -r line; do
+        case "$line" in
+          "${info_line}="*)
+            print_status_line "$line"
+            ;;
+        esac
+      done <<< "$header"
+    done
+    while IFS= read -r line; do
+      case "$line" in
+        server_url=*|server_url_standby=*|server_html_primary=*|server_html_standby=*|active_server_role=*|active_server_url=*|revision=*|last_deploy=*)
+          continue
+          ;;
+      esac
       print_status_line "$line"
     done <<< "$header"
     overlay="$(printf '%s\n' "$header" | awk -F= '/^overlayroot=/{print $2; exit}')"
