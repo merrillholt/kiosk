@@ -579,7 +579,7 @@ function renderDeployCards(kiosks, statuses) {
 function renderStandbySyncStatus(syncStatus) {
     const el = document.getElementById('standby-sync-status');
     if (!el) return;
-    if (!syncStatus || !syncStatus.enabled) {
+    if (!syncStatus || !syncStatus.enabled || serverIsStandby) {
         el.innerHTML = '';
         return;
     }
