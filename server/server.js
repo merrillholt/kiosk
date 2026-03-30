@@ -1990,6 +1990,49 @@ app.get('/api/kiosks/deploy-pubkey', (req, res) => {
     }
 });
 
+// Authorize this server's deploy public key on a kiosk's authorized_keys
+app.post('/api/kiosks/:id/authorize-key', async (req, res) => {
+    const id = parseInt(req.params.id);
+    const kiosk = KIOSK_CLIENTS.find(k => k.id === id);
+    if (!kiosk) return res.status(404).json({ error: 'Kiosk not found' });
+
+    const pubKeyPath = KIOSK_SSH_KEY + '.pub';
+    if (!fs.existsSync(pubKeyPath)) {
+        return res.status(400).json({ error: 'Deploy key not found. Open the Deploy tab to generate it first.' });
+    }
+    let pubKey;
+    try {
+        pubKey = fs.readFileSync(pubKeyPath, 'utf8').trim();
+    } catch (e) {
+        return res.status(500).json({ error: `Failed to read public key: ${e.message}` });
+    }
+
+    // Single-quoting is safe: ed25519 public keys never contain single quotes.
+    const remoteCmd = `mkdir -p ~/.ssh && chmod 700 ~/.ssh && ` +
+        `if grep -qxF '${pubKey}' ~/.ssh/authorized_keys 2>/dev/null; ` +
+        `then echo already_present; ` +
+        `else echo '${pubKey}' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && echo added; fi`;
+
+    const result = await runCommandCapture('ssh', [
+        '-i', KIOSK_SSH_KEY,
+        '-o', 'BatchMode=yes',
+        '-o', 'ConnectTimeout=5',
+        '-o', 'StrictHostKeyChecking=accept-new',
+        '-o', `UserKnownHostsFile=${KIOSK_KNOWN_HOSTS_FILE}`,
+        `${kiosk.user}@${kiosk.ip}`,
+        remoteCmd
+    ], { timeout: 10000 });
+
+    if (result.status !== 0) {
+        const err = ((result.stderr || '').trim() || result.error || 'SSH connection failed');
+        const bootstrapCmd = `ssh ${kiosk.user}@${kiosk.ip} "mkdir -p ~/.ssh && chmod 700 ~/.ssh && grep -qxF '${pubKey}' ~/.ssh/authorized_keys 2>/dev/null || (echo '${pubKey}' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys)"`;
+        return res.status(502).json({ error: err, bootstrapCmd });
+    }
+
+    const output = (result.stdout || '').trim();
+    res.json({ success: true, alreadyPresent: output === 'already_present' });
+});
+
 // Deploy client runtime scripts to one kiosk machine
 app.post('/api/kiosks/:id/deploy', (req, res) => {
     const id = parseInt(req.params.id);
