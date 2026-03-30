@@ -2029,11 +2029,23 @@ app.post('/api/kiosks/:id/authorize-key', async (req, res) => {
         return res.status(500).json({ error: `Failed to read public key: ${e.message}` });
     }
 
-    // Single-quoting is safe: ed25519 public keys never contain single quotes.
-    const remoteCmd = `mkdir -p ~/.ssh && chmod 700 ~/.ssh && ` +
-        `if grep -qxF '${pubKey}' ~/.ssh/authorized_keys 2>/dev/null; ` +
-        `then echo already_present; ` +
-        `else echo '${pubKey}' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && echo added; fi`;
+    // On overlayroot hosts the home directory lives in a tmpfs overlay and is
+    // ephemeral.  Detect this and redirect writes to the persistent lower layer
+    // at /media/root-ro.  On non-overlay hosts fall back to ~/.ssh as normal.
+    // Single-quoting the key is safe: ed25519 public keys never contain single quotes.
+    const remoteCmd = [
+        `if mount | grep -q '^overlayroot on / type overlay'; then`,
+        `  SSHDIR=/media/root-ro/home/${kiosk.user}/.ssh;`,
+        `  sudo -n mount -o remount,rw /media/root-ro 2>/dev/null || true;`,
+        `else`,
+        `  SSHDIR=$HOME/.ssh;`,
+        `fi &&`,
+        `mkdir -p "$SSHDIR" && chmod 700 "$SSHDIR" &&`,
+        `if grep -qxF '${pubKey}' "$SSHDIR/authorized_keys" 2>/dev/null;`,
+        `then echo already_present;`,
+        `else echo '${pubKey}' >> "$SSHDIR/authorized_keys" && chmod 600 "$SSHDIR/authorized_keys" && echo added;`,
+        `fi`,
+    ].join(' ');
 
     const result = await runCommandCapture('ssh', [
         '-i', KIOSK_SSH_KEY,
@@ -2047,7 +2059,7 @@ app.post('/api/kiosks/:id/authorize-key', async (req, res) => {
 
     if (result.status !== 0) {
         const err = ((result.stderr || '').trim() || result.error || 'SSH connection failed');
-        const bootstrapCmd = `ssh ${kiosk.user}@${kiosk.ip} "mkdir -p ~/.ssh && chmod 700 ~/.ssh && grep -qxF '${pubKey}' ~/.ssh/authorized_keys 2>/dev/null || (echo '${pubKey}' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys)"`;
+        const bootstrapCmd = `ssh ${kiosk.user}@${kiosk.ip} 'if mount | grep -q "^overlayroot on / type overlay"; then SSHDIR=/media/root-ro/home/${kiosk.user}/.ssh; sudo -n mount -o remount,rw /media/root-ro 2>/dev/null || true; else SSHDIR=$HOME/.ssh; fi && mkdir -p "$SSHDIR" && chmod 700 "$SSHDIR" && (grep -qxF "${pubKey}" "$SSHDIR/authorized_keys" 2>/dev/null || (echo "${pubKey}" >> "$SSHDIR/authorized_keys" && chmod 600 "$SSHDIR/authorized_keys"))'`;
         return res.status(502).json({ error: err, bootstrapCmd });
     }
 
