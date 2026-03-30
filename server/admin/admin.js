@@ -3,6 +3,8 @@ let isAuthenticated = false;
 let authToken = '';
 let messageTimer = null;
 let deployPubKey = '';
+let serverIsStandby = false;
+let primaryAdminUrl = '';
 const kioskAuthState = new Map(); // id → { bootstrapCmd, error, success, working }
 
 function apiFetch(url, options = {}) {
@@ -757,6 +759,7 @@ function setupAuthUi() {
             authToken = data.token || '';
             isAuthenticated = true;
             document.getElementById('auth-password').value = '';
+            await ensureAuthenticated(); // captures isStandby / primaryUrl
             setAuthState(true);
             loadCompanies();
             showMessage('Logged in');
@@ -778,6 +781,19 @@ function setAuthState(authenticated) {
     document.getElementById('auth-panel').style.display = authenticated ? 'none' : 'block';
     document.getElementById('logout-btn').style.display = authenticated ? 'inline-block' : 'none';
     document.getElementById('tabs-container').style.display = authenticated ? 'block' : 'none';
+    if (authenticated) applyStandbyMode(serverIsStandby, primaryAdminUrl);
+}
+
+function applyStandbyMode(isStandby, adminUrl) {
+    const banner = document.getElementById('standby-banner');
+    if (!banner) return;
+    document.body.classList.toggle('standby-mode', isStandby);
+    if (!isStandby) { banner.style.display = 'none'; return; }
+    const linkHtml = adminUrl
+        ? ` <a href="${escapeHtml(adminUrl)}" class="standby-banner-link">Go to primary →</a>`
+        : '';
+    banner.innerHTML = `<span>⚠ Standby server — data changes are disabled here.${linkHtml}</span>`;
+    banner.style.display = 'block';
 }
 
 async function ensureAuthenticated() {
@@ -786,8 +802,10 @@ async function ensureAuthenticated() {
         if (!res.ok) return false;
         const data = await res.json();
         const ok = !!data.authenticated;
-        if (!ok) authToken = '';
-        return ok;
+        if (!ok) { authToken = ''; return false; }
+        serverIsStandby = !!data.isStandby;
+        primaryAdminUrl = data.primaryUrl ? data.primaryUrl.replace(/\/$/, '') + '/admin' : '';
+        return true;
     } catch (e) {
         return false;
     }

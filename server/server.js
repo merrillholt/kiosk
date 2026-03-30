@@ -198,6 +198,24 @@ app.use('/api', (req, res, next) => {
     return next();
 });
 
+// Block data-mutating requests on standby servers.
+// A node is standby if a primary URL is configured and this host is not the primary.
+// Kiosk management endpoints (/kiosks/*) remain active — useful if the standby becomes
+// the active server during a failover.
+function isStandbyNode() {
+    return !!KIOSK_SERVER_URL && !isPrimaryServerNode();
+}
+app.use('/api', (req, res, next) => {
+    if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return next();
+    if (!isStandbyNode()) return next();
+    if (req.path.startsWith('/auth/')) return next();
+    if (req.path.startsWith('/kiosks/')) return next();
+    return res.status(409).json({
+        error: 'This is the standby server. Data changes must be made on the primary.',
+        primaryUrl: KIOSK_SERVER_URL
+    });
+});
+
 if (ADMIN_PASSWORD === 'kiosk') {
     console.warn('WARNING: Default admin password "kiosk" is active.');
 }
@@ -332,7 +350,11 @@ app.post('/api/auth/logout', (req, res) => {
 
 app.get('/api/auth/me', (req, res) => {
     const sessionId = getSessionId(req);
-    return res.json({ authenticated: isValidAdminSession(sessionId) });
+    return res.json({
+        authenticated: isValidAdminSession(sessionId),
+        isStandby: isStandbyNode(),
+        primaryUrl: KIOSK_SERVER_URL || null
+    });
 });
 
 // Multer storage — saves uploaded image to TEMP_DIR with sanitized original filename
