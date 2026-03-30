@@ -347,6 +347,7 @@ SyslogIdentifier=directory-server
 Environment=NODE_ENV=production
 Environment=KIOSK_ALLOW_DEFAULT_PASSWORD=true
 Environment=KIOSK_ADMIN_PASSWORD=kiosk
+Environment=KIOSK_SSH_KEY=/data/directory/kiosk_deploy_key
 
 [Install]
 WantedBy=multi-user.target
