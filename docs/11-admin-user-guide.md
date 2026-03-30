@@ -242,16 +242,27 @@ SSH.
 
 ### SSH Deploy Key
 
-The server generates a dedicated SSH key pair for deployments. To authorize the
-server to deploy to a kiosk:
+The server generates a dedicated SSH key pair for deployments. The key is
+created on first load of the Deploy tab and stored at
+`/data/directory/kiosk_deploy_key` on the server — the `/data` partition
+is persistent across reboots. The public key is shown in the Deploy tab.
+
+To authorise the server to deploy to a kiosk:
 
 1. Click **Deploy** tab.
 2. Copy the **public key** shown in the SSH Deploy Key section.
 3. Log in to the target kiosk machine and append the public key to
-   `~/.ssh/authorized_keys` for the deploy user.
+   `~/.ssh/authorized_keys` for the kiosk user.
 
-This only needs to be done once per kiosk. The key does not change unless
-regenerated.
+This only needs to be done once per kiosk machine. The key does not change
+unless the key file at `/data/directory/kiosk_deploy_key` is deleted.
+
+**If the Deploy tab shows "Failed to generate SSH key: Read-only file
+system"**, the service is not configured with `KIOSK_SSH_KEY` pointing to
+`/data/`. Check that `KIOSK_SSH_KEY=/data/directory/kiosk_deploy_key` is
+set in `/etc/systemd/system/directory-server.service` (this requires writing
+to the overlay lower layer via `overlayroot-chroot` or the deploy script).
+See `docs/09-server-operations.md` for environment variable details.
 
 ### Kiosk Status
 

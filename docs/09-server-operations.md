@@ -213,7 +213,7 @@ Common server vars (set in `/etc/systemd/system/directory-server.service`):
 - `KIOSK_SERVER_URL`
 - `KIOSK_SERVER_URL_STANDBY`
 - `KIOSK_CLIENTS`
-- `KIOSK_SSH_KEY`
+- `KIOSK_SSH_KEY` — path to the SSH private key used for kiosk deploys (default: `~/.ssh/kiosk_deploy_key`). **Must point to `/data/directory/kiosk_deploy_key`** on overlay hosts — the default path is under overlayroot and lost on reboot. The installer sets this correctly; see Troubleshooting if the Deploy tab shows a key generation error.
 - `KIOSK_DB`
 - `KIOSK_UPLOADS_LOWER` (optional override for uploaded background image directory)
 
