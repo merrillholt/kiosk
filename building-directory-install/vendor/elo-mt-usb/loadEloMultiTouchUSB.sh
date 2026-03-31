@@ -35,4 +35,4 @@ fi
 sleep 1
 
 # Load the Elo USB Touchscreen Daemon into memory
-exec /etc/opt/elo-mt-usb/elomtusbd --stdigitizer
+/etc/opt/elo-mt-usb/elomtusbd --stdigitizer
