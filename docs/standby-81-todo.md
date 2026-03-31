@@ -43,24 +43,22 @@ been completed with `.80`, `.81`, and `.82` all live.
 
 5. Power-feed failure scenarios
    - Maintenance mode needed: No.
-   - Validate behavior when `192.168.1.80` and `192.168.1.82` are down but `192.168.1.81` remains active.
-   - Validate behavior when only `192.168.1.80` is down and kiosks must switch to `192.168.1.81`.
-   - Validate automatic failback behavior when `192.168.1.80` returns after an outage.
-   - Confirm the long fixed failback intervals are acceptable in practice or adjust them upward if needed.
+   - [x] Validate behavior when `192.168.1.80` and `192.168.1.82` are down but `192.168.1.81` remains active.
+   - [x] Validate behavior when only `192.168.1.80` is down and kiosks must switch to `192.168.1.81`.
+   - [x] Validate automatic failback behavior when `192.168.1.80` returns after an outage.
+   - [x] Confirm the long fixed failback intervals are acceptable in practice or adjust them upward if needed.
 
 6. Standby RPO/RTO policy
    - Maintenance mode needed: No.
-   - Define how stale the standby database is allowed to be before failover is considered unacceptable.
-   - Define how quickly kiosks should switch from `192.168.1.80` to `192.168.1.81`.
-   - Prefer scheduled automated sync over manual sync.
-   - Decide whether sync frequency must be scheduled, event-driven, or both.
+   - [x] RPO: event-driven sync (on startup + after each admin mutation) is acceptable. No maximum staleness interval required.
+   - [x] RTO: ~37-39 second failover window is acceptable.
+   - [x] Sync model: event-driven is sufficient; no scheduled periodic sync required.
 
 7. Standby operational policy
    - Maintenance mode needed: No.
-   - Keep system-level administration minimal after installation.
-   - Do not require manual sync from `192.168.1.80` to `192.168.1.81` during normal operation.
-   - Decide whether automated sync from `192.168.1.80` to `192.168.1.81` is scheduled, event-driven, or both.
-   - Decide whether standby backups are promoted, rotated, or pruned independently of production.
+   - [x] No manual sync required during normal operation.
+   - [x] Sync is event-driven (startup + post-mutation); no scheduled sync needed.
+   - [x] Backup retention on standby is not required — manual DB download via admin UI covers the extended-outage scenario.
 
 ## Activation Criteria
 
