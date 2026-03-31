@@ -283,6 +283,7 @@ if [ "$INSTALL_MODE" = "server" ] || [ "$INSTALL_MODE" = "both" ]; then
     # Keep the SQLite database on /data so server writes survive overlayroot.
     print_info "Configuring database storage on /data..."
     sudo install -d -m 775 -o "$INSTALL_USER" -g "$INSTALL_USER" /data/directory
+    sudo install -d -m 775 -o "$INSTALL_USER" -g "$INSTALL_USER" /data/backups/building-directory
     if [ -L "$INSTALL_DIR/server/directory.db" ]; then
         print_info "Server database symlink already present."
     else

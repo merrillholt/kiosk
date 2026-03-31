@@ -5,4 +5,5 @@ After=network.target
 [Service]
 Type=oneshot
 User=@INSTALL_USER@
+Environment=KIOSK_SERVER_URL=http://192.168.1.80
 ExecStart=@INSTALL_DIR@/scripts/backup.sh

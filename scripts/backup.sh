@@ -13,6 +13,15 @@ BACKUP_PATH="$BACKUP_DIR/$BASENAME"
 TMP_PATH="$BACKUP_DIR/.${BASENAME}.tmp"
 LATEST_PATH="$BACKUP_DIR/directory-latest.sqlite"
 
+primary_host="${KIOSK_SERVER_URL:-http://192.168.1.80}"
+primary_host="${primary_host#*://}"
+primary_host="${primary_host%%/*}"
+primary_host="${primary_host%%:*}"
+if [[ -n "$primary_host" ]] && ! hostname -I | tr ' ' '\n' | grep -qxF "$primary_host"; then
+    echo "Backup skipped: this node is not the primary server (primary: $primary_host)."
+    exit 0
+fi
+
 if [[ ! -f "$DB_FILE" ]]; then
     echo "Database not found: $DB_FILE" >&2
     exit 1
