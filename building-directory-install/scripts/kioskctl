@@ -10,11 +10,12 @@ CURRENT_HOST=""
 
 usage() {
   cat <<'EOF'
-Usage: kioskctl [--raw] [--strict] [--no-color] {status|uptime|reboot-normal|reboot-maint|restart-kiosk|cmd <command...>}
+Usage: kioskctl [--raw] [--strict] [--no-color] {status|uptime|revision|reboot-normal|reboot-maint|restart-kiosk|cmd <command...>}
 
 Commands:
   status            Show kiosk + OS health (services, disk/swap/cpu/memory, failed units, recent errors)
   uptime            Show uptime
+  revision          Show deployed revision from REVISION file
   reboot-normal     Reboot (boots default GRUB entry)
   reboot-maint      Reboot (then select MAINTENANCE at GRUB)
   restart-kiosk     Kill cage; tty1 login loop should restart kiosk automatically
@@ -490,6 +491,7 @@ cmd="${1:-}"; shift || true
 case "$cmd" in
   status) status_all ;;
   uptime) run_all 'uptime -p' ;;
+  revision) run_all 'f=/home/kiosk/building-directory/REVISION; [[ -f "$f" ]] && cat "$f" || echo "unknown"' ;;
   reboot-normal) run_all 'sudo /sbin/reboot' ;;
   reboot-maint)
     run_all 'sudo grub-reboot "Debian Kiosk — MAINTENANCE (writable root)" || true'
