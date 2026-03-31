@@ -489,7 +489,7 @@ done
 cmd="${1:-}"; shift || true
 case "$cmd" in
   status) status_all ;;
-  uptime) run_all 'uptime' ;;
+  uptime) run_all 'uptime -p' ;;
   reboot-normal) run_all 'sudo /sbin/reboot' ;;
   reboot-maint)
     run_all 'sudo grub-reboot "Debian Kiosk — MAINTENANCE (writable root)" || true'
