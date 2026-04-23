@@ -1,30 +1,33 @@
-# Standby 192.168.1.81 TODO
+# Standby 192.168.1.81 Status
 
-Goal: track work that only becomes actionable after `192.168.1.81` is deployed, reachable, and serving as the standby system.
+Goal: capture the deployed standby system's validation history, operating policy,
+and remaining reference notes for `192.168.1.81`.
 
 Note: repo code now includes conservative automatic failback logic in
 `start-kiosk.sh`, and the initial end-to-end failover/failback validation has
 been completed with `.80`, `.81`, and `.82` all live.
 
-## Standby-Dependent Items
+## Standby Validation And Policy
 
 1. Direct database sync from production to standby
    - Maintenance mode needed: No.
-   - Make `192.168.1.80` push a consistent SQLite backup directly to `192.168.1.81`.
-   - Restore the pushed backup into the standby database on `192.168.1.81`.
-   - Verify the sync works with the development machine offline.
-   - Design this as an automated steady-state workflow, not a manual operator task.
+   - Status: complete.
+   - `192.168.1.80` pushes a consistent SQLite backup directly to `192.168.1.81`.
+   - The pushed backup is restored into the standby database on `192.168.1.81`.
+   - Sync works with the development machine offline.
+   - The workflow is automated steady-state behavior, not a manual operator task.
 
 2. Replicate production backup retention to standby
    - Maintenance mode needed: No.
-   - Decide whether `192.168.1.81` should keep only the live standby DB or also retain backup history copied from `192.168.1.80`.
-   - If backup retention is desired, store replicated backups on persistent storage on `192.168.1.81`.
-   - Define retention rules so standby backup storage does not grow without bound.
+   - Status: not required.
+   - `192.168.1.81` keeps the live standby DB only.
+   - Replicated backup retention on standby is intentionally not part of the operating model.
 
 3. Standby restore drill
    - Maintenance mode needed: No.
-   - Verify that a production-generated backup can be restored successfully on `192.168.1.81`.
-   - Confirm `directory-server` on `192.168.1.81` starts cleanly after restore.
+   - Status: complete.
+   - A production-generated backup restores successfully on `192.168.1.81`.
+   - `directory-server` on `192.168.1.81` starts cleanly after restore.
 
 4. Failover validation
    - Maintenance mode needed: No.
@@ -60,9 +63,8 @@ been completed with `.80`, `.81`, and `.82` all live.
    - [x] Sync is event-driven (startup + post-mutation); no scheduled sync needed.
    - [x] Backup retention on standby is not required — manual DB download via admin UI covers the extended-outage scenario.
 
-## Activation Criteria
+## Current State
 
-Start this list only after:
 - `192.168.1.81` is installed and reachable over SSH.
 - `directory-server` is deployed and healthy on `192.168.1.81`.
 - Persistent database storage on `192.168.1.81` is verified.

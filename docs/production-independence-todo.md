@@ -1,4 +1,4 @@
-# Production Independence TODO
+# Production Independence Status
 
 Goal: make production on `192.168.1.80` run and recover correctly even if the development machine is deleted, rebuilt, or unavailable.
 

@@ -25,6 +25,7 @@
         </div>
 
         <div id="tabs-container" style="display:none;">
+            <div id="standby-banner" class="standby-banner" style="display:none;"></div>
             <div class="tabs">
                 <button class="tab active" onclick="showTab(this, 'companies')">Companies</button>
                 <button class="tab" onclick="showTab(this, 'individuals')">Individuals</button>
@@ -220,6 +221,7 @@
                     <button class="btn btn-primary" id="deploy-all-btn" onclick="deployAll()">Deploy to All</button>
                 </div>
                 <div id="kiosk-deploy-list"></div>
+                <div id="standby-sync-status"></div>
 
                 <h3 style="margin:24px 0 8px;color:#34495e;">Output</h3>
                 <pre id="deploy-output" class="deploy-output">Ready.</pre>

@@ -2,7 +2,7 @@
 
 ## Deployed Hardware
 
-### Qotom Q305P — Primary server + display (192.168.1.80) / Reserved (192.168.1.82)
+### Qotom Q305P — Primary server + display (192.168.1.80) / Client-only kiosk (192.168.1.82)
 
 | Spec | Value |
 |------|-------|
@@ -53,7 +53,7 @@ Reference doc: `docs/hardware/Intel® NUC Kit DC3217IYE.pdf`
 
 | | Qotom Q305P (.80) | NUC DC3217IYE (.81) | Qotom Q305P (.82) |
 |--|--|--|--|
-| Role | Primary server + display | Standby server + display | Reserved |
+| Role | Primary server + display | Standby server + display | Client-only kiosk |
 | CPU generation | Broadwell (5th gen) | Ivy Bridge (3rd gen) | Broadwell (5th gen) |
 | Cooling | Fanless | Fan (active) | Fanless |
 | Storage interface | mSATA + 2.5" SATA | mSATA only | mSATA + 2.5" SATA |
@@ -81,7 +81,7 @@ See `docs/elo-cage-wayland-kiosk-hardening.md` for Elo 3239L-specific configurat
 
 - Wired Ethernet (WiFi not recommended for permanent installation)
 - DHCP reservation per host to maintain stable IPs
-- Static assignment: `.80` = primary, `.81` = standby, `.82` = reserved
+- Static assignment: `.80` = primary, `.81` = standby, `.82` = client-only kiosk
 
 ## Storage Sizing
 

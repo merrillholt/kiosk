@@ -198,6 +198,24 @@ app.use('/api', (req, res, next) => {
     return next();
 });
 
+// Block data-mutating requests on standby servers.
+// A node is standby if a primary URL is configured and this host is not the primary.
+// Kiosk management endpoints (/kiosks/*) remain active — useful if the standby becomes
+// the active server during a failover.
+function isStandbyNode() {
+    return !!KIOSK_SERVER_URL && !isPrimaryServerNode();
+}
+app.use('/api', (req, res, next) => {
+    if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return next();
+    if (!isStandbyNode()) return next();
+    if (req.path.startsWith('/auth/')) return next();
+    if (req.path.startsWith('/kiosks/')) return next();
+    return res.status(409).json({
+        error: 'This is the standby server. Data changes must be made on the primary.',
+        primaryUrl: KIOSK_SERVER_URL
+    });
+});
+
 if (ADMIN_PASSWORD === 'kiosk') {
     console.warn('WARNING: Default admin password "kiosk" is active.');
 }
@@ -332,7 +350,11 @@ app.post('/api/auth/logout', (req, res) => {
 
 app.get('/api/auth/me', (req, res) => {
     const sessionId = getSessionId(req);
-    return res.json({ authenticated: isValidAdminSession(sessionId) });
+    return res.json({
+        authenticated: isValidAdminSession(sessionId),
+        isStandby: isStandbyNode(),
+        primaryUrl: KIOSK_SERVER_URL || null
+    });
 });
 
 // Multer storage — saves uploaded image to TEMP_DIR with sanitized original filename
@@ -1657,7 +1679,9 @@ async function syncStandbyDatabaseNow(reason = 'manual', options = {}) {
 const standbySyncState = {
     dirty: false,
     timer: null,
-    running: false
+    running: false,
+    lastError: null,      // string | null — message from most recent failed sync
+    lastSuccessAt: null   // ISO string | null — timestamp of most recent successful sync
 };
 
 async function runStandbySync(reason = 'manual', options = {}) {
@@ -1672,9 +1696,15 @@ async function runStandbySync(reason = 'manual', options = {}) {
     standbySyncState.running = true;
     standbySyncState.dirty = false;
     try {
-        return await syncStandbyDatabaseNow(reason, options);
+        const result = await syncStandbyDatabaseNow(reason, options);
+        if (result && result.synced) {
+            standbySyncState.lastError = null;
+            standbySyncState.lastSuccessAt = new Date().toISOString();
+        }
+        return result;
     } catch (err) {
         console.warn(`Standby DB sync failed (${reason}): ${err.message}`);
+        standbySyncState.lastError = err.message;
         standbySyncState.dirty = true;
         throw err;
     } finally {
@@ -1946,7 +1976,14 @@ app.get('/api/kiosks', (req, res) => {
 app.get('/api/kiosks/status', (req, res) => {
     const forceRefresh = req.query.refresh === '1' || req.query.refresh === 'true';
     void refreshKioskStatusCache(forceRefresh);
-    res.json(getCachedKioskStatuses());
+    res.json({
+        kiosks: getCachedKioskStatuses(),
+        standbySyncStatus: {
+            enabled: KIOSK_STANDBY_SYNC_ENABLED,
+            lastError: standbySyncState.lastError,
+            lastSuccessAt: standbySyncState.lastSuccessAt
+        }
+    });
 });
 
 // Server URL that kiosk machines should use to reach this server
@@ -1973,6 +2010,61 @@ app.get('/api/kiosks/deploy-pubkey', (req, res) => {
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
+});
+
+// Authorize this server's deploy public key on a kiosk's authorized_keys
+app.post('/api/kiosks/:id/authorize-key', async (req, res) => {
+    const id = parseInt(req.params.id);
+    const kiosk = KIOSK_CLIENTS.find(k => k.id === id);
+    if (!kiosk) return res.status(404).json({ error: 'Kiosk not found' });
+
+    const pubKeyPath = KIOSK_SSH_KEY + '.pub';
+    if (!fs.existsSync(pubKeyPath)) {
+        return res.status(400).json({ error: 'Deploy key not found. Open the Deploy tab to generate it first.' });
+    }
+    let pubKey;
+    try {
+        pubKey = fs.readFileSync(pubKeyPath, 'utf8').trim();
+    } catch (e) {
+        return res.status(500).json({ error: `Failed to read public key: ${e.message}` });
+    }
+
+    // On overlayroot hosts the home directory lives in a tmpfs overlay and is
+    // ephemeral.  Detect this and redirect writes to the persistent lower layer
+    // at /media/root-ro.  On non-overlay hosts fall back to ~/.ssh as normal.
+    // Single-quoting the key is safe: ed25519 public keys never contain single quotes.
+    const remoteCmd = [
+        `if mount | grep -q '^overlayroot on / type overlay'; then`,
+        `  SSHDIR=/media/root-ro/home/${kiosk.user}/.ssh;`,
+        `  sudo -n mount -o remount,rw /media/root-ro 2>/dev/null || true;`,
+        `else`,
+        `  SSHDIR=$HOME/.ssh;`,
+        `fi &&`,
+        `mkdir -p "$SSHDIR" && chmod 700 "$SSHDIR" &&`,
+        `if grep -qxF '${pubKey}' "$SSHDIR/authorized_keys" 2>/dev/null;`,
+        `then echo already_present;`,
+        `else echo '${pubKey}' >> "$SSHDIR/authorized_keys" && chmod 600 "$SSHDIR/authorized_keys" && echo added;`,
+        `fi`,
+    ].join(' ');
+
+    const result = await runCommandCapture('ssh', [
+        '-i', KIOSK_SSH_KEY,
+        '-o', 'BatchMode=yes',
+        '-o', 'ConnectTimeout=5',
+        '-o', 'StrictHostKeyChecking=accept-new',
+        '-o', `UserKnownHostsFile=${KIOSK_KNOWN_HOSTS_FILE}`,
+        `${kiosk.user}@${kiosk.ip}`,
+        remoteCmd
+    ], { timeout: 10000 });
+
+    if (result.status !== 0) {
+        const err = ((result.stderr || '').trim() || result.error || 'SSH connection failed');
+        const bootstrapCmd = `ssh ${kiosk.user}@${kiosk.ip} 'if mount | grep -q "^overlayroot on / type overlay"; then SSHDIR=/media/root-ro/home/${kiosk.user}/.ssh; sudo -n mount -o remount,rw /media/root-ro 2>/dev/null || true; else SSHDIR=$HOME/.ssh; fi && mkdir -p "$SSHDIR" && chmod 700 "$SSHDIR" && (grep -qxF "${pubKey}" "$SSHDIR/authorized_keys" 2>/dev/null || (echo "${pubKey}" >> "$SSHDIR/authorized_keys" && chmod 600 "$SSHDIR/authorized_keys"))'`;
+        return res.status(502).json({ error: err, bootstrapCmd });
+    }
+
+    const output = (result.stdout || '').trim();
+    res.json({ success: true, alreadyPresent: output === 'already_present' });
 });
 
 // Deploy client runtime scripts to one kiosk machine
@@ -2057,12 +2149,14 @@ app.listen(PORT, HOST, () => {
 });
 
 // Handle shutdown gracefully
-process.on('SIGINT', () => {
+function shutdown(signal) {
     db.close((err) => {
         if (err) {
             console.error(err.message);
         }
-        console.log('Database connection closed.');
+        console.log(`Database connection closed (${signal}).`);
         process.exit(0);
     });
-});
+}
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));

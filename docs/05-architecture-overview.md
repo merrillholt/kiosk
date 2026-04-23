@@ -96,7 +96,9 @@ installed in "Both Server and Client" mode before production deployment rewrites
 `start-kiosk.sh`. A client-only host such as `.82` should use network server
 URLs, not `localhost`.
 
-`192.168.1.82` is reserved for a second Qotom Q305P (identical to `.80`).
+`192.168.1.82` is the deployed client-only Qotom Q305P. It runs the kiosk
+display without a local `directory-server` instance and uses the same primary
+/ standby server URLs as the other kiosks.
 
 ## Data Flow
 

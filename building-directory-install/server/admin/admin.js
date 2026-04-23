@@ -2,6 +2,10 @@ const API_URL = '/api';
 let isAuthenticated = false;
 let authToken = '';
 let messageTimer = null;
+let deployPubKey = '';
+let serverIsStandby = false;
+let primaryAdminUrl = '';
+const kioskAuthState = new Map(); // id → { bootstrapCmd, error, success, working }
 
 function apiFetch(url, options = {}) {
     const headers = new Headers(options.headers || {});
@@ -482,20 +486,25 @@ async function loadDeployTab() {
             apiFetch(`${API_URL}/revision`)
         ]);
         const kiosks = await kioskRes.json();
-        const statuses = await statusRes.json();
+        const statusData = await statusRes.json();
         const { url, standbyUrl } = await urlRes.json();
         const keyData = await keyRes.json();
         const revisionData = await revRes.json();
-        const statusById = new Map((Array.isArray(statuses) ? statuses : []).map(s => [s.id, s]));
+        const statuses = statusData.kiosks || [];
+        const syncStatus = statusData.standbySyncStatus || null;
 
         document.getElementById('deploy-server-url').textContent = url;
         document.getElementById('deploy-server-url-standby').textContent = standbyUrl || 'not configured';
         document.getElementById('deploy-revision').textContent = revisionData.revision || 'unknown';
         document.getElementById('deploy-server-version').textContent = revisionData.serverVersion || 'unknown';
+        deployPubKey = keyData.pubkey || '';
         document.getElementById('deploy-pubkey').textContent =
-            keyData.pubkey || ('Error: ' + keyData.error);
+            deployPubKey || ('Error: ' + keyData.error);
 
+        window._lastKiosks = kiosks;
+        window._lastStatuses = statuses;
         renderDeployCards(kiosks, statuses);
+        renderStandbySyncStatus(syncStatus);
         scheduleDeployStatusRefresh(kiosks, 0);
     } catch (error) { showMessage('Failed to load deploy info', 'error'); }
 }
@@ -507,10 +516,15 @@ function scheduleDeployStatusRefresh(kiosks, attempt) {
         try {
             const refreshRes = await apiFetch(`${API_URL}/kiosks/status`);
             if (!refreshRes.ok) return;
-            const statuses = await refreshRes.json();
+            const data = await refreshRes.json();
+            const statuses = data.kiosks || [];
+            const syncStatus = data.standbySyncStatus || null;
+            window._lastKiosks = kiosks;
+            window._lastStatuses = statuses;
             renderDeployCards(kiosks, statuses);
+            renderStandbySyncStatus(syncStatus);
             if (attempt + 1 >= maxAttempts) return;
-            if (Array.isArray(statuses) && statuses.some(status => status && status.refreshing)) {
+            if (statuses.some(status => status && status.refreshing)) {
                 scheduleDeployStatusRefresh(kiosks, attempt + 1);
             }
         } catch (e) {
@@ -521,16 +535,99 @@ function scheduleDeployStatusRefresh(kiosks, attempt) {
 
 function renderDeployCards(kiosks, statuses) {
     const statusById = new Map((Array.isArray(statuses) ? statuses : []).map(s => [s.id, s]));
-    document.getElementById('kiosk-deploy-list').innerHTML = kiosks.map(k => `
-            <div class="kiosk-deploy-card">
+    document.getElementById('kiosk-deploy-list').innerHTML = kiosks.map(k => {
+        const authState = kioskAuthState.get(k.id) || {};
+        const authLabel = authState.working ? 'Authorizing…'
+            : authState.success ? 'Authorized ✓'
+            : 'Authorize Key';
+        const authDisabled = k.localTarget || authState.working ? 'disabled' : '';
+        const authTitle = k.localTarget ? 'title="Not needed for this host"' : '';
+        let bootstrapSection = '';
+        if (authState.bootstrapCmd) {
+            bootstrapSection = `<div class="kiosk-bootstrap-section">
+                <span class="kiosk-bootstrap-label">Cannot reach via SSH — run this command from the dev machine to authorize manually:</span>
+                <div class="kiosk-bootstrap-cmd-row">
+                    <code class="kiosk-bootstrap-cmd">${escapeHtml(authState.bootstrapCmd)}</code>
+                    <button class="btn btn-secondary btn-sm" onclick="copyBootstrapCmd(${k.id})">Copy</button>
+                </div>
+            </div>`;
+        } else if (authState.error) {
+            bootstrapSection = `<div class="kiosk-bootstrap-section kiosk-bootstrap-error">
+                <span class="kiosk-bootstrap-label">${escapeHtml(authState.error)}</span>
+            </div>`;
+        } else if (authState.success) {
+            bootstrapSection = `<div class="kiosk-bootstrap-section kiosk-bootstrap-ok">
+                <span class="kiosk-bootstrap-label">${authState.alreadyPresent ? 'Key was already authorized.' : 'Key successfully added to authorized_keys.'}</span>
+            </div>`;
+        }
+        return `
+            <div class="kiosk-deploy-card${bootstrapSection ? ' has-bootstrap' : ''}" id="kiosk-card-${k.id}">
                 <div class="kiosk-deploy-info">
                     <strong>${escapeHtml(k.name)}</strong>
                     <span class="kiosk-deploy-ip">${escapeHtml(k.user)}@${escapeHtml(k.ip)}</span>
                     ${renderKioskStatus(statusById.get(k.id) || { serverRole: k.serverRole || 'client', overlay: 'unknown', reachable: false })}
                 </div>
-                <button class="btn btn-success" onclick="deployOne(${k.id}, '${escapeHtml(k.name)}')" ${k.localTarget ? 'disabled title="Use the external deploy command for this host."' : ''}>Deploy</button>
+                <div class="kiosk-deploy-actions">
+                    <button class="btn btn-secondary btn-sm" onclick="authorizeKey(${k.id}, '${escapeHtml(k.name)}')" ${authDisabled} ${authTitle}>${escapeHtml(authLabel)}</button>
+                    <button class="btn btn-success" onclick="deployOne(${k.id}, '${escapeHtml(k.name)}')" ${k.localTarget ? 'disabled title="Use the external deploy command for this host."' : ''}>Deploy</button>
+                </div>
             </div>
-        `).join('');
+            ${bootstrapSection}`;
+    }).join('');
+}
+
+function renderStandbySyncStatus(syncStatus) {
+    const el = document.getElementById('standby-sync-status');
+    if (!el) return;
+    if (!syncStatus || !syncStatus.enabled || serverIsStandby) {
+        el.innerHTML = '';
+        return;
+    }
+    let chipClass, chipLabel, detail;
+    if (syncStatus.lastError) {
+        chipClass = 'sync-error';
+        chipLabel = 'sync failed';
+        detail = escapeHtml(syncStatus.lastError);
+    } else if (syncStatus.lastSuccessAt) {
+        chipClass = 'sync-ok';
+        chipLabel = 'sync ok';
+        const d = new Date(syncStatus.lastSuccessAt);
+        detail = `last synced ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    } else {
+        chipClass = 'sync-pending';
+        chipLabel = 'sync pending';
+        detail = 'no sync yet this session';
+    }
+    el.innerHTML = `<div class="standby-sync-row${syncStatus.lastError ? ' sync-error' : ''}">
+        <span class="status-chip ${escapeHtml(chipClass)}">standby ${escapeHtml(chipLabel)}</span>
+        <span class="standby-sync-detail">${detail}</span>
+    </div>`;
+}
+
+async function authorizeKey(id, name) {
+    kioskAuthState.set(id, { working: true });
+    renderDeployCards(window._lastKiosks || [], window._lastStatuses || []);
+    try {
+        const res = await apiFetch(`${API_URL}/kiosks/${id}/authorize-key`, { method: 'POST' });
+        const data = await res.json();
+        if (res.ok) {
+            kioskAuthState.set(id, { success: true, alreadyPresent: !!data.alreadyPresent });
+            showMessage(data.alreadyPresent ? `${name}: key already authorized` : `${name}: key authorized`);
+        } else {
+            kioskAuthState.set(id, { bootstrapCmd: data.bootstrapCmd || null, error: data.bootstrapCmd ? null : (data.error || 'Failed') });
+        }
+    } catch (e) {
+        kioskAuthState.set(id, { error: String(e) });
+    }
+    renderDeployCards(window._lastKiosks || [], window._lastStatuses || []);
+}
+
+function copyBootstrapCmd(id) {
+    const state = kioskAuthState.get(id);
+    if (!state || !state.bootstrapCmd) return;
+    navigator.clipboard.writeText(state.bootstrapCmd)
+        .then(() => showMessage('Bootstrap command copied to clipboard'))
+        .catch(() => showMessage('Copy failed — select and copy manually', 'error'));
 }
 
 function renderKioskStatus(status) {
@@ -662,6 +759,7 @@ function setupAuthUi() {
             authToken = data.token || '';
             isAuthenticated = true;
             document.getElementById('auth-password').value = '';
+            await ensureAuthenticated(); // captures isStandby / primaryUrl
             setAuthState(true);
             loadCompanies();
             showMessage('Logged in');
@@ -683,6 +781,19 @@ function setAuthState(authenticated) {
     document.getElementById('auth-panel').style.display = authenticated ? 'none' : 'block';
     document.getElementById('logout-btn').style.display = authenticated ? 'inline-block' : 'none';
     document.getElementById('tabs-container').style.display = authenticated ? 'block' : 'none';
+    if (authenticated) applyStandbyMode(serverIsStandby, primaryAdminUrl);
+}
+
+function applyStandbyMode(isStandby, adminUrl) {
+    const banner = document.getElementById('standby-banner');
+    if (!banner) return;
+    document.body.classList.toggle('standby-mode', isStandby);
+    if (!isStandby) { banner.style.display = 'none'; return; }
+    const linkHtml = adminUrl
+        ? ` <a href="${escapeHtml(adminUrl)}" class="standby-banner-link">Go to primary →</a>`
+        : '';
+    banner.innerHTML = `<span>⚠ Standby server — data changes are disabled here.${linkHtml}</span>`;
+    banner.style.display = 'block';
 }
 
 async function ensureAuthenticated() {
@@ -691,8 +802,10 @@ async function ensureAuthenticated() {
         if (!res.ok) return false;
         const data = await res.json();
         const ok = !!data.authenticated;
-        if (!ok) authToken = '';
-        return ok;
+        if (!ok) { authToken = ''; return false; }
+        serverIsStandby = !!data.isStandby;
+        primaryAdminUrl = data.primaryUrl ? data.primaryUrl.replace(/\/$/, '') + '/admin' : '';
+        return true;
     } catch (e) {
         return false;
     }

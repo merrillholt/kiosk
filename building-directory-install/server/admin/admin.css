@@ -210,15 +210,43 @@ tr:hover {
 .bg-thumb-actions { display: flex; gap: 6px; margin-top: 6px; }
 .bg-active-badge { position: absolute; top: 6px; right: 6px; background: #2ecc71; color: white; font-size: 11px; padding: 2px 7px; border-radius: 10px; font-weight: bold; }
 
+/* --- Standby Banner --- */
+.standby-banner { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; padding: 10px 16px; border-radius: 6px; background: #fff8e1; border: 1px solid #f0c040; color: #7a5800; font-size: 14px; font-weight: 500; }
+.standby-banner-link { color: #c07000; font-weight: 700; text-decoration: underline; white-space: nowrap; }
+.standby-banner-link:hover { color: #a05000; }
+
+/* Hide write UI when in standby mode */
+body.standby-mode #company-form,
+body.standby-mode #company-csv-form { display: none !important; }
+body.standby-mode #individual-form,
+body.standby-mode #individual-csv-form { display: none !important; }
+body.standby-mode #building-info-form { display: none !important; }
+body.standby-mode #background-form { display: none !important; }
+body.standby-mode #restore-form,
+body.standby-mode .warn-box { display: none !important; }
+
 /* --- Deploy Tab --- */
 .deploy-info-bar { display: flex; align-items: center; gap: 10px; background: #f0f4f8; border: 1px solid #d0dce8; border-radius: 6px; padding: 10px 14px; margin-bottom: 8px; flex-wrap: wrap; }
 .deploy-info-label { font-weight: 600; color: #555; font-size: 13px; white-space: nowrap; }
 .deploy-pubkey-row { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 8px; }
 .deploy-pubkey { display: block; flex: 1; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px; padding: 8px 10px; font-size: 12px; word-break: break-all; color: #333; font-family: monospace; }
 .kiosk-deploy-card { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border: 1px solid #ecf0f1; border-radius: 6px; margin-bottom: 8px; background: #fff; }
+.kiosk-deploy-card.has-bootstrap { border-radius: 6px 6px 0 0; margin-bottom: 0; }
 .kiosk-deploy-card:hover { border-color: #3498db; background: #f8fbff; }
 .kiosk-deploy-info { display: flex; flex-direction: column; gap: 3px; }
 .kiosk-deploy-ip { font-size: 12px; color: #888; font-family: monospace; }
+.kiosk-deploy-actions { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+.btn-sm { font-size: 12px; padding: 5px 10px; }
+.btn-secondary { background: #fff; color: #555; border: 1px solid #ccc; border-radius: 4px; cursor: pointer; }
+.btn-secondary:hover:not(:disabled) { background: #f0f0f0; border-color: #aaa; }
+.kiosk-bootstrap-section { margin-bottom: 8px; padding: 10px 14px; border: 1px solid #e0c070; border-top: none; border-radius: 0 0 6px 6px; background: #fffdf0; font-size: 12px; }
+.kiosk-bootstrap-section.kiosk-bootstrap-error { border-color: #e74c3c; background: #fdecea; }
+.kiosk-bootstrap-section.kiosk-bootstrap-ok { border-color: #1f9d55; background: #eaf8f0; }
+.kiosk-bootstrap-label { display: block; color: #7a6000; margin-bottom: 6px; }
+.kiosk-bootstrap-error .kiosk-bootstrap-label { color: #7f1d1d; margin-bottom: 0; }
+.kiosk-bootstrap-ok .kiosk-bootstrap-label { color: #166534; margin-bottom: 0; }
+.kiosk-bootstrap-cmd-row { display: flex; gap: 8px; align-items: flex-start; }
+.kiosk-bootstrap-cmd { flex: 1; display: block; background: #fff8dc; border: 1px solid #d4b800; border-radius: 4px; padding: 6px 8px; font-size: 11px; word-break: break-all; color: #333; font-family: monospace; white-space: pre-wrap; }
 .kiosk-status-row { display: flex; gap: 6px; margin-top: 4px; flex-wrap: wrap; }
 .status-chip { font-size: 11px; line-height: 1; padding: 5px 8px; border-radius: 999px; border: 1px solid #d7dde5; background: #f3f6f9; color: #2c3e50; font-weight: 600; }
 .status-chip.role-active { border-color: #1f9d55; background: #eaf8f0; color: #166534; }
@@ -229,6 +257,12 @@ tr:hover {
 .status-chip.overlay-unknown { border-color: #adb5bd; background: #f1f3f5; color: #495057; }
 .status-chip.reach-up { border-color: #1f9d55; background: #eaf8f0; color: #166534; }
 .status-chip.reach-down { border-color: #c0392b; background: #fdecea; color: #7f1d1d; }
+.status-chip.sync-ok { border-color: #1f9d55; background: #eaf8f0; color: #166534; }
+.status-chip.sync-error { border-color: #c0392b; background: #fdecea; color: #7f1d1d; }
+.status-chip.sync-pending { border-color: #adb5bd; background: #f1f3f5; color: #495057; }
+.standby-sync-row { display: flex; align-items: center; gap: 10px; margin-top: 8px; padding: 9px 14px; border: 1px solid #ecf0f1; border-radius: 6px; background: #fff; font-size: 13px; }
+.standby-sync-row.sync-error { border-color: #e74c3c; background: #fdecea; }
+.standby-sync-detail { color: #555; }
 .deploy-output { background: #1e1e1e; color: #d4d4d4; padding: 16px; border-radius: 6px; font-size: 12px; min-height: 100px; max-height: 320px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; font-family: monospace; }
 
 /* --- Maintenance Tab --- */

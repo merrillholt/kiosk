@@ -439,5 +439,5 @@ Unplug the keyboard. The kiosk session restarts automatically.
 
 - Remove the USB installer stick.
 - Run `scripts/kioskctl status` from the dev machine to confirm the host appears healthy.
-- For `.81` specifically: work through `docs/standby-81-todo.md` once the host is stable.
+- For `.81` specifically: review `docs/standby-81-todo.md` for the current standby validation record and operating policy.
 - `.82` is client-only — no `directory-server` is installed, and no standby configuration applies.

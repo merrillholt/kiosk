@@ -87,7 +87,8 @@ curl -i http://127.0.0.1/api/data-version
 ```
 Local service  → http://127.0.0.1/admin
 Production     → ssh kiosk@192.168.1.80
-Standby        → 192.168.1.81 (not yet deployed)
+Standby        → ssh kiosk@192.168.1.81
+Client-only    → ssh kiosk@192.168.1.82
 ```
 
 ## Key Differences: Dev Machine vs Kiosk Hardware

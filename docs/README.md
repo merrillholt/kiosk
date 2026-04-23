@@ -7,6 +7,11 @@ TeX and other legacy/reference documents may lag behind the current install and
 deploy flow. If documents disagree and the question is about real deployed
 behavior, verify the production system on `192.168.1.80`.
 
+Current production fleet:
+- `192.168.1.80` — primary server + kiosk
+- `192.168.1.81` — standby server + kiosk
+- `192.168.1.82` — client-only kiosk
+
 When the install tree is regenerated with `./tools/sync-install-tree.sh`, PDF
 versions of the documentation are rebuilt into `building-directory-install/docs/`.
 
@@ -32,6 +37,8 @@ It also keeps individual development PDFs as reference copies.
 - [03-read-only-filesystem.md](03-read-only-filesystem.md)
 - [06-desktop-environment.md](06-desktop-environment.md)
 - [07-touchscreen-setup.md](07-touchscreen-setup.md)
+- [production-independence-todo.md](production-independence-todo.md) — current production readiness and fleet status
+- [standby-81-todo.md](standby-81-todo.md) — standby validation record and operating policy
 
 ## Install/Deploy Entry Points
 

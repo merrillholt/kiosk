@@ -111,7 +111,7 @@ print_resource_line() {
   pct="$(extract_percent "$line")"
 
   case "$line" in
-    disk_root=*|disk_uploads=*)
+    disk_root=*|disk_data=*|disk_uploads=*)
       if [[ -z "$pct" ]]; then
         printf "${C_YEL}%s${C_RESET}\n" "$line"
       elif awk "BEGIN {exit !($pct >= 95)}"; then
@@ -213,7 +213,7 @@ print_status_line() {
     server_html_primary=*|server_html_standby=*)
       printf "${C_RED}%s${C_RESET}\n" "$line"
       ;;
-    disk_root=*|disk_uploads=*|memory=*|swap=*|cpu_usage_1s=*|temp=*)
+    disk_root=*|disk_data=*|disk_uploads=*|memory=*|swap=*|cpu_usage_1s=*|temp=*)
       print_resource_line "$line"
       ;;
     *)
@@ -312,6 +312,11 @@ else
   echo "last_deploy=unknown"
 fi
 echo "disk_root=$(df -hP / | awk 'NR==2 {print $3 "/" $2 " (" $5 ")"}')"
+_root_dev="$(df -P / | awk 'NR==2{print $1}')"
+_data_dev="$(df -P /data 2>/dev/null | awk 'NR==2{print $1}' || true)"
+if [[ -n "$_data_dev" && "$_data_dev" != "$_root_dev" ]]; then
+  echo "disk_data=$(df -hP /data | awk 'NR==2 {print $3 "/" $2 " (" $5 ")"}')"
+fi
 echo "disk_uploads=$(df -hP /home/kiosk/building-directory/server/uploads 2>/dev/null | awk 'NR==2 {print $3 "/" $2 " (" $5 ")"}' || echo n/a)"
 echo "memory=$(free -m | awk '/Mem:/ {printf "%s/%sMB (%.0f%%)", $3, $2, ($3*100)/$2}')"
 echo "swap=$(free -m | awk '/Swap:/ {if ($2 == 0) print "disabled"; else printf "%s/%sMB (%.0f%%)", $3, $2, ($3*100)/$2}')"
